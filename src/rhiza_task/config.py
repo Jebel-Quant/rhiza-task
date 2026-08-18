@@ -11,11 +11,24 @@ Here the order is explicit and testable, lowest precedence first:
 
 1. The dataclass defaults below.
 2. ``.rhiza/.env`` -- kept unchanged, because it is already the file consumers edit and
-   the reusable workflows read it too.
-3. ``[tool.rhiza-task]`` in ``pyproject.toml`` -- the new home for what used to require
-   editing a synced ``.mk`` file or shadowing a target.
-4. ``RHIZA_*`` (or bare make-style) environment variables.
-5. Command-line flags.
+   the reusable workflows read it too. Now a developer-local channel rather than a
+   committed one: rhiza no longer ships ``.rhiza/.gitignore``, whose entire content was
+   the ``!.env`` negation that kept this file tracked, so it falls under the shipped
+   ``.gitignore``'s ``.env`` rule and a CI checkout never contains it.
+3. ``rhiza.toml`` -- the language-neutral settings file, and the only committed one a Go
+   module can have: it has no manifest to hide a table in. Read for every project, so a
+   polyglot repository has one place to look rather than one per layer.
+4. ``[tool.rhiza-task]`` in the language manifest -- ``Cargo.toml``, then
+   ``pyproject.toml``. This is the new home for what used to require editing a synced
+   ``.mk`` file or shadowing a target. Cargo ignores unknown top-level tables, so the
+   table is as harmless there as it is in pyproject.
+5. ``RHIZA_*`` (or bare make-style) environment variables.
+6. Command-line flags.
+
+Layers 3 and 4 are two files rather than one because neither alone covers the three
+language layers: pyproject is Python-only, and a repo that already moved its settings
+there should not have to move them again. ``rhiza.toml`` ranks *below* the manifest so
+that adding it to a Python repo cannot silently outrank the table already there.
 
 The ``+=`` accumulators do not survive as a mechanism, and do not need to: every one of
 them was a bundle contributing something it owned, which the task body can now *derive*
@@ -28,7 +41,7 @@ from __future__ import annotations
 import json
 import os
 import tomllib
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping, Sequence, Callable
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
@@ -250,7 +263,7 @@ class Config:
 
     @classmethod
     def load(cls, root: Path | None = None, **overrides: Any) -> Config:
-        """Build a config by walking the five layers in order.
+        """Build a config by walking the six layers in order.
 
         Args:
             root: Repository root; defaults to the current directory.
@@ -263,7 +276,12 @@ class Config:
         root = (root or Path.cwd()).absolute()
         raw: dict[str, Any] = {}
         raw.update(_from_env_file(root / ".rhiza" / ".env"))
-        raw.update(_from_pyproject(root / "pyproject.toml"))
+        raw.update(_from_rhiza_toml(root / "rhiza.toml"))
+        # Cargo before pyproject, so a repo carrying both -- a Rust crate with a Python
+        # binding package, say -- resolves to the same settings as the Python-only repo it
+        # grew out of, rather than to whichever manifest happened to be read last.
+        raw.update(_from_manifest(root / "Cargo.toml"))
+        raw.update(_from_manifest(root / "pyproject.toml"))
         raw.update(_from_environ(os.environ))
         raw.update({k: v for k, v in overrides.items() if v is not None})
 
@@ -301,22 +319,73 @@ def _from_env_file(path: Path) -> dict[str, Any]:
     return {_key(k): _coerce(v) for k, v in dotenv_values(path).items() if v and v.strip()}
 
 
-def _from_pyproject(path: Path) -> dict[str, Any]:
-    """Read ``[tool.rhiza-task]``.
+def _from_manifest(path: Path) -> dict[str, Any]:
+    """Read ``[tool.rhiza-task]`` from a language manifest.
 
-    Values here are already typed by TOML, so they bypass :func:`_coerce` -- a TOML array
-    arrives as a list and is tupled, nothing is parsed out of a string.
+    ``pyproject.toml`` and ``Cargo.toml`` alike: the table is namespaced under ``tool``,
+    which cargo ignores as readily as any Python build backend does, so one reader serves
+    both and a Rust crate needs no file a Python project does not have.
 
     Args:
-        path: Path to pyproject.toml.
+        path: Path to pyproject.toml or Cargo.toml.
 
     Returns:
         Parsed settings; empty when the file or the table is absent.
     """
+    return _table(path, lambda data: data.get("tool", {}).get("rhiza-task", {}))
+
+
+def _from_rhiza_toml(path: Path) -> dict[str, Any]:
+    """Read ``rhiza.toml``, the manifest-free settings file.
+
+    Settings sit at the top level, because a file named after this tool has nothing to
+    namespace against. A ``[tool.rhiza-task]`` table is honoured too, and wins when both
+    are present: the pyproject spelling is what a reader will have seen first, and
+    silently ignoring it would be the worst of the three possible behaviours.
+
+    Args:
+        path: Path to rhiza.toml.
+
+    Returns:
+        Parsed settings; empty when the file is absent.
+    """
+    return _table(path, lambda data: data.get("tool", {}).get("rhiza-task") or data)
+
+
+def _table(path: Path, select: Callable[[dict[str, Any]], Any]) -> dict[str, Any]:
+    """Read a TOML file and normalise the selected table's keys and values.
+
+    Values here are already typed by TOML, so they bypass :func:`_coerce` -- a TOML array
+    arrives as a list and is tupled, nothing is parsed out of a string. Keys that are not
+    field names are left in place and dropped by :meth:`Config.load`, which is what makes
+    reading ``rhiza.toml``'s top level safe.
+
+    Args:
+        path: Path to the TOML file.
+        select: Picks the settings table out of the parsed document.
+
+    Returns:
+        Parsed settings; empty when the file is absent or unreadable.
+
+    Raises:
+        ValueError: When the file is not valid TOML. A settings file that does not parse
+            is a mistake worth reporting, not a file to skip -- unlike an absent one.
+    """
     if not path.is_file():
         return {}
-    table = tomllib.loads(path.read_text()).get("tool", {}).get("rhiza-task", {})
-    return {k.replace("-", "_"): tuple(v) if isinstance(v, list) else v for k, v in table.items()}
+    try:
+        data = tomllib.loads(path.read_text())
+    except tomllib.TOMLDecodeError as exc:
+        msg = f"{path.name} is not valid TOML: {exc}"
+        raise ValueError(msg) from exc
+    table = select(data)
+    if not isinstance(table, dict):
+        return {}
+    return {
+        k.replace("-", "_"): tuple(v) if isinstance(v, list) else v
+        for k, v in table.items()
+        if not isinstance(v, dict)
+    }
 
 
 def _from_environ(environ: Mapping[str, str]) -> dict[str, Any]:

@@ -19,11 +19,13 @@ language module, so ``$ cargo clippy`` is printed the same way ``$ uvx bandit`` 
 
 Two things disappear:
 
-``install-uv``. bootstrap.mk curls ``https://astral.sh/uv/install.sh`` into ``./bin``
-because make cannot assume uv exists. A process launched by ``uvx rhiza-task`` runs
-*because* uv exists, so the bootstrap problem leaves the task layer entirely -- one
-``astral-sh/setup-uv`` step in CI, one documented prerequisite locally. That removes 30
-lines and a whole ``bin/`` directory from every consumer.
+``install-uv`` as a *task*. bootstrap.mk curls ``https://astral.sh/uv/install.sh`` into
+``./bin`` because make cannot assume uv exists. A process launched by ``uvx rhiza-task``
+runs *because* uv exists, so nothing in this package can be the thing that provisions uv --
+it would already be too late. The problem does not disappear with it, though: the make
+layer's contract was that ``make <anything>`` works on a bare runner, so the bootstrap
+lives on in the Makefile shim as three lines and one file target. What is gone is the 30
+lines of probe-and-branch shell, and the ``bin/uv`` nobody ran directly.
 
 The shell. Commands are argument vectors, never shell strings. rhiza.mk carries a 40-line
 probe to detect make falling back to ``cmd.exe`` on Windows, because its recipes are

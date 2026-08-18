@@ -11,6 +11,13 @@
   `RHIZA_CHECKS` is derived from the layer set, replacing the `+=` accumulator each
   language fragment used.
 
+### 🐛 Bug Fixes
+
+- *(shim)* Bootstrap uv when it is absent, restoring the make layer's "`make <anything>`
+  works on a bare runner" contract (#8). `bootstrap.mk` provisioned uv itself; a shim whose
+  only recipe was `uvx ...` needed uv already on PATH, which turned rhiza's `pre-commit`
+  required check red on a runner with no `astral-sh/setup-uv` step.
+
 ## [0.1.2] - 2026-08-18
 
 ### 🐛 Bug Fixes
@@ -30,7 +37,8 @@ lines) with a pinned CLI, on the same principle as `pytest-rhiza` replacing
 - `tests` extras: benchmark, hypothesis-test, stress, mutation
 - `book` / `marimo`: book, serve, marimo, marimo-validate
 - Not ported: `github.mk`'s seven `gh` wrappers (use `gh` directly), `install-uv`
-  (running under `uvx` means uv is already present)
+  (it cannot be a task, since it provisions the runtime every task runs under — the shim
+  keeps it as a file target)
 
 ### Deliberate differences from the make layer
 

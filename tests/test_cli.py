@@ -295,4 +295,4 @@ def test_shim_is_emitted_byte_for_byte() -> None:
     template = (Path(cli_module.__file__).parent / "templates" / "Makefile").read_text()
     result = runner.invoke(cli.app, ["shim"])
     assert result.stdout == template
-    assert "\t@uvx" in result.stdout
+    assert "\t@$(UVX) $(RHIZA_TASK) $@" in result.stdout
