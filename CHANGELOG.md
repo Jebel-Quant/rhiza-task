@@ -1,5 +1,7 @@
 # Changelog
 
+## [0.1.1] - 2026-08-18
+
 ## [0.1.0] - unreleased
 
 Initial extraction. Replaces `.rhiza/rhiza.mk` and `.rhiza/make.d/*.mk` (1023 synced
