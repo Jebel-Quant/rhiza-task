@@ -318,7 +318,7 @@ class TestBookHelpers:
         book_tasks._export_notebooks(cfg)
         exports = [c for c in recorder.calls if c.tool == "marimo"]
         assert len(exports) == 2
-        assert exports[0].flags[-1].endswith("docs/notebooks/alpha.html")
+        assert Path(exports[0].flags[-1]) == cfg.root / "docs" / "notebooks" / "alpha.html"
 
     def test_serve_serves_the_built_output(self, cfg: Config, recorder: Recorder) -> None:
         """The HTTP server runs inside the book output folder.

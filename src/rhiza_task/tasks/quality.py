@@ -150,7 +150,10 @@ def todos(cfg: Config) -> None:
             continue
         for number, line in enumerate(lines, start=1):
             if TODO_PATTERN.search(line):
-                rel = path.relative_to(cfg.root)
+                # as_posix, not str: this is report output a reader copies into a grep or an
+                # editor's go-to-file, so the separator must not depend on the OS that ran
+                # the gate. The paths are repo-relative and never touch the filesystem again.
+                rel = path.relative_to(cfg.root).as_posix()
                 print(f"{rel}:{number}: {line.strip()}")
                 hits += 1
     print(f"\n[INFO] {hits} item(s) found.")
