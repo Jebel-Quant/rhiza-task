@@ -33,8 +33,13 @@ jobs:
       #
       # This step is also what replaces `install-uv`. bootstrap.mk curls the uv installer
       # into ./bin because make cannot assume uv exists; a workflow can just say so.
+      #
+      # `version` pins the uv binary itself, not just the action, to the same uv that
+      # rhiza_release.yml builds and publishes with. A gate that passes here on one uv and
+      # a release built on another is a resolver difference nothing would catch.
       - uses: astral-sh/setup-uv@v10.0.1
         with:
+          version: "0.11.16"
           python-version: ${{ matrix.python-version }}
           enable-cache: true
 
@@ -52,6 +57,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
+          version: "0.11.16"
           enable-cache: true
 
       # Dogfooding, and not for its own sake: `all` is the aggregate consumers run, so a
