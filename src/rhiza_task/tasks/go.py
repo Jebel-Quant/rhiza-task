@@ -38,6 +38,14 @@ lines currently says ``latest``. Pinning them is a decision for the template to 
 one place, not for this port to make silently on the way past.
 """
 
+COVERAGE_PROFILE = "_tests/coverage.out"
+"""Where ``go test -coverprofile`` writes, spelled with forward slashes on every OS.
+
+Not ``Path.relative_to``: this string is an *argument to go*, not a filesystem operation,
+and a backslash-separated path is a different argument. go accepts the forward-slash
+spelling on Windows, and the gates run there.
+"""
+
 MANIFEST = Guard(file="go.mod", reason="no go.mod")
 """What every Go gate is guarded on: the module file, not a source folder."""
 
@@ -132,14 +140,14 @@ def coverage(cfg: Config) -> None:
     """
     reports = cfg.root / "_tests"
     (reports / "html-coverage").mkdir(parents=True, exist_ok=True)
-    profile = reports / "coverage.out"
+    profile = cfg.root / COVERAGE_PROFILE
     print(f"[INFO] measuring coverage (floor: {cfg.coverage_fail_under}%)")
     tool(
         "go",
         "test",
         "./...",
         "-covermode=atomic",
-        f"-coverprofile={profile.relative_to(cfg.root)}",
+        f"-coverprofile={COVERAGE_PROFILE}",
         *cfg.go_flags,
         cwd=cfg.root,
     )
@@ -148,13 +156,13 @@ def coverage(cfg: Config) -> None:
         "go",
         "tool",
         "cover",
-        f"-html={profile.relative_to(cfg.root)}",
+        f"-html={COVERAGE_PROFILE}",
         "-o",
         "_tests/html-coverage/index.html",
         cwd=cfg.root,
     )
 
-    measured = _total_coverage(cfg, profile)
+    measured = _total_coverage(cfg)
     if measured is None:
         print("[WARN] could not read a total from `go tool cover -func`; floor not enforced")
         return
@@ -299,7 +307,7 @@ def _cobertura(cfg: Config, profile: Path, target: Path) -> None:
         Failed: When the conversion exits non-zero.
     """
     converter = _tool_path(cfg, "gocover-cobertura")
-    print(f"[INFO] writing {target.relative_to(cfg.root)}")
+    print(f"[INFO] writing {target.name}")
     with profile.open("rb") as source, target.open("wb") as out:
         code = subprocess.call(  # noqa: S603  # nosec B603
             [shutil.which(converter) or converter],
@@ -311,7 +319,7 @@ def _cobertura(cfg: Config, profile: Path, target: Path) -> None:
         raise Failed(code, "gocover-cobertura failed")
 
 
-def _total_coverage(cfg: Config, profile: Path) -> float | None:
+def _total_coverage(cfg: Config) -> float | None:
     """Return the total coverage percentage, or None when it cannot be read.
 
     Replaces go.mk's awk over ``go tool cover -func``: the total line is the only place Go
@@ -319,12 +327,11 @@ def _total_coverage(cfg: Config, profile: Path) -> float | None:
 
     Args:
         cfg: The resolved config.
-        profile: The coverage profile.
 
     Returns:
         The percentage, or None.
     """
-    report = capture("go", "tool", "cover", f"-func={profile.relative_to(cfg.root)}", cwd=cfg.root)
+    report = capture("go", "tool", "cover", f"-func={COVERAGE_PROFILE}", cwd=cfg.root)
     for line in reversed(report.splitlines()):
         if line.startswith("total:"):
             try:
