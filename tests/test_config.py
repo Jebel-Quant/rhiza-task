@@ -70,6 +70,40 @@ def test_environ_beats_pyproject(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert Config.load(root=tmp_path).source_folder == "from-env"
 
 
+def test_empty_environ_value_is_not_an_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An exported empty string leaves the lower layer alone.
+
+    rhiza_ci.yml's ``generate-matrix`` job exports ``RHIZA_CI_OS_MATRIX`` unconditionally
+    and sets it to ``''`` for every repository that is not the template's own, expecting
+    the consumer's ``.rhiza/.env`` to answer instead. Honouring that empty string would
+    hand GitHub a zero-OS matrix and silently delete the test job.
+
+    Args:
+        tmp_path: The repository root.
+        monkeypatch: pytest's patcher.
+    """
+    (tmp_path / ".rhiza").mkdir()
+    (tmp_path / ".rhiza" / ".env").write_text('RHIZA_CI_OS_MATRIX=["ubuntu-latest","macos-latest"]\n')
+    monkeypatch.setenv("RHIZA_CI_OS_MATRIX", "")
+    assert Config.load(root=tmp_path).ci_os_matrix == ("ubuntu-latest", "macos-latest")
+
+    monkeypatch.setenv("RHIZA_CI_OS_MATRIX", "   ")
+    assert Config.load(root=tmp_path).ci_os_matrix == ("ubuntu-latest", "macos-latest")
+
+
+def test_empty_env_file_value_is_not_an_override(tmp_path: Path) -> None:
+    """An empty assignment in ``.rhiza/.env`` does not shadow the default either.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    (tmp_path / ".rhiza").mkdir()
+    (tmp_path / ".rhiza" / ".env").write_text("SOURCE_FOLDER=\nTYPECHECKER=mypy\n")
+    cfg = Config.load(root=tmp_path)
+    assert cfg.source_folder == "src"
+    assert cfg.typechecker == "mypy"
+
+
 def test_overrides_beat_everything(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A command-line override is the last word, and ``None`` is not an override.
 

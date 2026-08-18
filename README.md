@@ -90,6 +90,12 @@ Five layers, lowest precedence first: dataclass defaults → `.rhiza/.env` (kept
 → `[tool.rhiza-task]` in `pyproject.toml` → `RHIZA_*` or bare make-style environment
 variables → command-line flags.
 
+An **empty value is unset** in the two string-valued layers: `RHIZA_CI_OS_MATRIX=` in
+`.rhiza/.env`, or an exported empty string, leaves the layer below it alone rather than
+resolving to `""`. That is make's `$(or ...)` rule, and the reusable workflows depend on
+it — `rhiza_ci.yml` exports one `RHIZA_CI_OS_MATRIX` for every caller and deliberately
+leaves it empty for consumers, whose own `.rhiza/.env` is meant to answer.
+
 ```toml
 [tool.rhiza-task]
 source_folder = "src"

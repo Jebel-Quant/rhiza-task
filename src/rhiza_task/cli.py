@@ -19,7 +19,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import __version__, runner
-from .config import Config
+from .config import DEFAULT_CI_OS_MATRIX, Config
 from .runner import Status
 from .spec import REGISTRY
 
@@ -86,8 +86,16 @@ def print_setting(name: str) -> None:
 
 @app.command("ci-os-matrix")
 def ci_os_matrix() -> None:
-    """Emit the CI OS matrix as a JSON array, for a GitHub Actions matrix input."""
-    print(json.dumps(list(Config.load().ci_os_matrix)))
+    """Emit the CI OS matrix as a JSON array, for a GitHub Actions matrix input.
+
+    Never emits ``[]``. A GitHub matrix with no OS in it does not fail the workflow -- it
+    expands to zero jobs, so the ``test`` job disappears and CI goes green having run
+    nothing. The retired make recipe guarded that with ``$(or $(RHIZA_CI_OS_MATRIX),
+    ["ubuntu-latest"])`` and this is the same floor: after :func:`~rhiza_task.config`
+    resolution an empty value can only come from an explicit ``RHIZA_CI_OS_MATRIX=[]``,
+    which is a mistake in every case a caller has ever meant.
+    """
+    print(json.dumps(list(Config.load().ci_os_matrix) or list(DEFAULT_CI_OS_MATRIX)))
 
 
 @app.command("shim")
