@@ -9,7 +9,7 @@
 #
 # RHIZA_TASK is the entire version contract. Bumping it is the migration that used to be
 # `/rhiza:update` re-syncing eleven .mk files and reconciling whatever had been shadowed.
-RHIZA_TASK ?= rhiza-task@0.1.2
+RHIZA_TASK ?= rhiza-task@0.2.0
 
 # The one thing the shim cannot delegate to the CLI: uv itself, because uv is what runs
 # the CLI. `bootstrap.mk` had an `install-uv` target for exactly this, and the make layer's

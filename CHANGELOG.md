@@ -1,27 +1,27 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.0] - 2026-08-18
 
 ### 🚀 Features
 
-- *(tasks)* Add `coverage` to all three layers (#10). It is named in the gate-parity
-  contract and writes `_tests/coverage.xml`, the path `book`'s badge step reads and CI
-  uploads. Python gains the name it was missing -- the flags its `test` already carried --
-  Rust gets `cargo llvm-cov --cobertura`, and Go gets the profile, the Cobertura
-  conversion, and the floor check `go test` has no flag for.
-- *(tasks)* Add the Rust and Go language layers (#9). `rhiza_task/tasks/` served one of
-  rhiza's three layers, so `core` could not drop the make layer without leaving `rust-core`
-  and `go-core` with no targets at all. Tasks now carry a layer, the registry is keyed
-  `layer:name`, and a bare `test` resolves against the manifests a repository actually has.
-  `RHIZA_CHECKS` is derived from the layer set, replacing the `+=` accumulator each
-  language fragment used.
+- *(tasks)* Add the Rust and Go language layers
+- *(config)* Add rhiza.toml, and read the table from Cargo.toml too
+- *(tasks)* Add coverage to all three layers
 
 ### 🐛 Bug Fixes
 
-- *(shim)* Bootstrap uv when it is absent, restoring the make layer's "`make <anything>`
-  works on a bare runner" contract (#8). `bootstrap.mk` provisioned uv itself; a shim whose
-  only recipe was `uvx ...` needed uv already on PATH, which turned rhiza's `pre-commit`
-  required check red on a runner with no `astral-sh/setup-uv` step.
+- *(config)* Split a string reaching a tuple field, and stop print eating markup
+- *(config)* Let RHIZA_CHECKS name the rhiza_checks field
+- *(shim)* Bootstrap uv when it is absent
+- *(go)* Pass the coverage profile path with forward slashes
+
+### 📚 Documentation
+
+- *(changelog)* Note the Rust and Go layers
+
+### 🎨 Styling
+
+- *(config)* Restore the import order two merges shuffled
 
 ## [0.1.2] - 2026-08-18
 
