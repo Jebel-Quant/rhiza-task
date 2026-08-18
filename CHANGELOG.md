@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.2] - 2026-08-18
+
+### 🐛 Bug Fixes
+
+- *(config)* Treat an empty setting as unset, and floor the CI OS matrix
+
 ## [0.1.1] - 2026-08-18
 
 ## [0.1.0] - unreleased
