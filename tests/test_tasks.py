@@ -6,6 +6,7 @@ the make recipes said in ``$$``-escaped shell.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -154,6 +155,55 @@ class TestTest:
         (cfg.root / ".coverage.host.1").write_text("corrupt")
         python.test(cfg)
         assert not list(cfg.root.glob(".coverage*"))
+
+
+class TestCoverage:
+    """The ``coverage`` gate the Python layer was missing."""
+
+    def test_writes_the_cobertura_path_the_other_layers_write(self, cfg: Config, recorder: Recorder) -> None:
+        """One name, one output path, in all three layers.
+
+        python.mk had no ``coverage`` target -- its ``test`` recipe carries the ``--cov``
+        flags -- while rust.mk and go.mk both define one, and the gate-parity contract
+        lists it for all three.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        python.coverage(cfg)
+        flags = recorder.find("pytest").flags
+        assert "--cov-report=xml:_tests/coverage.xml" in flags
+        assert f"--cov-fail-under={cfg.coverage_fail_under}" in flags
+        assert "--html=_tests/html-report/report.html" not in flags
+
+    def test_shares_its_flags_with_test(self, cfg: Config, recorder: Recorder) -> None:
+        """``test`` and ``coverage`` cannot drift, because the flags are built once.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        python.test(cfg)
+        from_test = set(recorder.find("pytest").flags)
+        assert set(python.coverage_args(cfg)) <= from_test
+
+    def test_skips_without_a_source_folder(self, cfg: Config, recorder: Recorder) -> None:
+        """Coverage of nothing is the skip ``--strict`` exists to catch.
+
+        ``test`` warns and runs anyway, because the tests still have to run; ``coverage``
+        has nothing left to do at all.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        from rhiza_task import runner
+
+        shutil.rmtree(cfg.path("source_folder"))
+        state = runner.run(["coverage"], cfg)
+        assert state.status_of("coverage") is runner.Status.SKIPPED
+        assert "pytest" not in recorder.tools()
 
 
 class TestTypecheck:

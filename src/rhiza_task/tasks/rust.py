@@ -1,7 +1,7 @@
 """The Rust language layer: rust.mk, as tasks.
 
-The gate names are python.mk's, deliberately: ``install``, ``test``, ``typecheck``,
-``docs-coverage``, ``security``, ``license``, ``deps``, ``all``. That is
+The gate names are python.mk's, deliberately: ``install``, ``test``, ``coverage``,
+``typecheck``, ``docs-coverage``, ``security``, ``license``, ``deps``, ``all``. That is
 the contract the reusable workflows and ``book`` depend on -- `rhiza_ci.yml` calls
 ``make typecheck`` without knowing what the repository is written in, and rust.mk's own
 header says so. Only the engine differs.
@@ -125,6 +125,42 @@ def test(cfg: Config) -> None:
     tool("cargo", "nextest", "run", "--all-targets", *cfg.cargo_flags, cwd=cfg.root)
     print("[INFO] running doctests")
     tool("cargo", "test", "--doc", *cfg.cargo_flags, cwd=cfg.root)
+
+
+@task(
+    "coverage",
+    "measure coverage and write _tests/coverage.xml",
+    section="Rust",
+    layer="rust",
+    needs=("install", "cargo-tools"),
+    guards=(MANIFEST,),
+)
+def coverage(cfg: Config) -> None:
+    """Measure coverage with cargo-llvm-cov, enforcing the same floor the Python layer has.
+
+    Cobertura XML at exactly ``_tests/coverage.xml``, which is not a detail: it is the path
+    book.mk's badge step reads, so a Rust project gets a measured coverage badge on its
+    docs site for the same reason a Python one does.
+
+    Args:
+        cfg: The resolved config.
+    """
+    (cfg.root / "_tests" / "html-coverage").mkdir(parents=True, exist_ok=True)
+    print(f"[INFO] measuring coverage (floor: {cfg.coverage_fail_under}%)")
+    tool(
+        "cargo",
+        "llvm-cov",
+        "nextest",
+        "--all-targets",
+        *cfg.cargo_flags,
+        "--fail-under-lines",
+        str(cfg.coverage_fail_under),
+        "--cobertura",
+        "--output-path",
+        "_tests/coverage.xml",
+        cwd=cfg.root,
+    )
+    tool("cargo", "llvm-cov", "report", "--html", "--output-dir", "_tests/html-coverage", cwd=cfg.root)
 
 
 @task(

@@ -103,21 +103,9 @@ def test(cfg: Config) -> None:
     reports = cfg.root / "_tests"
     shutil.rmtree(reports, ignore_errors=True)
 
-    args = [
-        "-n",
-        "auto",
-        f"--ignore={cfg.tests_folder}/benchmarks",
-        f"--ignore={cfg.tests_folder}/stress",
-    ]
+    args = [*_pytest_args(cfg)]
     if cfg.path("source_folder").is_dir():
-        args += [
-            f"--cov={cfg.source_folder}",
-            "--cov-report=term",
-            "--cov-report=html:_tests/html-coverage",
-            "--cov-report=json:_tests/coverage.json",
-            "--cov-report=xml:_tests/coverage.xml",
-            f"--cov-fail-under={cfg.coverage_fail_under}",
-        ]
+        args += coverage_args(cfg)
     else:
         # Not a Skip: the tests exist and must run. Only coverage is unavailable.
         print(f"[WARN] source folder '{cfg.source_folder}' not found; running without coverage")
@@ -139,6 +127,79 @@ def test(cfg: Config) -> None:
         if attempt == MAX_ATTEMPTS:
             raise Failed(code, f"pytest reported an internal (teardown) error {attempt}x")
         print(f"[WARN] pytest exited {code} (xdist teardown race); retrying {attempt + 1}/{MAX_ATTEMPTS}")
+
+
+@task(
+    "coverage",
+    "measure coverage and write _tests/coverage.xml",
+    section="Python",
+    layer="python",
+    needs=("install",),
+    guards=(
+        Guard("tests_folder", glob="test_*.py", reason="no test files found"),
+        Guard("source_folder"),
+    ),
+)
+def coverage(cfg: Config) -> None:
+    """Run the suite for its coverage reports.
+
+    python.mk has no ``coverage`` target: its ``test`` recipe carries the ``--cov`` flags,
+    so the Cobertura file CI uploads and ``book`` badges is a side effect of the test gate.
+    rust.mk and go.mk both name ``coverage`` separately, and the gate-parity contract lists
+    it for all three layers -- so the Python layer grows the name it was missing rather than
+    the other two losing it.
+
+    It is not a second test run in any meaningful sense: same suite, same floor, same
+    output path. What it buys is a caller that wants the report without asserting anything
+    about the HTML test report, and one name that means the same thing in all three layers.
+
+    Args:
+        cfg: The resolved config.
+    """
+    (cfg.root / "_tests" / "html-coverage").mkdir(parents=True, exist_ok=True)
+    for stale in cfg.root.glob(".coverage*"):
+        stale.unlink(missing_ok=True)
+    uv_run("pytest", *_pytest_args(cfg), *coverage_args(cfg), cwd=cfg.root, withs=PYTEST_WITHS)
+
+
+def _pytest_args(cfg: Config) -> list[str]:
+    """Return the arguments both pytest-running gates share.
+
+    Args:
+        cfg: The resolved config.
+
+    Returns:
+        Parallelism, and the two folders the testing extras own.
+    """
+    return [
+        "-n",
+        "auto",
+        f"--ignore={cfg.tests_folder}/benchmarks",
+        f"--ignore={cfg.tests_folder}/stress",
+    ]
+
+
+def coverage_args(cfg: Config) -> list[str]:
+    """Return the ``--cov`` flags, including the Cobertura path the other layers write to.
+
+    Shared by ``test`` and ``coverage`` so the two cannot drift: ``_tests/coverage.xml`` is
+    the file book.mk's badge step reads and CI uploads, and rust.mk and go.mk go out of
+    their way to write it at exactly that path.
+
+    Args:
+        cfg: The resolved config.
+
+    Returns:
+        The coverage flags.
+    """
+    return [
+        f"--cov={cfg.source_folder}",
+        "--cov-report=term",
+        "--cov-report=html:_tests/html-coverage",
+        "--cov-report=json:_tests/coverage.json",
+        "--cov-report=xml:_tests/coverage.xml",
+        f"--cov-fail-under={cfg.coverage_fail_under}",
+    ]
 
 
 @task(

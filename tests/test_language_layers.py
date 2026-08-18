@@ -254,6 +254,22 @@ class TestRustGates:
             ["test", "--doc"],
         ]
 
+    def test_coverage_writes_the_path_the_badge_reads(self, crate: Path, recorder: Recorder) -> None:
+        """Cobertura XML at ``_tests/coverage.xml``, and the floor is the shared setting.
+
+        The path is the contract, not a detail: it is what book.mk's badge step reads, so a
+        crate gets a measured badge for the same reason a Python project does.
+
+        Args:
+            crate: A Rust project root.
+            recorder: The command recorder.
+        """
+        rust_tasks.coverage(Config.load(root=crate, coverage_fail_under=85))
+        measure, report = (c.flags for c in recorder.calls)
+        assert measure[:3] == ["llvm-cov", "nextest", "--all-targets"]
+        assert measure[3:] == ["--fail-under-lines", "85", "--cobertura", "--output-path", "_tests/coverage.xml"]
+        assert report == ["llvm-cov", "report", "--html", "--output-dir", "_tests/html-coverage"]
+
     def test_cargo_flags_reach_every_gate(self, crate: Path, recorder: Recorder) -> None:
         """``CARGO_FLAGS`` is a setting, not a per-recipe literal.
 
@@ -379,6 +395,97 @@ class TestGoGates:
         go_tasks.license_(Config.load(root=module))
         assert "could not read the module path" in capsys.readouterr().out
         assert recorder.calls[-1].flags == ["check", "./..."]
+
+    def test_coverage_converts_and_enforces_the_floor(
+        self, module: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The profile is measured, converted to Cobertura, and checked against the floor.
+
+        ``go test`` has no ``--fail-under``; go.mk reads the total out of ``go tool cover
+        -func`` in awk, and this is that awk one-liner.
+
+        Args:
+            module: A Go module root.
+            recorder: The command recorder.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        monkeypatch.setattr(go_tasks, "_cobertura", lambda *a: None)
+        monkeypatch.setattr(go_tasks, "capture", lambda *a, **k: "total:\t(statements)\t93.4%\n")
+        go_tasks.coverage(Config.load(root=module, coverage_fail_under=90))
+        measure = recorder.calls[0].flags
+        assert measure[:4] == ["test", "./...", "-covermode=atomic", "-coverprofile=_tests/coverage.out"]
+        assert recorder.calls[1].flags == [
+            "tool",
+            "cover",
+            "-html=_tests/coverage.out",
+            "-o",
+            "_tests/html-coverage/index.html",
+        ]
+        assert "93.4%" in capsys.readouterr().out
+
+    def test_coverage_below_the_floor_fails(
+        self, module: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A measured number below the floor is a red gate, as it is in the other layers.
+
+        Args:
+            module: A Go module root.
+            recorder: The command recorder.
+            monkeypatch: pytest's patcher.
+        """
+        monkeypatch.setattr(go_tasks, "_cobertura", lambda *a: None)
+        monkeypatch.setattr(go_tasks, "capture", lambda *a, **k: "total:\t(statements)\t41.0%\n")
+        with pytest.raises(Failed, match="below the 90% floor"):
+            go_tasks.coverage(Config.load(root=module, coverage_fail_under=90))
+
+    def test_an_unreadable_total_warns_rather_than_passing_silently(
+        self, module: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """No total means the floor was not enforced, and says so.
+
+        Args:
+            module: A Go module root.
+            recorder: The command recorder.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        monkeypatch.setattr(go_tasks, "_cobertura", lambda *a: None)
+        monkeypatch.setattr(go_tasks, "capture", lambda *a, **k: "")
+        go_tasks.coverage(Config.load(root=module))
+        assert "floor not enforced" in capsys.readouterr().out
+
+    def test_the_cobertura_conversion_is_a_pipe(self, module: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """gocover-cobertura reads stdin and writes stdout, and still runs without a shell.
+
+        Args:
+            module: A Go module root.
+            monkeypatch: pytest's patcher.
+        """
+        seen: dict[str, object] = {}
+
+        def fake_call(argv: list[str], **kwargs: object) -> int:
+            """Record the conversion invocation.
+
+            Args:
+                argv: The argument vector.
+                **kwargs: The redirection handles.
+
+            Returns:
+                Zero.
+            """
+            seen["argv"] = argv
+            seen["kwargs"] = kwargs
+            return 0
+
+        monkeypatch.setattr(go_tasks.subprocess, "call", fake_call)
+        reports = module / "_tests"
+        reports.mkdir()
+        (reports / "coverage.out").write_text("mode: atomic\n")
+        go_tasks._cobertura(Config.load(root=module), reports / "coverage.out", reports / "coverage.xml")
+        assert seen["argv"][0].endswith("gocover-cobertura")
+        assert seen["kwargs"]["stdin"].name.endswith("coverage.out")
+        assert (reports / "coverage.xml").is_file()
 
     def test_deps_needs_no_tool_at_all(self, module: Path, recorder: Recorder) -> None:
         """``go mod tidy -diff`` is both halves of deptry's job in one command.
