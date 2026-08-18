@@ -107,12 +107,34 @@ class Config:
     root: Path = field(default_factory=Path.cwd)
 
     def __post_init__(self) -> None:
-        """Validate the enumerated and numeric fields.
+        """Normalise the list fields, then validate the enumerated and numeric ones.
+
+        :func:`_coerce` sees a string without knowing which field it is destined for, so
+        it can only recognise the two shapes that announce themselves -- a JSON array and
+        a ``;``-separated list. Everything else it leaves as a ``str``, and a ``str``
+        reaching a ``tuple[str, ...]`` field is splatted one *character* per argument at
+        the call site: ``UV_SYNC_ARGS="--group test"`` became ``uv sync - - g r o u p``.
+
+        The field's type is known here and nowhere lower, so this is where a string
+        becomes a tuple. Splitting on whitespace is the make layer's own format --
+        python.mk documented ``LICENSE_IGNORE_PACKAGES`` as space-separated and
+        ``RHIZA_CHECKS`` accumulated space-separated module names -- so a ``.rhiza/.env``
+        written for make keeps working, as does the ``UV_SYNC_ARGS`` that rhiza's synced
+        ``.devcontainer/bootstrap.sh`` exports.
 
         Raises:
             ValueError: When ``typechecker`` is not one of ty, mypy, both, or
                 ``coverage_fail_under`` is outside 0-100.
         """
+        for f in fields(self):
+            if str(f.type).replace(" ", "") != "tuple[str,...]":
+                continue
+            value = getattr(self, f.name)
+            if isinstance(value, str):
+                object.__setattr__(self, f.name, tuple(value.split()))
+            elif isinstance(value, list):
+                object.__setattr__(self, f.name, tuple(value))
+
         if self.typechecker not in TYPECHECKERS:
             msg = f"typechecker must be one of {', '.join(TYPECHECKERS)} (got {self.typechecker!r})"
             raise ValueError(msg)
@@ -168,6 +190,10 @@ class Config:
 
         known = {f.name for f in fields(cls)} - {"root"}
         return cls(root=root, **{k: v for k, v in raw.items() if k in known})
+
+
+_FIELD_NAMES = frozenset(f.name for f in fields(Config))
+"""Every field name, for :func:`_key`. Built once rather than per environment variable."""
 
 
 def _from_env_file(path: Path) -> dict[str, Any]:
@@ -233,20 +259,32 @@ def _from_environ(environ: Mapping[str, str]) -> dict[str, Any]:
         Parsed settings.
 
     """
-    known = {f.name for f in fields(Config)}
-    return {_key(k): _coerce(v) for k, v in environ.items() if _key(k) in known and v.strip()}
+    settings = ((_key(k), v) for k, v in environ.items())
+    return {k: _coerce(v) for k, v in settings if k in _FIELD_NAMES and v.strip()}
 
 
 def _key(name: str) -> str:
     """Normalise a make-style variable name to a field name.
 
+    The ``RHIZA_`` prefix is optional, so it is stripped -- but only when what remains is
+    actually a field. Stripping unconditionally made ``RHIZA_CHECKS`` resolve to the
+    unknown field ``checks``, so the setting was silently dropped and ``rhiza_checks`` was
+    reachable from the environment only as ``RHIZA_RHIZA_CHECKS``. Trying the whole name
+    as a fallback fixes that without disturbing the fields whose prefix *is* redundant:
+    ``RHIZA_CI_OS_MATRIX`` still resolves to ``ci_os_matrix``, and the doubled spelling
+    keeps working for anyone who found it.
+
     Args:
-        name: e.g. ``RHIZA_CI_OS_MATRIX`` or ``SOURCE_FOLDER``.
+        name: e.g. ``RHIZA_CI_OS_MATRIX``, ``SOURCE_FOLDER`` or ``rhiza-checks``.
 
     Returns:
-        e.g. ``ci_os_matrix``, ``source_folder``.
+        e.g. ``ci_os_matrix``, ``source_folder``, ``rhiza_checks``.
     """
-    return name.removeprefix("RHIZA_").lower()
+    lowered = name.lower().replace("-", "_")
+    stripped = lowered.removeprefix("rhiza_")
+    if stripped in _FIELD_NAMES or lowered not in _FIELD_NAMES:
+        return stripped
+    return lowered
 
 
 def _coerce(value: str) -> Any:

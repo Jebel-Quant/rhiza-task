@@ -19,7 +19,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import __version__, runner
-from .config import DEFAULT_CI_OS_MATRIX, Config
+from .config import DEFAULT_CI_OS_MATRIX, Config, _key
 from .runner import Status
 from .spec import REGISTRY
 
@@ -76,12 +76,20 @@ def print_setting(name: str) -> None:
         typer.Exit: With status 2 when the setting does not exist.
     """
     cfg = Config.load()
-    field = name.removeprefix("RHIZA_").lower().replace("-", "_")
+    field = _key(name)
     if not hasattr(cfg, field):
         err.print(f"[red]unknown setting: {name}[/red]")
         raise typer.Exit(2)
     value = getattr(cfg, field)
-    console.print(" ".join(map(str, value)) if isinstance(value, tuple) else str(value))
+    # markup=False, highlight=False: ``print`` is the command you reach for when a setting
+    # is not doing what you expect, so it must show the stored value and nothing else.
+    # ``mkdocs_extra_packages = ("mkdocstrings[python]",)`` printed as ``mkdocstrings``
+    # otherwise, rich having read ``[python]`` as a style tag.
+    console.print(
+        " ".join(map(str, value)) if isinstance(value, tuple) else str(value),
+        markup=False,
+        highlight=False,
+    )
 
 
 @app.command("ci-os-matrix")
