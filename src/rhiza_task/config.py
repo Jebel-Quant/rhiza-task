@@ -54,6 +54,15 @@ layer had nowhere else to put it.
 """
 
 
+DEFAULT_CI_OS_MATRIX = ("ubuntu-latest",)
+"""The OS every consumer gets unless it asks for more.
+
+Named rather than inlined because two callers need the same value: the field default
+below, and the floor in ``rhiza-task ci-os-matrix`` that stops an explicitly empty
+setting reaching GitHub as a zero-job matrix.
+"""
+
+
 @dataclass
 class Config:
     """Resolved settings for one repository.
@@ -84,7 +93,7 @@ class Config:
     mkdocs_extra_packages: tuple[str, ...] = ()
     zensical_version: str = ">=0.0.36"
     uv_sync_args: tuple[str, ...] = ("--all-extras", "--all-groups")
-    ci_os_matrix: tuple[str, ...] = ("ubuntu-latest",)
+    ci_os_matrix: tuple[str, ...] = DEFAULT_CI_OS_MATRIX
 
     # Pinned to a tag rather than a branch: a gate that moves under you is not a gate.
     pytest_rhiza: str = "pytest-rhiza @ git+https://github.com/Jebel-Quant/pytest-rhiza@v0.2.0"
@@ -164,6 +173,11 @@ class Config:
 def _from_env_file(path: Path) -> dict[str, Any]:
     """Read ``.rhiza/.env``.
 
+    An empty assignment (``RHIZA_CI_OS_MATRIX=``) is dropped rather than carried as an
+    empty string, for the reason given in :func:`_from_environ`: no field's type has a
+    meaningful empty value, so the only thing an empty setting can sensibly mean is
+    "leave the lower layer alone".
+
     Args:
         path: Path to the dotenv file.
 
@@ -172,7 +186,7 @@ def _from_env_file(path: Path) -> dict[str, Any]:
     """
     if not path.is_file():
         return {}
-    return {_key(k): _coerce(v) for k, v in dotenv_values(path).items() if v is not None}
+    return {_key(k): _coerce(v) for k, v in dotenv_values(path).items() if v and v.strip()}
 
 
 def _from_pyproject(path: Path) -> dict[str, Any]:
@@ -200,6 +214,18 @@ def _from_environ(environ: Mapping[str, str]) -> dict[str, Any]:
     reusable workflows currently pass bare make-style names on the command line and those
     jobs must keep working through the transition.
 
+    **An empty value counts as unset.** This is not a nicety, it is the make semantics
+    this layer replaces. rhiza_ci.yml's ``generate-matrix`` job exports
+
+        RHIZA_CI_OS_MATRIX: ${{ github.repository == 'jebel-quant/rhiza'
+                               && '["ubuntu-latest","macos-latest"]' || '' }}
+
+    -- one variable, set for the mother repo and *deliberately empty* for every consumer,
+    whose own ``.rhiza/.env`` is then meant to answer. make's ``?=`` treats an exported
+    empty string as set, which is why the retired ``ci-os-matrix`` recipe resolved through
+    ``$(or ...)``; dropping empties here is the same rule, applied one layer earlier so
+    every setting gets it rather than only the one whose recipe remembered to ask.
+
     Args:
         environ: The environment mapping.
 
@@ -208,7 +234,7 @@ def _from_environ(environ: Mapping[str, str]) -> dict[str, Any]:
 
     """
     known = {f.name for f in fields(Config)}
-    return {_key(k): _coerce(v) for k, v in environ.items() if _key(k) in known}
+    return {_key(k): _coerce(v) for k, v in environ.items() if _key(k) in known and v.strip()}
 
 
 def _key(name: str) -> str:

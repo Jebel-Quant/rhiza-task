@@ -58,6 +58,42 @@ def test_ci_os_matrix_emits_json(repo: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert json.loads(result.stdout) == ["ubuntu-latest", "windows-latest"]
 
 
+def test_ci_os_matrix_never_emits_an_empty_array(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An explicitly empty setting floors to the default rather than to zero jobs.
+
+    GitHub does not fail a workflow over an empty matrix; it expands it to no jobs at all,
+    so the gate goes green having tested nothing.
+
+    Args:
+        repo: The throwaway repository.
+        monkeypatch: pytest's patcher.
+    """
+    (repo / ".rhiza").mkdir()
+    (repo / ".rhiza" / ".env").write_text("RHIZA_CI_OS_MATRIX=[]\n")
+    monkeypatch.chdir(repo)
+    result = runner.invoke(cli.app, ["ci-os-matrix"])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == ["ubuntu-latest"]
+
+
+def test_ci_os_matrix_ignores_an_empty_environment_override(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The consumer's ``.rhiza/.env`` still answers when the workflow exports an empty var.
+
+    This is the contract rhiza_ci.yml's ``generate-matrix`` job depends on once it calls
+    the CLI instead of ``make -f .rhiza/rhiza.mk -s ci-os-matrix``.
+
+    Args:
+        repo: The throwaway repository.
+        monkeypatch: pytest's patcher.
+    """
+    (repo / ".rhiza").mkdir()
+    (repo / ".rhiza" / ".env").write_text('RHIZA_CI_OS_MATRIX=["macos-latest"]\n')
+    monkeypatch.setenv("RHIZA_CI_OS_MATRIX", "")
+    monkeypatch.chdir(repo)
+    result = runner.invoke(cli.app, ["ci-os-matrix"])
+    assert json.loads(result.stdout) == ["macos-latest"]
+
+
 def test_shim_prints_a_usable_makefile() -> None:
     """``shim`` emits the catch-all Makefile, pinned to this version."""
     from rhiza_task import __version__
