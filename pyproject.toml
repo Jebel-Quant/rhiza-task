@@ -41,6 +41,8 @@ rhiza-task = "rhiza_task.cli:main"
 # replacement for `-include local.mk`. The built-ins register themselves the same way, so
 # there is one mechanism rather than a built-in path and a plugin path.
 python = "rhiza_task.tasks.python"
+rust = "rhiza_task.tasks.rust"
+go = "rhiza_task.tasks.go"
 quality = "rhiza_task.tasks.quality"
 extras = "rhiza_task.tasks.extras"
 book = "rhiza_task.tasks.book"

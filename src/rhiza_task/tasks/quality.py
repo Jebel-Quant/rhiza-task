@@ -105,7 +105,13 @@ def rhiza_test(cfg: Config) -> None:
     uv_run("pytest", "--pyargs", *cfg.rhiza_checks, cwd=cfg.root, withs=(cfg.pytest_rhiza,))
 
 
-@task("test-pyproject", "run the pyproject.toml structure checks, verbosely", section="Quality", needs=("install",))
+@task(
+    "test-pyproject",
+    "run the pyproject.toml structure checks, verbosely",
+    section="Quality",
+    layer="python",
+    needs=("install",),
+)
 def test_pyproject(cfg: Config) -> None:
     """Run just the pyproject check, with full reporting.
 
@@ -234,3 +240,30 @@ def _git(git: str, args: list[str], cwd: Path, capture: bool = False) -> str:
         capture_output=capture,
     )
     return result.stdout or "" if capture else ""
+
+
+def install_hooks(cfg: Config) -> None:
+    """Install the prek git hooks unless an external manager owns ``core.hooksPath``.
+
+    Neutral, and here rather than in a language module, because all three ``install``
+    recipes carry it verbatim -- python.mk, rust.mk and go.mk each end with the same
+    twelve lines of shell. prek provisions each hook's own toolchain, so there is nothing
+    language-specific left in it.
+
+    ``-c`` must be passed here *and* in :func:`fmt`: prek bakes the flag into the generated
+    shim, so without it the commit-time gate rediscovers nested projects and stops meaning
+    what ``fmt`` means.
+
+    Args:
+        cfg: The resolved config.
+    """
+    if not (cfg.root / ".pre-commit-config.yaml").is_file():
+        return
+    git = shutil.which("git") or "git"
+    hooks_path = _git(git, ["config", "--get", "core.hooksPath"], cfg.root, capture=True).strip()
+    if hooks_path:
+        print("[INFO] skipping hook install: core.hooksPath is set")
+        return
+    # A hook-install failure warns rather than fails, as the make recipes do: it does not
+    # invalidate the environment that was just built.
+    uvx("prek", "install", "-c", ".pre-commit-config.yaml", cwd=cfg.root, check=False)

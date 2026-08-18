@@ -257,6 +257,31 @@ def test_root_option_targets_another_repository(repo: Path, tmp_path_factory: py
     assert Config.load(root=elsewhere).source_folder == "src"
 
 
+def test_list_shows_this_repository_s_layer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A Go module is shown Go's gates, not Python's testing extras.
+
+    The make layer got this for free by syncing exactly one language fragment; a CLI
+    carrying all three has to decide, and showing a Go developer ``mutation`` and
+    ``marimo-validate`` would be showing them tasks that cannot run.
+
+    Args:
+        tmp_path: The repository root.
+        monkeypatch: pytest's patcher.
+    """
+    (tmp_path / "go.mod").write_text("module example.com/demo\n\ngo 1.23\n")
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(cli.app, ["list"])
+    assert result.exit_code == 0
+    assert "go-tools" in result.stdout
+    assert "mutation" not in result.stdout
+    assert "fmt" in result.stdout  # the neutral tasks answer everywhere
+
+    every = runner.invoke(cli.app, ["list", "--all"])
+    assert "mutation" in every.stdout
+    assert "cargo-tools" in every.stdout
+
+
 def test_shim_is_emitted_byte_for_byte() -> None:
     """The Makefile is written verbatim: tabs intact, no line rewrapped.
 

@@ -19,7 +19,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import __version__, runner
-from .config import DEFAULT_CI_OS_MATRIX, Config, _key
+from .config import DEFAULT_CI_OS_MATRIX, LAYERS, Config, _key
 from .runner import Status
 from .spec import REGISTRY
 
@@ -56,13 +56,43 @@ def load_tasks() -> None:
 
 
 @app.command("list")
-def list_tasks() -> None:
-    """Show every available task, grouped by section."""
+def list_tasks(
+    every_layer: bool = typer.Option(False, "--all", help="include the other languages' layers"),
+) -> None:
+    """Show the available tasks, grouped by section.
+
+    A Go module is not helped by being shown ``mutation`` and ``marimo-validate``, so the
+    default is this repository's own layers plus the language-neutral tasks -- which is
+    what the make layer showed, having synced exactly one language fragment. ``--all`` is
+    for the question the make layer could not answer: what the other layers call things.
+
+    Args:
+        every_layer: Show tasks from every language layer, not only this repository's.
+    """
+    layers = () if every_layer else _layers()
     table = Table("task", "section", "needs", "does", box=None, header_style="bold")
-    for name, spec in sorted(REGISTRY.items(), key=lambda kv: (kv[1].section, kv[0])):
-        if not spec.hidden:
-            table.add_row(name, spec.section, " ".join(spec.needs), spec.help)
+    for _, spec in sorted(REGISTRY.items(), key=lambda kv: (kv[1].section, kv[0])):
+        if spec.hidden or (not every_layer and spec.layer is not None and spec.layer not in layers):
+            continue
+        table.add_row(spec.name, spec.section, " ".join(spec.needs), spec.help)
     console.print(table)
+
+
+def _layers() -> tuple[str, ...]:
+    """Return this repository's language layers, tolerating an unresolvable config.
+
+    ``list`` is what you run *because* something is wrong, so a config error must not be
+    the thing that stops it printing. Showing every layer is the honest fallback: it is a
+    superset, and the alternative is showing nothing.
+
+    Returns:
+        The active layers, or every layer when the config does not resolve.
+    """
+    try:
+        return Config.load().layers
+    except (ValueError, OSError) as exc:
+        err.print(f"[yellow]could not resolve the config ({exc}); listing every layer[/yellow]")
+        return LAYERS
 
 
 @app.command("print")

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from rhiza_task.config import Config
-from rhiza_task.spec import REGISTRY, Guard, Skip, Task, task
+from rhiza_task.config import LAYERS, Config
+from rhiza_task.spec import REGISTRY, Guard, Skip, Task, lookup, task
 
 
 def test_guard_passes_when_folder_exists(cfg: Config) -> None:
@@ -86,6 +86,7 @@ def test_every_builtin_task_is_documented() -> None:
     for name, spec in REGISTRY.items():
         assert spec.help, f"{name} has no help text"
         assert spec.section, f"{name} has no section"
+        assert name == spec.key, f"{name} is registered under the wrong key"
 
 
 def test_prerequisites_that_exist_are_registered_tasks() -> None:
@@ -97,4 +98,6 @@ def test_prerequisites_that_exist_are_registered_tasks() -> None:
     """
     for spec in REGISTRY.values():
         for need in spec.needs:
-            assert need in REGISTRY, f"{spec.name} needs unknown task {need!r}"
+            # Resolved against every layer, not the repository's: a Rust `all` naming
+            # `test` is right even when the check runs from a Python checkout.
+            assert lookup(need, LAYERS) is not None, f"{spec.key} needs unknown task {need!r}"

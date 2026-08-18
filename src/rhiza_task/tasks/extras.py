@@ -29,6 +29,7 @@ tests is a valid project, and the marker expression legitimately matches nothing
     "benchmark",
     "run the performance benchmarks",
     section="Testing extras",
+    layer="python",
     needs=("install",),
     guards=(Guard("tests_folder", glob="benchmarks/*.py", reason="no benchmarks folder"),),
 )
@@ -57,6 +58,7 @@ def benchmark(cfg: Config) -> None:
     "hypothesis-test",
     "run the property-based tests",
     section="Testing extras",
+    layer="python",
     needs=("install",),
     guards=(Guard("tests_folder", glob="test_*.py", reason="no test files found"),),
 )
@@ -96,6 +98,7 @@ def hypothesis_test(cfg: Config) -> None:
     "stress",
     "run the stress and load tests",
     section="Testing extras",
+    layer="python",
     needs=("install",),
     guards=(Guard("tests_folder", glob="stress/*.py", reason="no stress folder"),),
 )
@@ -122,6 +125,7 @@ def stress(cfg: Config) -> None:
     "mutation",
     "run mutation testing with mutmut",
     section="Testing extras",
+    layer="python",
     needs=("install",),
     guards=(Guard("source_folder"),),
 )

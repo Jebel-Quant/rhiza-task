@@ -1,6 +1,6 @@
-"""The three ways rhiza reaches a tool, and nothing else.
+"""The ways rhiza reaches a tool, and nothing else.
 
-Every recipe in the retired make layer used one of exactly three forms:
+Every recipe in the retired *Python* make layer used one of exactly three forms:
 
 * ``uv <subcommand>`` -- uv itself (``venv``, ``sync``, ``lock --check``).
 * ``uvx <tool>`` -- an isolated one-shot tool run: prek, deptry, bandit, semgrep,
@@ -10,6 +10,12 @@ Every recipe in the retired make layer used one of exactly three forms:
 
 The second and third are a real distinction that the make layer already gets right, so it
 is preserved here rather than unified.
+
+rust.mk and go.mk add a fourth, and only a fourth: ``$(CARGO) nextest run``, ``$(GO) test``
+-- a toolchain binary that is already on PATH, because uv does not provision cargo or go
+and nothing here pretends otherwise. :func:`tool` is that form. It shares this module's
+environment handling and echoing rather than being a bare ``subprocess.call`` in each
+language module, so ``$ cargo clippy`` is printed the same way ``$ uvx bandit`` is.
 
 Two things disappear:
 
@@ -178,3 +184,65 @@ def uv_run(
     if check and code:
         raise Failed(code, f"{tool} failed")
     return code
+
+
+def tool(
+    name: str,
+    *args: str,
+    cwd: Path,
+    check: bool = True,
+    env: Mapping[str, str] | None = None,
+) -> int:
+    """Run a toolchain binary that is expected to be on PATH.
+
+    The Rust and Go layers' engines, which uv neither provisions nor knows about: cargo,
+    rustup, go, and the binaries ``cargo-tools`` and ``go-tools`` install. Nothing is
+    injected and nothing is isolated -- that is what makes it different from :func:`uvx`,
+    not an oversight.
+
+    Args:
+        name: The executable, or an absolute path to one.
+        *args: Its arguments.
+        cwd: Working directory.
+        check: Raise on non-zero rather than returning the status.
+        env: Extra environment variables, e.g. ``RUSTDOCFLAGS``.
+
+    Returns:
+        The exit status.
+
+    Raises:
+        Failed: When ``check`` and the tool exited non-zero.
+    """
+    code = _run([shutil.which(name) or name, *args], cwd, env)
+    if check and code:
+        raise Failed(code, f"{Path(name).name} {args[0] if args else ''} failed".strip())
+    return code
+
+
+def capture(name: str, *args: str, cwd: Path) -> str:
+    """Run a tool and return its stdout, for the one recipe that needs a value back.
+
+    go.mk's licence gate is that recipe: ``go-licenses check ./... --ignore "$(go list -m)"``
+    -- without the module's own path, go-licenses walks the project's own packages and fails
+    a freshly synced project for having no LICENSE of its own. Found by rhiza's e2e suite
+    rather than by a dry run, which is why it is carried over rather than rediscovered.
+
+    Args:
+        name: The executable.
+        *args: Its arguments.
+        cwd: Working directory.
+
+    Returns:
+        Stripped stdout, or an empty string when the tool failed or is absent.
+    """
+    try:
+        result = subprocess.run(  # noqa: S603  # nosec B603
+            [shutil.which(name) or name, *args],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""

@@ -14,6 +14,15 @@ and the task body is the escape hatch those four use.
 
 The split decides what is *data* -- reviewable, diffable, overridable from a consumer's
 ``pyproject.toml`` -- and what is code.
+
+The other thing a task carries is its **layer**. rhiza has three language layers whose
+gates share a name and differ only in engine -- ``test`` is pytest, ``cargo nextest`` or
+``go test`` -- and the make layer expressed that by syncing exactly one of python.mk,
+rust.mk and go.mk into a repo, so the question never arose at runtime. Here all three are
+installed at once, so the layer is part of the key: ``python:test`` and ``rust:test`` are
+distinct entries, and :func:`lookup` resolves the bare name against the layers the
+repository actually has. A task with no layer -- ``fmt``, ``todos``, ``book`` -- is
+language-neutral and answers to its bare name, which is what ``core`` was.
 """
 
 from __future__ import annotations
@@ -62,11 +71,17 @@ class Guard:
 
     ``glob`` additionally requires a matching file below that folder -- the declarative
     form of python.mk's ``find ${TESTS_FOLDER} -name 'test_*.py'``.
+
+    ``file`` is the flat case the Rust and Go layers need: their gates are guarded on a
+    manifest rather than a folder, because ``cargo`` and ``go`` find the sources
+    themselves. It is a literal path, not a config field -- ``Cargo.toml`` and ``go.mod``
+    are named by their toolchains and are not a repository's choice to make.
     """
 
-    folder: str
+    folder: str | None = None
     glob: str | None = None
     reason: str = ""
+    file: str | None = None
 
     def check(self, root: Path, folders: dict[str, str]) -> None:
         """Raise :class:`Skip` when the guard is not satisfied.
@@ -76,8 +91,13 @@ class Guard:
             folders: Resolved folder settings, e.g. ``{"source_folder": "src"}``.
 
         Raises:
-            Skip: When the folder is missing, or holds no file matching ``glob``.
+            Skip: When the file is missing, or the folder is missing, or the folder holds
+                no file matching ``glob``.
         """
+        if self.file and not (root / self.file).is_file():
+            raise Skip(self.reason or f"no {self.file}")
+        if self.folder is None:
+            return
         name = folders.get(self.folder, self.folder)
         target = root / name
         if not target.is_dir():
@@ -94,6 +114,9 @@ class Task:
         name: The command name, e.g. ``test``. Deliberately identical to the retired make
             target, so the Makefile shim and a consumer's muscle memory need no
             translation table.
+        layer: ``python``, ``rust``, ``go``, or None for a language-neutral task. Three
+            layers can define ``test``; which one answers is decided per repository by
+            :func:`lookup`, not by which bundle happened to be synced.
         help: One line, shown by ``rhiza-task list``. Replaces the ``##`` convention that
             rhiza.mk parsed with awk.
         section: Help grouping. Replaces ``##@``.
@@ -113,15 +136,25 @@ class Task:
     needs: tuple[str, ...] = ()
     guards: tuple[Guard, ...] = ()
     hidden: bool = False
+    layer: str | None = None
+
+    @property
+    def key(self) -> str:
+        """Return the registry key: ``layer:name``, or ``name`` when neutral.
+
+        Returns:
+            The key this task is registered under.
+        """
+        return key(self.name, self.layer)
 
 
 REGISTRY: dict[str, Task] = {}
-"""Every registered task, keyed by name.
+"""Every registered task, keyed by ``layer:name`` -- or by bare ``name`` when neutral.
 
 This dict replaces make's double-colon rules. book.mk has to declare ``test:: ; @:``
 no-op stubs so that ``book`` can depend on ``test`` without knowing whether the ``tests``
-bundle was synced; here the same question is ``"test" in REGISTRY``. Four stub
-declarations and the whole ``::`` mechanism go away with it.
+bundle was synced; here the same question is :func:`lookup`. Four stub declarations and
+the whole ``::`` mechanism go away with it.
 """
 
 
@@ -132,6 +165,7 @@ def task(
     needs: Sequence[str] = (),
     guards: Sequence[Guard] = (),
     hidden: bool = False,
+    layer: str | None = None,
 ) -> Callable[[Callable[[Config], None]], Callable[[Config], None]]:
     """Register a task and return the function unchanged.
 
@@ -145,6 +179,7 @@ def task(
         needs: Prerequisite task names.
         guards: Layout preconditions.
         hidden: Omit from ``list``.
+        layer: The language layer this task belongs to, or None for a neutral task.
 
     Returns:
         The decorator.
@@ -159,7 +194,7 @@ def task(
         Returns:
             ``fn``, unchanged.
         """
-        REGISTRY[name] = Task(
+        spec = Task(
             name=name,
             help=help,
             section=section,
@@ -167,10 +202,48 @@ def task(
             needs=tuple(needs),
             guards=tuple(guards),
             hidden=hidden,
+            layer=layer,
         )
+        REGISTRY[spec.key] = spec
         return fn
 
     return decorate
+
+
+def key(name: str, layer: str | None = None) -> str:
+    """Return the registry key for a task name in a layer.
+
+    Args:
+        name: The task name, e.g. ``test``.
+        layer: The layer, or None for a neutral task.
+
+    Returns:
+        ``layer:name``, or ``name`` when there is no layer.
+    """
+    return f"{layer}:{name}" if layer else name
+
+
+def lookup(name: str, layers: Sequence[str] = ()) -> Task | None:
+    """Resolve a task name against the repository's language layers.
+
+    A layered task shadows a neutral one of the same name, and the layers are tried in
+    order, so a repository that is both -- a crate with a Python binding package -- gets a
+    single answer rather than an ambiguity. ``rust:test`` addresses one layer explicitly,
+    which is the only way to reach the layer that did not win.
+
+    Args:
+        name: A bare task name, or a ``layer:name`` key.
+        layers: The active layers, most significant first.
+
+    Returns:
+        The task, or None when nothing matches.
+    """
+    if ":" in name:
+        return REGISTRY.get(name)
+    for layer in layers:
+        if (spec := REGISTRY.get(key(name, layer))) is not None:
+            return spec
+    return REGISTRY.get(name)
 
 
 def have(tool: str) -> bool:

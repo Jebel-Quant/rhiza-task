@@ -54,10 +54,29 @@ pinned CLI, so a consumer still on an older reusable workflow needs no change.
 | section | tasks |
 |---|---|
 | Python | `install` `test` `typecheck` `security` `deps` `license` `docs-coverage` `all` |
+| Rust | `install` `cargo-tools` `test` `typecheck` `security` `deps` `license` `docs-coverage` `all` |
+| Go | `install` `go-tools` `test` `typecheck` `security` `deps` `license` `docs-coverage` `all` |
 | Quality | `fmt` `semgrep` `rhiza-test` `test-pyproject` `todos` |
 | Testing extras | `benchmark` `hypothesis-test` `stress` `mutation` |
 | Book | `book` `serve` `marimo` `marimo-validate` |
 | Dev | `doctor` `clean` |
+
+### Three layers, one set of names
+
+`test` is pytest in a Python project, `cargo nextest` in a crate and `go test` in a
+module — the gate-parity contract rhiza's own CLAUDE.md documents, and the reason
+`rhiza_ci.yml` can call `make typecheck` without knowing the language.
+
+The make layer answered "which one?" at sync time, by copying exactly one of `python.mk`,
+`rust.mk` and `go.mk` into a repository. A pinned CLI carries all three, so the answer is
+the **manifest present**: `pyproject.toml` → python, `Cargo.toml` → rust, `go.mod` → go.
+A repository with two gets both layers, in that order; `layers = ["rust"]` pins it. The
+other layer stays addressable as `rhiza-task rust:test`, and `rhiza-task list --all` shows
+what the layers you do not have call things.
+
+`RHIZA_CHECKS` follows the same derivation, which is what the `+=` accumulator in each
+language fragment was standing in for: the neutral checks, plus `test_pyproject` and
+`test_docstrings` for python, `test_cargo_toml` for rust, `test_go_module` for go.
 
 Not ported: `github.mk`'s seven `gh` wrappers — `gh pr list` is shorter than
 `make view-prs` and always current — and `install-uv`, which is not a task because it
@@ -80,7 +99,7 @@ recipes that genuinely are not:
 
 | module | what |
 |---|---|
-| `spec.py` | `Task`, `Guard`, `Skip`/`Failed`, the `@task` registry |
+| `spec.py` | `Task`, `Guard`, `Skip`/`Failed`, the `@task` registry, layer resolution |
 | `config.py` | six-layer resolution, replacing `?=` and `+=` |
 | `uv.py` | the three ways rhiza reaches a tool |
 | `runner.py` | prerequisite dedup, guards, outcome bookkeeping |
@@ -192,10 +211,11 @@ target names.
 
 ## Open questions
 
-- **Rust and Go layers.** `rust.mk`/`go.mk` ship the same target names with different
-  recipes and today need only make. Shelling out to `cargo` from here works, but it makes
-  Python a prerequisite for a Rust repo. This is the one place the Taskfile argument stays
-  strong.
+- **Python as a prerequisite for a Rust repo.** `rust.mk`/`go.mk` needed only make; the
+  Rust and Go layers here are Python calling `cargo` and `go`, so a crate now needs uv to
+  run its gates. That is the trade the whole package makes — distribution by pin instead of
+  by copy — but it is the layer where it costs the most, and it is the one place the
+  Taskfile argument stays strong.
 - **Nested uv cost.** `uvx rhiza-task test` then internally `uv run --with pytest ...`.
   Cached this should be milliseconds; measure before rolling out widely.
 
