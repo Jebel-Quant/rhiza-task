@@ -183,3 +183,63 @@ def test_folders_and_path_resolve(tmp_path: Path) -> None:
     cfg = Config.load(root=tmp_path)
     assert set(cfg.folders) == {"source_folder", "tests_folder", "marimo_folder"}
     assert cfg.path("source_folder") == tmp_path / "src"
+
+
+@pytest.mark.parametrize(
+    ("var", "field", "raw", "expected"),
+    [
+        ("UV_SYNC_ARGS", "uv_sync_args", "--group test", ("--group", "test")),
+        ("LICENSE_IGNORE_PACKAGES", "license_ignore_packages", "docutils chardet", ("docutils", "chardet")),
+        ("DEPTRY_IGNORE", "deptry_ignore", "--ignore DEP004", ("--ignore", "DEP004")),
+        ("MKDOCS_EXTRA_PACKAGES", "mkdocs_extra_packages", "mkdocstrings[python]", ("mkdocstrings[python]",)),
+        # RHIZA_RHIZA_CHECKS, not RHIZA_CHECKS: ``_key`` strips one ``RHIZA_`` prefix, so
+        # the short spelling resolves to the unknown field ``checks`` and is dropped.
+        ("RHIZA_RHIZA_CHECKS", "rhiza_checks", "pkg.a  pkg.b", ("pkg.a", "pkg.b")),
+        ("LICENSE_FAIL_ON", "license_fail_on", "GPL;LGPL;AGPL", ("GPL", "LGPL", "AGPL")),
+        ("RHIZA_CI_OS_MATRIX", "ci_os_matrix", '["ubuntu-latest","macos-latest"]', ("ubuntu-latest", "macos-latest")),
+    ],
+)
+def test_space_separated_list_settings_do_not_splat(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    var: str,
+    field: str,
+    raw: str,
+    expected: tuple[str, ...],
+) -> None:
+    """A ``tuple[str, ...]`` field never holds a ``str``, whatever shape the layer used.
+
+    ``_coerce`` recognises only a JSON array and a ``;``-separated list, so every other
+    string used to reach the field as a ``str`` and be splatted one character per argument
+    at the call site -- ``uv sync - - g r o u p``. See issue #6.
+
+    Args:
+        tmp_path: The repository root.
+        monkeypatch: To set the environment variable.
+        var: The environment variable a consumer exports.
+        field: The config field under test.
+        raw: The value as a consumer writes it.
+        expected: The tuple the field must hold.
+    """
+    monkeypatch.setenv(var, raw)
+    assert getattr(Config.load(root=tmp_path), field) == expected
+
+
+def test_env_file_and_pyproject_strings_are_tupled_too(tmp_path: Path) -> None:
+    """Layer 2 and a TOML string in layer 3 get the same normalisation as the environment.
+
+    A ``.rhiza/.env`` written for the retired make layer spelled
+    ``LICENSE_IGNORE_PACKAGES`` space-separated, and ``[tool.rhiza-task]`` lets a list
+    field be written as a plain string.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    (tmp_path / ".rhiza").mkdir()
+    (tmp_path / ".rhiza" / ".env").write_text("LICENSE_IGNORE_PACKAGES=docutils chardet\n")
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "d"\nversion = "0"\n\n[tool.rhiza-task]\nuv_sync_args = "--group test"\n'
+    )
+    cfg = Config.load(root=tmp_path)
+    assert cfg.license_ignore_packages == ("docutils", "chardet")
+    assert cfg.uv_sync_args == ("--group", "test")

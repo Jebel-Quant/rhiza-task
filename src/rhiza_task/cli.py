@@ -81,7 +81,15 @@ def print_setting(name: str) -> None:
         err.print(f"[red]unknown setting: {name}[/red]")
         raise typer.Exit(2)
     value = getattr(cfg, field)
-    console.print(" ".join(map(str, value)) if isinstance(value, tuple) else str(value))
+    # markup=False, highlight=False: ``print`` is the command you reach for when a setting
+    # is not doing what you expect, so it must show the stored value and nothing else.
+    # ``mkdocs_extra_packages = ("mkdocstrings[python]",)`` printed as ``mkdocstrings``
+    # otherwise, rich having read ``[python]`` as a style tag.
+    console.print(
+        " ".join(map(str, value)) if isinstance(value, tuple) else str(value),
+        markup=False,
+        highlight=False,
+    )
 
 
 @app.command("ci-os-matrix")
