@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### 🚀 Features
+
+- *(tasks)* Add the Rust and Go language layers (#9). `rhiza_task/tasks/` served one of
+  rhiza's three layers, so `core` could not drop the make layer without leaving `rust-core`
+  and `go-core` with no targets at all. Tasks now carry a layer, the registry is keyed
+  `layer:name`, and a bare `test` resolves against the manifests a repository actually has.
+  `RHIZA_CHECKS` is derived from the layer set, replacing the `+=` accumulator each
+  language fragment used.
+
 ## [0.1.2] - 2026-08-18
 
 ### 🐛 Bug Fixes
