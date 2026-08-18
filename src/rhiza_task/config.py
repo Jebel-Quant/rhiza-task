@@ -41,7 +41,7 @@ from __future__ import annotations
 import json
 import os
 import tomllib
-from collections.abc import Mapping, Sequence, Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
