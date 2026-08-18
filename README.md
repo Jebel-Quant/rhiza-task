@@ -53,9 +53,9 @@ pinned CLI, so a consumer still on an older reusable workflow needs no change.
 
 | section | tasks |
 |---|---|
-| Python | `install` `test` `typecheck` `security` `deps` `license` `docs-coverage` `all` |
-| Rust | `install` `cargo-tools` `test` `typecheck` `security` `deps` `license` `docs-coverage` `all` |
-| Go | `install` `go-tools` `test` `typecheck` `security` `deps` `license` `docs-coverage` `all` |
+| Python | `install` `test` `coverage` `typecheck` `security` `deps` `license` `docs-coverage` `all` |
+| Rust | `install` `cargo-tools` `test` `coverage` `typecheck` `security` `deps` `license` `docs-coverage` `all` |
+| Go | `install` `go-tools` `test` `coverage` `typecheck` `security` `deps` `license` `docs-coverage` `all` |
 | Quality | `fmt` `semgrep` `rhiza-test` `test-pyproject` `todos` |
 | Testing extras | `benchmark` `hypothesis-test` `stress` `mutation` |
 | Book | `book` `serve` `marimo` `marimo-validate` |
@@ -78,9 +78,30 @@ what the layers you do not have call things.
 language fragment was standing in for: the neutral checks, plus `test_pyproject` and
 `test_docstrings` for python, `test_cargo_toml` for rust, `test_go_module` for go.
 
+`coverage` writes `_tests/coverage.xml` in every layer, at that exact path, because that
+is what `book`'s badge step reads and what CI uploads. In Python it is the `--cov` flags
+`test` already carries, split out under the name the other two layers use; in Rust it is
+`cargo llvm-cov --cobertura`; in Go it is a coverage profile piped through
+`gocover-cobertura`, plus the floor check `go test` has no flag for.
+
 Not ported: `github.mk`'s seven `gh` wrappers — `gh pr list` is shorter than
 `make view-prs` and always current — and `install-uv`, which the `uvx` entry point makes
 unnecessary.
+
+### Fragments a repository owns go to `local.mk`
+
+The shim's header says it replaces "`.rhiza/rhiza.mk` and the ten fragments in
+`.rhiza/make.d/`". A repository carrying **its own** fragments has to relocate them first —
+deleting `rhiza.mk` removes the `-include .rhiza/make.d/*.mk` that was reaching them, so
+they stop being loaded without anything saying so.
+
+In rhiza's own case that is `bundles.mk`: `sync-self`, `sync-self-check`,
+`explain-bundles`, `e2e` and `gitlab-docker-test`. None of them is a candidate for this
+package — no bundle ships them, and the tooling behind them (`utils/link_dogfood.py`,
+`utils/explain_bundles.py`) lives in the mother repo. They belong in `local.mk`, which the
+shim `-include`s for exactly this purpose and where an explicit rule beats the catch-all.
+Worth doing deliberately rather than discovering later: `sync-self` is what maintains the
+`bundles/` ↔ root invariant the whole repository rests on.
 
 ## Design
 

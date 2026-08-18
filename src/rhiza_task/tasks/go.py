@@ -15,6 +15,7 @@ whatever the developer's ``GOPATH`` happens to be.
 from __future__ import annotations
 
 import shutil
+import subprocess  # nosec B404 - fixed argument vector, never shell=True
 from pathlib import Path
 
 from ..config import Config
@@ -102,6 +103,64 @@ def test(cfg: Config) -> None:
     reports = cfg.root / "_tests"
     reports.mkdir(parents=True, exist_ok=True)
     tool("go", "test", "./...", *cfg.go_test_flags, *cfg.go_flags, cwd=cfg.root)
+
+
+@task(
+    "coverage",
+    "measure coverage and write _tests/coverage.xml",
+    section="Go",
+    layer="go",
+    needs=("install", "go-tools"),
+    guards=(MANIFEST,),
+)
+def coverage(cfg: Config) -> None:
+    """Measure coverage, convert it to Cobertura, and enforce the floor.
+
+    Three steps because Go's tooling splits them, and a fourth thing go.mk does in awk:
+    ``go test`` has no ``--fail-under``, so the floor is enforced by reading the ``total:``
+    line out of ``go tool cover -func``. That awk one-liner is the whole reason this is a
+    task body rather than three argument vectors.
+
+    ``-covermode=atomic`` because the default ``set`` mode is not race-safe and ``test``
+    runs a race build.
+
+    Args:
+        cfg: The resolved config.
+
+    Raises:
+        Failed: When coverage is below ``coverage_fail_under``.
+    """
+    reports = cfg.root / "_tests"
+    (reports / "html-coverage").mkdir(parents=True, exist_ok=True)
+    profile = reports / "coverage.out"
+    print(f"[INFO] measuring coverage (floor: {cfg.coverage_fail_under}%)")
+    tool(
+        "go",
+        "test",
+        "./...",
+        "-covermode=atomic",
+        f"-coverprofile={profile.relative_to(cfg.root)}",
+        *cfg.go_flags,
+        cwd=cfg.root,
+    )
+    _cobertura(cfg, profile, reports / "coverage.xml")
+    tool(
+        "go",
+        "tool",
+        "cover",
+        f"-html={profile.relative_to(cfg.root)}",
+        "-o",
+        "_tests/html-coverage/index.html",
+        cwd=cfg.root,
+    )
+
+    measured = _total_coverage(cfg, profile)
+    if measured is None:
+        print("[WARN] could not read a total from `go tool cover -func`; floor not enforced")
+        return
+    if measured < cfg.coverage_fail_under:
+        raise Failed(1, f"coverage {measured:.1f}% is below the {cfg.coverage_fail_under}% floor")
+    print(f"[INFO] coverage {measured:.1f}% (floor: {cfg.coverage_fail_under}%)")
 
 
 @task(
@@ -221,6 +280,58 @@ def all_(cfg: Config) -> None:
     Args:
         cfg: Unused; the prerequisites do the work.
     """
+
+
+def _cobertura(cfg: Config, profile: Path, target: Path) -> None:
+    """Convert a Go coverage profile to Cobertura XML.
+
+    The one recipe in the whole port that genuinely needs a pipe: gocover-cobertura reads
+    stdin and writes stdout, so there is no argument vector that expresses it. Handled here
+    with two file handles rather than by giving :mod:`~rhiza_task.uv` a redirection feature
+    nothing else would use -- and still no shell.
+
+    Args:
+        cfg: The resolved config.
+        profile: The ``go test -coverprofile`` output.
+        target: Where to write the Cobertura XML.
+
+    Raises:
+        Failed: When the conversion exits non-zero.
+    """
+    converter = _tool_path(cfg, "gocover-cobertura")
+    print(f"[INFO] writing {target.relative_to(cfg.root)}")
+    with profile.open("rb") as source, target.open("wb") as out:
+        code = subprocess.call(  # noqa: S603  # nosec B603
+            [shutil.which(converter) or converter],
+            cwd=cfg.root,
+            stdin=source,
+            stdout=out,
+        )
+    if code:
+        raise Failed(code, "gocover-cobertura failed")
+
+
+def _total_coverage(cfg: Config, profile: Path) -> float | None:
+    """Return the total coverage percentage, or None when it cannot be read.
+
+    Replaces go.mk's awk over ``go tool cover -func``: the total line is the only place Go
+    reports a single number, and ``go test`` has no floor of its own to set.
+
+    Args:
+        cfg: The resolved config.
+        profile: The coverage profile.
+
+    Returns:
+        The percentage, or None.
+    """
+    report = capture("go", "tool", "cover", f"-func={profile.relative_to(cfg.root)}", cwd=cfg.root)
+    for line in reversed(report.splitlines()):
+        if line.startswith("total:"):
+            try:
+                return float(line.split()[-1].rstrip("%"))
+            except ValueError:  # pragma: no cover - a malformed total line
+                return None
+    return None
 
 
 def _bin_dir(cfg: Config) -> Path:

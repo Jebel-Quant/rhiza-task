@@ -4,6 +4,11 @@
 
 ### 🚀 Features
 
+- *(tasks)* Add `coverage` to all three layers (#10). It is named in the gate-parity
+  contract and writes `_tests/coverage.xml`, the path `book`'s badge step reads and CI
+  uploads. Python gains the name it was missing -- the flags its `test` already carried --
+  Rust gets `cargo llvm-cov --cobertura`, and Go gets the profile, the Cobertura
+  conversion, and the floor check `go test` has no flag for.
 - *(tasks)* Add the Rust and Go language layers (#9). `rhiza_task/tasks/` served one of
   rhiza's three layers, so `core` could not drop the make layer without leaving `rust-core`
   and `go-core` with no targets at all. Tasks now carry a layer, the registry is keyed

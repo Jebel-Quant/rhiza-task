@@ -24,7 +24,9 @@ help:
 	@uvx $(RHIZA_TASK) $@
 
 # Repo-specific one-offs live here, where they always belonged, and win over the catch-all
-# because an explicit rule beats a pattern rule. This is what `local.mk` was for.
+# because an explicit rule beats a pattern rule. This is what `local.mk` was for -- and a
+# repository that carried its *own* fragment under `.rhiza/make.d/` has to move it here
+# before deleting `rhiza.mk`, which is the file whose `-include` was reaching it.
 -include local.mk
 
 # An included makefile is also a target make tries to *remake* before running anything, and
