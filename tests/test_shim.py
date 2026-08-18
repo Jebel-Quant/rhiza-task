@@ -1,0 +1,150 @@
+"""The generated Makefile, exercised with make itself rather than only read as text.
+
+The shim is the one artefact this package ships that is not Python, and its failure modes
+are make's, not the CLI's: a circular dependency, a match-anything rule applied to the
+makefile itself, a bootstrap that runs twice or never. None of those are visible in the
+file, so the tests below run ``make -n`` against a throwaway checkout with a stub ``uvx``
+on PATH -- no network, no uv, and every recipe printed rather than executed.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess  # nosec B404 - fixed argument vector
+import sys
+from pathlib import Path
+
+import pytest
+
+SHIM = Path(__file__).parent.parent / "src" / "rhiza_task" / "templates" / "Makefile"
+
+pytestmark = pytest.mark.skipif(
+    shutil.which("make") is None or sys.platform == "win32",
+    reason="needs GNU make and a POSIX shell",
+)
+
+
+def _make(root: Path, *args: str, path: str) -> subprocess.CompletedProcess[str]:
+    """Run ``make -n`` in ``root`` with a controlled PATH.
+
+    Args:
+        root: Directory holding the shim.
+        *args: Goals to pass to make.
+        path: The PATH the invocation sees.
+
+    Returns:
+        The completed process, with output captured.
+    """
+    env = dict(os.environ, PATH=path)
+    env.pop("MAKEFLAGS", None)
+    return subprocess.run(  # nosec B603
+        [shutil.which("make") or "make", "-n", *args],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+@pytest.fixture
+def shim(tmp_path: Path) -> Path:
+    """Write the shim into a throwaway directory.
+
+    Args:
+        tmp_path: pytest's temporary directory.
+
+    Returns:
+        The directory holding the Makefile.
+    """
+    (tmp_path / "Makefile").write_text(SHIM.read_text())
+    return tmp_path
+
+
+@pytest.fixture
+def stub_path(tmp_path: Path) -> str:
+    """Return a PATH whose only ``uvx`` is a stub that does nothing.
+
+    Args:
+        tmp_path: pytest's temporary directory.
+
+    Returns:
+        A PATH string with the stub directory first.
+    """
+    stub_dir = tmp_path / "stub-bin"
+    stub_dir.mkdir()
+    stub = stub_dir / "uvx"
+    stub.write_text("#!/bin/sh\nexit 0\n")
+    stub.chmod(0o755)
+    return os.pathsep.join([str(stub_dir), "/usr/bin", "/bin"])
+
+
+def test_uvx_on_path_is_used_as_is(shim: Path, stub_path: str) -> None:
+    """With uvx already available, the shim delegates and installs nothing.
+
+    Args:
+        shim: The directory holding the Makefile.
+        stub_path: A PATH whose ``uvx`` is a stub.
+    """
+    result = _make(shim, "test", path=stub_path)
+    assert result.returncode == 0, result.stderr
+    assert "rhiza-task@" in result.stdout
+    assert result.stdout.rstrip().endswith("test")
+    assert "astral.sh" not in result.stdout
+    # The regression that made `$(UVX)` the bootstrap rule's own target: with no rule of
+    # its own, an on-PATH uvx is matched by the catch-all whose prerequisite it is.
+    assert "Circular" not in result.stderr
+
+
+def test_missing_uvx_is_bootstrapped_before_the_task(shim: Path) -> None:
+    """With no uv anywhere, the shim installs one into ``./bin`` and then delegates.
+
+    This is the case that blocks the migration: rhiza's own ``pre-commit`` job is a
+    required status check that runs ``make fmt`` on a runner with no uv and no
+    ``astral-sh/setup-uv`` step.
+
+    Args:
+        shim: The directory holding the Makefile.
+    """
+    result = _make(shim, "fmt", path=os.pathsep.join(["/usr/bin", "/bin"]))
+    assert result.returncode == 0, result.stderr
+    printed = result.stdout.splitlines()
+    assert any("astral.sh/uv/install.sh" in line for line in printed)
+    assert str(shim / "bin" / "uvx") in result.stdout
+    # Order matters: provisioning uv after invoking it would help nobody.
+    assert next(i for i, line in enumerate(printed) if "astral.sh" in line) < len(printed) - 1
+    assert result.stdout.rstrip().endswith("fmt")
+    # `-n` prints; nothing may actually be downloaded.
+    assert not (shim / "bin").exists()
+
+
+def test_the_makefile_is_not_remade_through_the_catch_all(shim: Path) -> None:
+    """A cold checkout does not open by asking the CLI to build ``Makefile``.
+
+    The bootstrap rule creates a file *newer* than the Makefile, which makes make consider
+    the Makefile out of date and remake it through the match-anything rule -- so the first
+    ``make`` on a machine without uv died with ``unknown task: Makefile`` immediately after
+    installing uv. The empty ``Makefile: ;`` rule is what stops it.
+
+    Args:
+        shim: The directory holding the Makefile.
+    """
+    result = _make(shim, "test", path=os.pathsep.join(["/usr/bin", "/bin"]))
+    assert "rhiza-task@" in result.stdout
+    assert " Makefile" not in result.stdout
+    assert "local.mk" not in result.stdout
+
+
+def test_local_mk_wins_over_the_catch_all(shim: Path, stub_path: str) -> None:
+    """A repo-owned target in ``local.mk`` is an explicit rule and beats the pattern.
+
+    Args:
+        shim: The directory holding the Makefile.
+        stub_path: A PATH whose ``uvx`` is a stub.
+    """
+    (shim / "local.mk").write_text("sync-self:\n\t@echo repo-owned\n")
+    result = _make(shim, "sync-self", path=stub_path)
+    assert result.returncode == 0, result.stderr
+    assert "repo-owned" in result.stdout
+    assert "rhiza-task@" not in result.stdout
