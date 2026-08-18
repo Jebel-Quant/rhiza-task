@@ -1,0 +1,315 @@
+"""The Python language layer: python.mk, as tasks.
+
+python.mk is 312 lines, over half of the synced make. Most of it converts to the
+declarative form in :mod:`rhiza_task.spec`; ``test`` is the one recipe that does not, and
+it is written out in full below.
+"""
+
+from __future__ import annotations
+
+import shutil
+import subprocess  # nosec B404 - fixed argument vector
+
+from ..config import Config
+from ..spec import REGISTRY, Failed, Guard, Skip, task
+from ..uv import uv, uv_run, uvx
+
+PYTEST_WITHS = (
+    "pytest",
+    "pytest-cov",
+    "pytest-xdist",
+    "pytest-html",
+    "pytest-timeout",
+    "pytest-mock",
+)
+"""What ``test`` injects.
+
+A named tuple of packages rather than a literal in the call, so CI and this package's own
+tests can assert on it. The make recipe's six ``--with`` flags are invisible to anything
+but a human reading the recipe.
+"""
+
+PYTEST_INTERNAL_ERROR = 3
+"""pytest's INTERNALERROR.
+
+Distinct from test failure (1), interruption (2) and usage error (4), which is what makes
+retrying on it safe: it means the *runner* broke during worker or session teardown -- the
+xdist ``worker_workerfinished`` KeyError, or a pytest-html report-write race -- not that a
+test failed.
+"""
+
+MAX_ATTEMPTS = 2
+
+
+@task("install", "create the venv and sync dependencies", section="Python")
+def install(cfg: Config) -> None:
+    """Create ``.venv`` if absent, sync from the lock file, install the git hooks.
+
+    Args:
+        cfg: The resolved config.
+
+    Raises:
+        Skip: When the project has no ``pyproject.toml``.
+        Failed: When the lock file is out of sync, or a step exits non-zero.
+    """
+    venv = cfg.root / ".venv"
+    if not venv.is_dir():
+        uv("venv", "--python", cfg.python_version, str(venv), cwd=cfg.root)
+    else:
+        print(f"[INFO] using existing virtual environment at {venv}")
+
+    if not (cfg.root / "pyproject.toml").is_file():
+        raise Skip("no pyproject.toml")
+
+    frozen: tuple[str, ...] = ()
+    if (cfg.root / "uv.lock").is_file():
+        # python.mk runs this check, swallows its output and prints three lines of
+        # guidance on failure. The check is worth keeping; the guidance belongs with it
+        # rather than in a shell heredoc.
+        if uv("lock", "--check", cwd=cfg.root, check=False):
+            raise Failed(1, "uv.lock is out of sync with pyproject.toml -- run `uv lock`")
+        frozen = ("--frozen",)
+
+    # --inexact: leave packages uv did not manage in place instead of pruning them on
+    # every run, so repeated task invocations do not churn the environment. Per-task
+    # tooling is provisioned on the fly by uv.py, so there is no separate step for it.
+    uv("sync", *cfg.uv_sync_args, "--inexact", *frozen, cwd=cfg.root)
+
+    if (cfg.root / ".pre-commit-config.yaml").is_file():
+        _install_hooks(cfg)
+
+
+@task(
+    "test",
+    "run all tests",
+    section="Python",
+    needs=("install",),
+    guards=(Guard("tests_folder", glob="test_*.py", reason="no test files found"),),
+)
+def test(cfg: Config) -> None:
+    """Run the suite with coverage, retrying once on a pytest-internal teardown error.
+
+    This is the recipe that justifies a real language. In python.mk it is a 40-line shell
+    ``while :; do ... done`` inside a make recipe, with ``$$`` escaping on every variable,
+    ``set --`` used to build the argument list because make cannot hold an array, and the
+    retry condition spelled ``if [ $$status -ne 3 ]; then exit $$status; fi``.
+
+    Args:
+        cfg: The resolved config.
+
+    Raises:
+        Failed: When pytest reports test failures, or reports an internal error twice.
+    """
+    reports = cfg.root / "_tests"
+    shutil.rmtree(reports, ignore_errors=True)
+
+    args = [
+        "-n",
+        "auto",
+        f"--ignore={cfg.tests_folder}/benchmarks",
+        f"--ignore={cfg.tests_folder}/stress",
+    ]
+    if cfg.path("source_folder").is_dir():
+        args += [
+            f"--cov={cfg.source_folder}",
+            "--cov-report=term",
+            "--cov-report=html:_tests/html-coverage",
+            "--cov-report=json:_tests/coverage.json",
+            "--cov-report=xml:_tests/coverage.xml",
+            f"--cov-fail-under={cfg.coverage_fail_under}",
+        ]
+    else:
+        # Not a Skip: the tests exist and must run. Only coverage is unavailable.
+        print(f"[WARN] source folder '{cfg.source_folder}' not found; running without coverage")
+    args.append("--html=_tests/html-report/report.html")
+
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        # Stale data first: a crashed run can leave a corrupt .coverage file, which then
+        # reports a false 0% on the next run.
+        for stale in cfg.root.glob(".coverage*"):
+            stale.unlink(missing_ok=True)
+        (reports / "html-coverage").mkdir(parents=True, exist_ok=True)
+        (reports / "html-report").mkdir(parents=True, exist_ok=True)
+
+        code = uv_run("pytest", *args, cwd=cfg.root, withs=PYTEST_WITHS, check=False)
+        if code != PYTEST_INTERNAL_ERROR:
+            if code:
+                raise Failed(code, "tests failed")
+            return
+        if attempt == MAX_ATTEMPTS:
+            raise Failed(code, f"pytest reported an internal (teardown) error {attempt}x")
+        print(f"[WARN] pytest exited {code} (xdist teardown race); retrying {attempt + 1}/{MAX_ATTEMPTS}")
+
+
+@task(
+    "typecheck",
+    "run ty and/or mypy (typechecker = ty | mypy | both)",
+    section="Python",
+    needs=("install",),
+    guards=(Guard("source_folder"),),
+)
+def typecheck(cfg: Config) -> None:
+    """Run the configured type checker(s) over the source folder.
+
+    The make recipe is a shell ``case`` with four branches, the fourth of which validates
+    the setting and errors. Validation moved to :meth:`Config.__post_init__`, so an
+    invalid value fails before a tool is provisioned, and what is left is a loop.
+
+    Args:
+        cfg: The resolved config.
+    """
+    checkers = ("ty", "mypy") if cfg.typechecker == "both" else (cfg.typechecker,)
+    for checker in checkers:
+        # The asymmetry is preserved from python.mk: mypy runs --strict, ty does not.
+        args = ("check", cfg.source_folder) if checker == "ty" else ("--strict", cfg.source_folder)
+        uv_run(checker, *args, cwd=cfg.root, withs=(checker,))
+
+
+@task(
+    "security",
+    "run the bandit security scan",
+    section="Python",
+    needs=("install",),
+    guards=(Guard("source_folder"),),
+)
+def security(cfg: Config) -> None:
+    """Scan the source folder with bandit.
+
+    The scan scope lives in ``.bandit`` rather than in this argument list, so that every
+    runner -- this task, the pre-commit hook, CI -- sees the same one. ``--ini`` is passed
+    only when that file exists: python.mk passes it unconditionally, and bandit treats a
+    missing ini as a usage error, so a project without one gets a red gate reporting a
+    configuration problem as if it were a security finding.
+
+    Args:
+        cfg: The resolved config.
+    """
+    ini = ("--ini", ".bandit") if (cfg.root / ".bandit").is_file() else ()
+    uvx("bandit", "-r", cfg.source_folder, "-ll", "-q", *ini, cwd=cfg.root)
+
+
+@task("deps", "run deptry over the contributed folders", section="Python", needs=("install",))
+def deps(cfg: Config) -> None:
+    """Check declared dependencies against actual imports.
+
+    ``DEPTRY_FOLDERS`` and ``DEPTRY_IGNORE`` were make accumulators that each bundle
+    appended to, which worked only because of include order. Here the folder set is
+    *derived*: the source folder when it exists, plus the marimo folder when the marimo
+    tasks are registered and that folder exists. DEP004 (misplaced development dependency)
+    is ignored for the same reason marimo.mk ignores it -- notebooks legitimately import
+    development dependencies.
+
+    Args:
+        cfg: The resolved config.
+
+    Raises:
+        Skip: When no contributed folder exists.
+    """
+    folders = [cfg.source_folder] if cfg.path("source_folder").is_dir() else []
+    ignores = list(cfg.deptry_ignore)
+    if "marimo" in REGISTRY and cfg.path("marimo_folder").is_dir():
+        folders.append(cfg.marimo_folder)
+        ignores += ["--ignore", "DEP004"]
+    if not folders:
+        raise Skip("no deptry folders")
+    uvx("deptry", *folders, *ignores, cwd=cfg.root)
+
+
+@task("license", "scan for copyleft licences", section="Python", needs=("install",))
+def license_(cfg: Config) -> None:
+    """Fail on GPL/LGPL/AGPL among the installed distributions.
+
+    ``--partial-match`` is load-bearing: without it pip-licenses compares against the whole
+    licence string, and ``GPL`` never equals a real classifier such as "GNU General Public
+    License v2 or later (GPLv2+)", so the gate passed with a GPL package installed.
+
+    The docutils exemption is derived rather than accumulated. marimo depends on docutils,
+    which is offered under a *choice* of licences and reports all of them as one string --
+    "BSD License; GNU General Public License (GPL); Public Domain". pip-licenses has no
+    notion of *or*, so ``--partial-match`` fires on the copyleft option even where a
+    permissive one is taken.
+
+    Args:
+        cfg: The resolved config.
+    """
+    ignored = list(cfg.license_ignore_packages)
+    if "marimo" in REGISTRY and "docutils" not in ignored:
+        ignored.append("docutils")
+    args = [f"--fail-on={';'.join(cfg.license_fail_on)}", "--partial-match"]
+    if ignored:
+        # --ignore-packages errors on a bare flag, so it is omitted entirely when nothing
+        # is exempted.
+        args += ["--ignore-packages", *ignored]
+    uv_run("pip-licenses", *args, cwd=cfg.root, withs=("pip-licenses",))
+
+
+@task(
+    "docs-coverage",
+    "check docstring coverage with interrogate",
+    section="Python",
+    needs=("install",),
+    guards=(Guard("source_folder"),),
+)
+def docs_coverage(cfg: Config) -> None:
+    """Require 100% docstring coverage over the source and test folders.
+
+    Args:
+        cfg: The resolved config.
+    """
+    folders = [f for f in (cfg.source_folder, cfg.tests_folder) if (cfg.root / f).is_dir()]
+    uv_run(
+        "interrogate",
+        "-vv",
+        "--fail-under",
+        "100",
+        "--ignore-init-method",
+        "--ignore-magic",
+        *folders,
+        cwd=cfg.root,
+        withs=("interrogate",),
+    )
+
+
+@task(
+    "all",
+    "run every gate, as CI does",
+    section="Python",
+    needs=("fmt", "deps", "test", "docs-coverage", "security", "license", "typecheck", "rhiza-test"),
+)
+def all_(cfg: Config) -> None:
+    """Aggregate. The body is empty because ``needs`` *is* the definition.
+
+    python.mk's ``all`` named four gates that lived in the optional ``tests`` bundle, so a
+    project syncing ``core + python-core`` without it had an ``all`` that could not run.
+    Here an unregistered prerequisite is skipped by the runner, so the failure mode does
+    not exist.
+
+    Args:
+        cfg: Unused; the prerequisites do the work.
+    """
+
+
+def _install_hooks(cfg: Config) -> None:
+    """Install the prek git hooks unless an external manager owns ``core.hooksPath``.
+
+    ``-c`` must be passed here *and* in ``fmt``: prek bakes the flag into the generated
+    shim, so without it the commit-time gate rediscovers nested projects and stops meaning
+    what ``fmt`` means.
+
+    Args:
+        cfg: The resolved config.
+    """
+    git = shutil.which("git") or "git"
+    hooks_path = subprocess.run(  # noqa: S603  # nosec B603
+        [git, "config", "--get", "core.hooksPath"],
+        capture_output=True,
+        text=True,
+        cwd=cfg.root,
+        check=False,
+    ).stdout.strip()
+    if hooks_path:
+        print("[INFO] skipping hook install: core.hooksPath is set")
+        return
+    # A hook-install failure warns rather than fails, as python.mk does: it does not
+    # invalidate the environment that was just built.
+    uvx("prek", "install", "-c", ".pre-commit-config.yaml", cwd=cfg.root, check=False)

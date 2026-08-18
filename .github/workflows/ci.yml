@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: the gates only need to read the code.
+permissions:
+  contents: read
+
+# A new push to a PR makes the in-flight run irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest (${{ matrix.os }}, ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Mirrors the Programming Language :: Python :: X.Y classifiers in pyproject.toml.
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Exact version, not a floating major: astral-sh/setup-uv publishes no `v8`, `v9` or
+      # `v10` alias tag, so `@v10` fails to resolve at job start.
+      #
+      # This step is also what replaces `install-uv`. bootstrap.mk curls the uv installer
+      # into ./bin because make cannot assume uv exists; a workflow can just say so.
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      # Windows is in the matrix deliberately. The make layer needed a 40-line probe to
+      # detect make falling back to cmd.exe, because its recipes were POSIX shell; every
+      # command here is an argument vector, so this job is what asserts that the shell
+      # dependency is really gone.
+      - name: Run tests
+        run: uv run --group test --python ${{ matrix.python-version }} pytest -ra
+
+  gates:
+    name: the gates this package applies to others
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+
+      # Dogfooding, and not for its own sake: `all` is the aggregate consumers run, so a
+      # break in prerequisite resolution or outcome reporting fails here first.
+      #
+      # Deliberately without --strict. This repository is not rhiza-managed -- it ships no
+      # .pre-commit-config.yaml and no .rhiza/semgrep.yml, exactly as pytest-rhiza does not
+      # -- so `fmt` and `semgrep` have genuinely nothing to measure here and skip. --strict
+      # is the right setting in a *consumer* repository, where a skip means a gate lost its
+      # subject; asserting it here would only assert that this repo is something it is not.
+      - name: rhiza-task all
+        run: uv run rhiza-task all
