@@ -19,7 +19,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import __version__, runner
-from .config import DEFAULT_CI_OS_MATRIX, Config
+from .config import DEFAULT_CI_OS_MATRIX, Config, _key
 from .runner import Status
 from .spec import REGISTRY
 
@@ -76,7 +76,7 @@ def print_setting(name: str) -> None:
         typer.Exit: With status 2 when the setting does not exist.
     """
     cfg = Config.load()
-    field = name.removeprefix("RHIZA_").lower().replace("-", "_")
+    field = _key(name)
     if not hasattr(cfg, field):
         err.print(f"[red]unknown setting: {name}[/red]")
         raise typer.Exit(2)

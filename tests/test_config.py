@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from rhiza_task.config import Config, _coerce
+from rhiza_task.config import Config, _coerce, _key
 
 
 def test_defaults_need_no_files(tmp_path: Path) -> None:
@@ -192,9 +192,7 @@ def test_folders_and_path_resolve(tmp_path: Path) -> None:
         ("LICENSE_IGNORE_PACKAGES", "license_ignore_packages", "docutils chardet", ("docutils", "chardet")),
         ("DEPTRY_IGNORE", "deptry_ignore", "--ignore DEP004", ("--ignore", "DEP004")),
         ("MKDOCS_EXTRA_PACKAGES", "mkdocs_extra_packages", "mkdocstrings[python]", ("mkdocstrings[python]",)),
-        # RHIZA_RHIZA_CHECKS, not RHIZA_CHECKS: ``_key`` strips one ``RHIZA_`` prefix, so
-        # the short spelling resolves to the unknown field ``checks`` and is dropped.
-        ("RHIZA_RHIZA_CHECKS", "rhiza_checks", "pkg.a  pkg.b", ("pkg.a", "pkg.b")),
+        ("RHIZA_CHECKS", "rhiza_checks", "pkg.a  pkg.b", ("pkg.a", "pkg.b")),
         ("LICENSE_FAIL_ON", "license_fail_on", "GPL;LGPL;AGPL", ("GPL", "LGPL", "AGPL")),
         ("RHIZA_CI_OS_MATRIX", "ci_os_matrix", '["ubuntu-latest","macos-latest"]', ("ubuntu-latest", "macos-latest")),
     ],
@@ -243,3 +241,41 @@ def test_env_file_and_pyproject_strings_are_tupled_too(tmp_path: Path) -> None:
     cfg = Config.load(root=tmp_path)
     assert cfg.license_ignore_packages == ("docutils", "chardet")
     assert cfg.uv_sync_args == ("--group", "test")
+
+
+@pytest.mark.parametrize(
+    ("var", "expected"),
+    [
+        ("RHIZA_CHECKS", "rhiza_checks"),
+        ("RHIZA_RHIZA_CHECKS", "rhiza_checks"),
+        ("rhiza_checks", "rhiza_checks"),
+        ("rhiza-checks", "rhiza_checks"),
+        ("RHIZA_CI_OS_MATRIX", "ci_os_matrix"),
+        ("CI_OS_MATRIX", "ci_os_matrix"),
+        ("SOURCE_FOLDER", "source_folder"),
+        ("NONSENSE", "nonsense"),
+    ],
+)
+def test_key_strips_the_prefix_only_when_a_field_remains(var: str, expected: str) -> None:
+    """``RHIZA_CHECKS`` names the ``rhiza_checks`` field, not the unknown ``checks``.
+
+    The prefix is optional, and stripping it unconditionally meant the one field whose own
+    name starts with ``rhiza_`` could not be set from the environment at all -- the value
+    resolved to a name no field has and was dropped without a word.
+
+    Args:
+        var: The variable name as a consumer spells it.
+        expected: The field it must resolve to.
+    """
+    assert _key(var) == expected
+
+
+def test_rhiza_checks_is_settable_from_the_env_file(tmp_path: Path) -> None:
+    """The short spelling reaches the field through layer 2 as well.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    (tmp_path / ".rhiza").mkdir()
+    (tmp_path / ".rhiza" / ".env").write_text("RHIZA_CHECKS=pkg.a pkg.b\n")
+    assert Config.load(root=tmp_path).rhiza_checks == ("pkg.a", "pkg.b")

@@ -31,6 +31,8 @@ def test_print_resolves_either_spelling(repo: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.chdir(repo)
     assert "src" in runner.invoke(cli.app, ["print", "SOURCE_FOLDER"]).stdout
     assert "src" in runner.invoke(cli.app, ["print", "source_folder"]).stdout
+    # RHIZA_CHECKS is the one name where the prefix is part of the field, not a prefix.
+    assert "pytest_rhiza" in runner.invoke(cli.app, ["print", "RHIZA_CHECKS"]).stdout
 
 
 def test_print_rejects_an_unknown_setting(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
