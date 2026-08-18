@@ -78,7 +78,7 @@ recipes that genuinely are not:
 | module | what |
 |---|---|
 | `spec.py` | `Task`, `Guard`, `Skip`/`Failed`, the `@task` registry |
-| `config.py` | five-layer resolution, replacing `?=` and `+=` |
+| `config.py` | six-layer resolution, replacing `?=` and `+=` |
 | `uv.py` | the three ways rhiza reaches a tool |
 | `runner.py` | prerequisite dedup, guards, outcome bookkeeping |
 | `cli.py` | Typer app, generated from the registry |
@@ -86,9 +86,25 @@ recipes that genuinely are not:
 
 ### Configuration
 
-Five layers, lowest precedence first: dataclass defaults → `.rhiza/.env` (kept unchanged)
-→ `[tool.rhiza-task]` in `pyproject.toml` → `RHIZA_*` or bare make-style environment
-variables → command-line flags.
+Six layers, lowest precedence first: dataclass defaults → `.rhiza/.env` (kept unchanged)
+→ `rhiza.toml` → `[tool.rhiza-task]` in the language manifest (`Cargo.toml`, then
+`pyproject.toml`) → `RHIZA_*` or bare make-style environment variables → command-line
+flags.
+
+`rhiza.toml` is the language-neutral file, and the only committed settings surface a Go
+module can have — it has no manifest to hide a table in, and `.rhiza/.env` is now
+developer-local, since rhiza ships neither it nor the `.rhiza/.gitignore` whose entire
+content was the `!.env` negation that kept it tracked. Settings sit at the top level
+there; a `[tool.rhiza-task]` table is honoured too, and wins when both are present. It
+ranks *below* the manifest so that adding it to a Python repo cannot silently outrank the
+table already there.
+
+```toml
+# rhiza.toml — a Go module or a Rust crate, or any repo that would rather not
+# thread settings through a manifest
+source_folder = "cmd"
+coverage_fail_under = 95
+```
 
 An **empty value is unset** in the two string-valued layers: `RHIZA_CI_OS_MATRIX=` in
 `.rhiza/.env`, or an exported empty string, leaves the layer below it alone rather than

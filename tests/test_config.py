@@ -1,4 +1,4 @@
-"""The five-layer resolution order, and the three value shapes ``.rhiza/.env`` uses."""
+"""The six-layer resolution order, and the three value shapes ``.rhiza/.env`` uses."""
 
 from __future__ import annotations
 
@@ -54,6 +54,104 @@ def test_pyproject_beats_env_file(tmp_path: Path) -> None:
     cfg = Config.load(root=tmp_path)
     assert cfg.source_folder == "app"
     assert cfg.coverage_fail_under == 75
+
+
+def test_rhiza_toml_beats_the_env_file(tmp_path: Path) -> None:
+    """``rhiza.toml`` outranks ``.rhiza/.env``.
+
+    The env file is now developer-local -- rhiza ships no ``.rhiza/.gitignore`` to keep it
+    tracked -- so the committed neutral file has to win over a machine-local leftover.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    (tmp_path / ".rhiza").mkdir()
+    (tmp_path / ".rhiza" / ".env").write_text("SOURCE_FOLDER=lib\nTYPECHECKER=mypy\n")
+    (tmp_path / "rhiza.toml").write_text('source_folder = "app"\ncoverage_fail_under = 75\n')
+    cfg = Config.load(root=tmp_path)
+    assert cfg.source_folder == "app"
+    assert cfg.coverage_fail_under == 75
+    assert cfg.typechecker == "mypy"
+
+
+def test_rhiza_toml_serves_a_repo_with_no_manifest(tmp_path: Path) -> None:
+    """A Go module has no manifest to hide a table in, and needs no special case.
+
+    This is the layer's reason to exist: ``go.mod`` is not TOML and holds nothing a tool
+    can namespace into, so before this the only committed settings surface a Go repo had
+    was the root Makefile -- the very file the shim migration removes.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    (tmp_path / "go.mod").write_text("module example.com/demo\n\ngo 1.23\n")
+    (tmp_path / "rhiza.toml").write_text('source_folder = "cmd"\nrhiza_checks = ["a", "b"]\n')
+    cfg = Config.load(root=tmp_path)
+    assert cfg.source_folder == "cmd"
+    assert cfg.rhiza_checks == ("a", "b")
+
+
+def test_rhiza_toml_honours_the_pyproject_spelling(tmp_path: Path) -> None:
+    """A ``[tool.rhiza-task]`` table in ``rhiza.toml`` is read, and wins over the top level.
+
+    Copying the table across from pyproject is the obvious first thing to try, and silently
+    ignoring it would be the worst of the three possible behaviours.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    (tmp_path / "rhiza.toml").write_text('source_folder = "ignored"\n\n[tool.rhiza-task]\nsource_folder = "app"\n')
+    assert Config.load(root=tmp_path).source_folder == "app"
+
+
+def test_cargo_toml_carries_the_table_too(tmp_path: Path) -> None:
+    """``[tool.rhiza-task]`` in ``Cargo.toml`` is read, and outranks ``rhiza.toml``.
+
+    Cargo ignores unknown top-level tables, so the table is as harmless there as the same
+    table is in pyproject.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    (tmp_path / "rhiza.toml").write_text('source_folder = "neutral"\ntests_folder = "t"\n')
+    (tmp_path / "Cargo.toml").write_text(
+        '[package]\nname = "demo"\nversion = "0.1.0"\n\n[tool.rhiza-task]\nsource_folder = "crate-src"\n'
+    )
+    cfg = Config.load(root=tmp_path)
+    assert cfg.source_folder == "crate-src"
+    assert cfg.tests_folder == "t"
+
+
+def test_pyproject_beats_cargo_and_the_neutral_file(tmp_path: Path) -> None:
+    """In a repo carrying both manifests, pyproject is the last word before the environment.
+
+    Fixed rather than incidental: a Rust crate that grows a Python binding package should
+    resolve to the settings the Python-only repo already had.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    (tmp_path / "rhiza.toml").write_text('source_folder = "neutral"\n')
+    (tmp_path / "Cargo.toml").write_text('[tool.rhiza-task]\nsource_folder = "crate-src"\n')
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "d"\nversion = "0"\n\n[tool.rhiza-task]\nsource_folder = "app"\n'
+    )
+    assert Config.load(root=tmp_path).source_folder == "app"
+
+
+def test_unparseable_settings_file_names_itself(tmp_path: Path) -> None:
+    """A settings file that is not valid TOML is reported, not skipped.
+
+    An absent file means "nothing to say"; a broken one means a setting the author believes
+    is in effect is not, which is exactly the failure the layered resolution exists to make
+    impossible to have silently.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    (tmp_path / "rhiza.toml").write_text("source_folder = \n")
+    with pytest.raises(ValueError, match=r"rhiza\.toml is not valid TOML"):
+        Config.load(root=tmp_path)
 
 
 def test_environ_beats_pyproject(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
