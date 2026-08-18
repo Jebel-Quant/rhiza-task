@@ -1,0 +1,151 @@
+"""The five-layer resolution order, and the three value shapes ``.rhiza/.env`` uses."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from rhiza_task.config import Config, _coerce
+
+
+def test_defaults_need_no_files(tmp_path: Path) -> None:
+    """A repository with no config at all still resolves.
+
+    Args:
+        tmp_path: An empty directory.
+    """
+    cfg = Config.load(root=tmp_path)
+    assert cfg.source_folder == "src"
+    assert cfg.typechecker == "ty"
+    assert cfg.coverage_fail_under == 90
+
+
+def test_env_file_beats_defaults(tmp_path: Path) -> None:
+    """``.rhiza/.env`` overrides the dataclass defaults.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    (tmp_path / ".rhiza").mkdir()
+    (tmp_path / ".rhiza" / ".env").write_text(
+        'SOURCE_FOLDER=lib\nTYPECHECKER=mypy\nRHIZA_CI_OS_MATRIX=["ubuntu-latest","macos-latest"]\n'
+    )
+    cfg = Config.load(root=tmp_path)
+    assert cfg.source_folder == "lib"
+    assert cfg.typechecker == "mypy"
+    assert cfg.ci_os_matrix == ("ubuntu-latest", "macos-latest")
+
+
+def test_pyproject_beats_env_file(tmp_path: Path) -> None:
+    """``[tool.rhiza-task]`` outranks ``.rhiza/.env``.
+
+    This is the layer that replaces shadowing a template-owned make target, so it has to
+    win against the file the template ships.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    (tmp_path / ".rhiza").mkdir()
+    (tmp_path / ".rhiza" / ".env").write_text("SOURCE_FOLDER=lib\n")
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "d"\nversion = "0"\n\n[tool.rhiza-task]\nsource_folder = "app"\ncoverage_fail_under = 75\n'
+    )
+    cfg = Config.load(root=tmp_path)
+    assert cfg.source_folder == "app"
+    assert cfg.coverage_fail_under == 75
+
+
+def test_environ_beats_pyproject(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An environment variable outranks the pyproject table.
+
+    Args:
+        tmp_path: The repository root.
+        monkeypatch: pytest's patcher.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "d"\nversion = "0"\n\n[tool.rhiza-task]\nsource_folder = "app"\n'
+    )
+    monkeypatch.setenv("SOURCE_FOLDER", "from-env")
+    assert Config.load(root=tmp_path).source_folder == "from-env"
+
+
+def test_overrides_beat_everything(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A command-line override is the last word, and ``None`` is not an override.
+
+    Args:
+        tmp_path: The repository root.
+        monkeypatch: pytest's patcher.
+    """
+    monkeypatch.setenv("SOURCE_FOLDER", "from-env")
+    assert Config.load(root=tmp_path, source_folder="flag").source_folder == "flag"
+    assert Config.load(root=tmp_path, source_folder=None).source_folder == "from-env"
+
+
+def test_python_version_file_wins(tmp_path: Path) -> None:
+    """``.python-version`` outranks a configured ``python_version``.
+
+    It is what uv itself honours, so a second source of truth could only ever disagree.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    (tmp_path / ".python-version").write_text("3.12\n")
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "d"\nversion = "0"\n\n[tool.rhiza-task]\npython_version = "3.9"\n'
+    )
+    assert Config.load(root=tmp_path).python_version == "3.12"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ('["ubuntu-latest","macos-latest"]', ("ubuntu-latest", "macos-latest")),
+        ("GPL;LGPL;AGPL", ("GPL", "LGPL", "AGPL")),
+        ("90", 90),
+        ("true", True),
+        ("src", "src"),
+    ],
+)
+def test_coerce_handles_every_env_shape(raw: str, expected: object) -> None:
+    """The three shapes that appear in real ``.rhiza/.env`` files, plus scalars.
+
+    Args:
+        raw: The string as it appears in the file.
+        expected: The parsed value.
+    """
+    assert _coerce(raw) == expected
+
+
+def test_invalid_typechecker_fails_at_load(tmp_path: Path) -> None:
+    """A bad ``typechecker`` fails before any tool is provisioned.
+
+    python.mk validates this in the fourth branch of a shell ``case``, i.e. after the venv
+    is built and the gate has begun. Here it cannot get that far.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    with pytest.raises(ValueError, match="typechecker must be"):
+        Config.load(root=tmp_path, typechecker="tpye")
+
+
+def test_invalid_coverage_threshold_fails_at_load(tmp_path: Path) -> None:
+    """A coverage threshold outside 0-100 is rejected.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    with pytest.raises(ValueError, match="percentage"):
+        Config.load(root=tmp_path, coverage_fail_under=900)
+
+
+def test_folders_and_path_resolve(tmp_path: Path) -> None:
+    """``folders`` exposes exactly the folder fields, and ``path`` makes them absolute.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    cfg = Config.load(root=tmp_path)
+    assert set(cfg.folders) == {"source_folder", "tests_folder", "marimo_folder"}
+    assert cfg.path("source_folder") == tmp_path / "src"

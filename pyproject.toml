@@ -1,0 +1,85 @@
+[project]
+license = "MIT"
+license-files = ["LICENSE"]
+name = "rhiza-task"
+version = "0.1.0"
+description = "The rhiza developer tasks, as a pinned CLI instead of a synced make layer"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Jebel Quant Research" }]
+keywords = ["rhiza", "task-runner", "make", "uv", "ci"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Build Tools",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+
+# Three runtime dependencies, held down for the reason pytest-rhiza holds its four down:
+# this package is provisioned by `uvx` on every gate invocation in CI, so its resolve time
+# is paid per job. Everything a *task* needs -- pytest, ty, bandit, interrogate, mutmut,
+# zensical, prek -- is provisioned by the task itself through `uv run --with` / `uvx`,
+# exactly as the make recipes did, and so is deliberately absent here. tomllib is stdlib
+# from 3.11, which is why there is no tomli.
+dependencies = [
+    "typer>=0.15",
+    "rich>=13.0",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+# The script name matches the distribution name so that `uvx rhiza-task <task>` needs no
+# `--from`. Worth stating, because it is the whole ergonomic argument for the package name.
+rhiza-task = "rhiza_task.cli:main"
+
+[project.entry-points."rhiza_task.tasks"]
+# Task modules are discovered through this group rather than imported from a hardcoded
+# list, which is what lets a downstream project add a task without a fork -- the
+# replacement for `-include local.mk`. The built-ins register themselves the same way, so
+# there is one mechanism rather than a built-in path and a plugin path.
+python = "rhiza_task.tasks.python"
+quality = "rhiza_task.tasks.quality"
+extras = "rhiza_task.tasks.extras"
+book = "rhiza_task.tasks.book"
+doctor = "rhiza_task.tasks.doctor"
+
+[project.urls]
+Homepage = "https://github.com/jebel-quant/rhiza-task"
+Repository = "https://github.com/jebel-quant/rhiza-task"
+Issues = "https://github.com/jebel-quant/rhiza-task/issues"
+
+[dependency-groups]
+test = ["pytest>=8.0", "pytest-cov>=6.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rhiza_task"]
+
+[tool.bumpversion]
+allow_dirty = false
+commit = false
+tag = false
+
+[[tool.bumpversion.files]]
+filename = "src/rhiza_task/__init__.py"
+
+[[tool.bumpversion.files]]
+# The shim's default pin. A release that did not update this would hand consumers a
+# Makefile pinned to the previous version.
+filename = "src/rhiza_task/templates/Makefile"
+search = "rhiza-task@{current_version}"
+replace = "rhiza-task@{new_version}"
+
+[tool.deptry.package_module_name_map]
+# python-dotenv installs a module called `dotenv`. deptry runs isolated via `uvx`, so the
+# package is not importable and it cannot discover the mapping itself -- it guesses
+# `python_dotenv` and then reports the dependency as both unused (DEP002) and missing
+# (DEP001). Declaring it is the documented fix, and cheaper than making the gate install
+# the project first.
+python-dotenv = "dotenv"
