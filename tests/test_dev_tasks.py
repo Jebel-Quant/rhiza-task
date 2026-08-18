@@ -369,7 +369,7 @@ class TestExtrasGuards:
 
 
 class TestHookInstall:
-    """python.mk's conditional pre-commit hook install."""
+    """The conditional pre-commit hook install every ``install`` recipe carries."""
 
     def test_skipped_when_an_external_manager_owns_hookspath(
         self, cfg: Config, recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -382,14 +382,13 @@ class TestHookInstall:
             monkeypatch: pytest's patcher.
             capsys: pytest's output capture.
         """
-        from rhiza_task.tasks import python as python_tasks
-
         monkeypatch.setattr(
-            python_tasks.subprocess,
+            quality.subprocess,
             "run",
             lambda *a, **k: subprocess.CompletedProcess([], 0, stdout=".husky\n", stderr=""),
         )
-        python_tasks._install_hooks(cfg)
+        (cfg.root / ".pre-commit-config.yaml").touch()
+        quality.install_hooks(cfg)
         assert "core.hooksPath" in capsys.readouterr().out
         assert "prek" not in recorder.tools()
 
@@ -406,13 +405,12 @@ class TestHookInstall:
             recorder: The uv recorder.
             monkeypatch: pytest's patcher.
         """
-        from rhiza_task.tasks import python as python_tasks
-
         monkeypatch.setattr(
-            python_tasks.subprocess,
+            quality.subprocess,
             "run",
             lambda *a, **k: subprocess.CompletedProcess([], 0, stdout="", stderr=""),
         )
-        python_tasks._install_hooks(cfg)
+        (cfg.root / ".pre-commit-config.yaml").touch()
+        quality.install_hooks(cfg)
         assert recorder.find("prek").flags == ["install", "-c", ".pre-commit-config.yaml"]
         assert recorder.find("prek").kwargs["check"] is False

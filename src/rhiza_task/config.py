@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import os
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
@@ -37,21 +37,83 @@ from dotenv import dotenv_values
 
 TYPECHECKERS = ("ty", "mypy", "both")
 
-DEFAULT_RHIZA_CHECKS = (
+LAYERS = ("python", "rust", "go")
+"""The language layers, in the order :func:`~rhiza_task.spec.lookup` tries them.
+
+Python first because it is the layer a polyglot repository is most likely to have grown
+*into* -- a crate or a module that acquires a pyproject has acquired a Python package, and
+the gates that package needs are the ones that would otherwise stop running.
+"""
+
+LAYER_MANIFESTS = {"python": "pyproject.toml", "rust": "Cargo.toml", "go": "go.mod"}
+"""What makes a repository a member of a layer.
+
+The make layer answered this at sync time -- exactly one of python.mk, rust.mk and go.mk
+was ever synced into a repo, and `rhiza.mk`'s ``-include`` did the rest. A pinned CLI
+carries all three, so the question moves to runtime, and the manifest is the honest
+answer: it is what the toolchain itself looks for.
+"""
+
+NEUTRAL_RHIZA_CHECKS = (
     "pytest_rhiza.checks.test_readme",
     "pytest_rhiza.checks.test_release_tags",
-    "pytest_rhiza.checks.test_pyproject",
-    "pytest_rhiza.checks.test_docstrings",
     "pytest_rhiza.checks.test_readme_validation",
 )
-"""The Python check set, enumerated rather than globbed.
+"""The checks every repository gets, whatever it is written in."""
 
-pytest-rhiza ships the Rust and Go modules (``test_cargo_toml``, ``test_go_module``) in
-the same distribution, so ``--pyargs pytest_rhiza.checks`` would collect checks that
-cannot pass here. This is jointview's ``RHIZA_CHECKS`` list, promoted from a shadowed make
-variable to a default: the 60-line override in its Makefile exists only because the make
-layer had nowhere else to put it.
+LAYER_RHIZA_CHECKS = {
+    "python": ("pytest_rhiza.checks.test_pyproject", "pytest_rhiza.checks.test_docstrings"),
+    "rust": ("pytest_rhiza.checks.test_cargo_toml",),
+    "go": ("pytest_rhiza.checks.test_go_module",),
+}
+"""What each layer contributes, enumerated rather than globbed.
+
+pytest-rhiza ships all three layers' modules in one distribution, so
+``--pyargs pytest_rhiza.checks`` would collect checks that cannot pass -- ``test_go_module``
+against a Python project asserts a ``go.mod`` that is not there. In the make layer each
+language fragment appended its own with ``RHIZA_CHECKS +=``; here the accumulator is
+replaced by the same derivation the ``+=`` was standing in for, from the layer set rather
+than from include order.
 """
+
+DEFAULT_RHIZA_CHECKS = NEUTRAL_RHIZA_CHECKS + LAYER_RHIZA_CHECKS["python"]
+"""The Python resolution, kept as a name because it is the set consumers know.
+
+This is jointview's ``RHIZA_CHECKS`` list, promoted from a shadowed make variable to a
+default: the 60-line override in its Makefile exists only because the make layer had
+nowhere else to put it.
+"""
+
+
+def rhiza_checks_for(layers: Sequence[str]) -> tuple[str, ...]:
+    """Return the check set for a repository's layers.
+
+    Args:
+        layers: The active layers.
+
+    Returns:
+        The neutral checks followed by each layer's own, in layer order, deduplicated.
+    """
+    checks = list(NEUTRAL_RHIZA_CHECKS)
+    for layer in layers:
+        checks += [c for c in LAYER_RHIZA_CHECKS.get(layer, ()) if c not in checks]
+    return tuple(checks)
+
+
+def detect_layers(root: Path) -> tuple[str, ...]:
+    """Return the language layers a repository belongs to, by its manifests.
+
+    Args:
+        root: Repository root.
+
+    Returns:
+        The layers whose manifest is present, in :data:`LAYERS` order; ``("python",)``
+        when a repository has none, because that is what every gate assumed before there
+        was a choice, and a repo with no manifest at all has nothing for another layer's
+        gates to measure either.
+    """
+    found = tuple(layer for layer in LAYERS if (root / LAYER_MANIFESTS[layer]).is_file())
+    return found or ("python",)
 
 
 DEFAULT_CI_OS_MATRIX = ("ubuntu-latest",)
@@ -90,6 +152,13 @@ class Config:
     license_ignore_packages: tuple[str, ...] = ()
 
     deptry_ignore: tuple[str, ...] = ()
+
+    # rust.mk's CARGO_FLAGS and go.mk's GO_FLAGS / GO_TEST_FLAGS. `-race` and `-shuffle=on`
+    # are go.mk's default: the Go idiom for a CI run, and the flag that catches tests
+    # depending on declaration order.
+    cargo_flags: tuple[str, ...] = ()
+    go_flags: tuple[str, ...] = ()
+    go_test_flags: tuple[str, ...] = ("-race", "-shuffle=on")
     mkdocs_extra_packages: tuple[str, ...] = ()
     zensical_version: str = ">=0.0.36"
     uv_sync_args: tuple[str, ...] = ("--all-extras", "--all-groups")
@@ -97,7 +166,14 @@ class Config:
 
     # Pinned to a tag rather than a branch: a gate that moves under you is not a gate.
     pytest_rhiza: str = "pytest-rhiza @ git+https://github.com/Jebel-Quant/pytest-rhiza@v0.2.0"
-    rhiza_checks: tuple[str, ...] = DEFAULT_RHIZA_CHECKS
+
+    # Both are empty by default and filled in __post_init__, because both depend on the
+    # repository rather than on a constant: the layers come from the manifests present, and
+    # the check set follows from the layers. Setting either explicitly -- in
+    # pyproject.toml, or RHIZA_LAYERS=rust -- switches detection off for that field, which
+    # is what a repository carrying two manifests and wanting one gate set needs.
+    layers: tuple[str, ...] = ()
+    rhiza_checks: tuple[str, ...] = ()
 
     # Turns Skip into failure. The answer to jointview's own complaint about "a green gate
     # measuring nothing": set it in CI and a missing folder is a red build rather than a
@@ -123,8 +199,9 @@ class Config:
         ``.devcontainer/bootstrap.sh`` exports.
 
         Raises:
-            ValueError: When ``typechecker`` is not one of ty, mypy, both, or
-                ``coverage_fail_under`` is outside 0-100.
+            ValueError: When ``typechecker`` is not one of ty, mypy, both,
+                ``coverage_fail_under`` is outside 0-100, or ``layers`` names a layer that
+                does not exist.
         """
         for f in fields(self):
             if str(f.type).replace(" ", "") != "tuple[str,...]":
@@ -134,6 +211,15 @@ class Config:
                 object.__setattr__(self, f.name, tuple(value.split()))
             elif isinstance(value, list):
                 object.__setattr__(self, f.name, tuple(value))
+
+        if not self.layers:
+            object.__setattr__(self, "layers", detect_layers(self.root))
+        unknown = [layer for layer in self.layers if layer not in LAYERS]
+        if unknown:
+            msg = f"unknown layer(s) {', '.join(unknown)}; known: {', '.join(LAYERS)}"
+            raise ValueError(msg)
+        if not self.rhiza_checks:
+            object.__setattr__(self, "rhiza_checks", rhiza_checks_for(self.layers))
 
         if self.typechecker not in TYPECHECKERS:
             msg = f"typechecker must be one of {', '.join(TYPECHECKERS)} (got {self.typechecker!r})"

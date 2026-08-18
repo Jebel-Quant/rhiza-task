@@ -8,11 +8,11 @@ it is written out in full below.
 from __future__ import annotations
 
 import shutil
-import subprocess  # nosec B404 - fixed argument vector
 
 from ..config import Config
 from ..spec import REGISTRY, Failed, Guard, Skip, task
 from ..uv import uv, uv_run, uvx
+from .quality import install_hooks
 
 PYTEST_WITHS = (
     "pytest",
@@ -41,7 +41,7 @@ test failed.
 MAX_ATTEMPTS = 2
 
 
-@task("install", "create the venv and sync dependencies", section="Python")
+@task("install", "create the venv and sync dependencies", section="Python", layer="python")
 def install(cfg: Config) -> None:
     """Create ``.venv`` if absent, sync from the lock file, install the git hooks.
 
@@ -75,14 +75,14 @@ def install(cfg: Config) -> None:
     # tooling is provisioned on the fly by uv.py, so there is no separate step for it.
     uv("sync", *cfg.uv_sync_args, "--inexact", *frozen, cwd=cfg.root)
 
-    if (cfg.root / ".pre-commit-config.yaml").is_file():
-        _install_hooks(cfg)
+    install_hooks(cfg)
 
 
 @task(
     "test",
     "run all tests",
     section="Python",
+    layer="python",
     needs=("install",),
     guards=(Guard("tests_folder", glob="test_*.py", reason="no test files found"),),
 )
@@ -145,6 +145,7 @@ def test(cfg: Config) -> None:
     "typecheck",
     "run ty and/or mypy (typechecker = ty | mypy | both)",
     section="Python",
+    layer="python",
     needs=("install",),
     guards=(Guard("source_folder"),),
 )
@@ -169,6 +170,7 @@ def typecheck(cfg: Config) -> None:
     "security",
     "run the bandit security scan",
     section="Python",
+    layer="python",
     needs=("install",),
     guards=(Guard("source_folder"),),
 )
@@ -188,7 +190,7 @@ def security(cfg: Config) -> None:
     uvx("bandit", "-r", cfg.source_folder, "-ll", "-q", *ini, cwd=cfg.root)
 
 
-@task("deps", "run deptry over the contributed folders", section="Python", needs=("install",))
+@task("deps", "run deptry over the contributed folders", section="Python", layer="python", needs=("install",))
 def deps(cfg: Config) -> None:
     """Check declared dependencies against actual imports.
 
@@ -215,7 +217,7 @@ def deps(cfg: Config) -> None:
     uvx("deptry", *folders, *ignores, cwd=cfg.root)
 
 
-@task("license", "scan for copyleft licences", section="Python", needs=("install",))
+@task("license", "scan for copyleft licences", section="Python", layer="python", needs=("install",))
 def license_(cfg: Config) -> None:
     """Fail on GPL/LGPL/AGPL among the installed distributions.
 
@@ -247,6 +249,7 @@ def license_(cfg: Config) -> None:
     "docs-coverage",
     "check docstring coverage with interrogate",
     section="Python",
+    layer="python",
     needs=("install",),
     guards=(Guard("source_folder"),),
 )
@@ -274,6 +277,7 @@ def docs_coverage(cfg: Config) -> None:
     "all",
     "run every gate, as CI does",
     section="Python",
+    layer="python",
     needs=("fmt", "deps", "test", "docs-coverage", "security", "license", "typecheck", "rhiza-test"),
 )
 def all_(cfg: Config) -> None:
@@ -287,29 +291,3 @@ def all_(cfg: Config) -> None:
     Args:
         cfg: Unused; the prerequisites do the work.
     """
-
-
-def _install_hooks(cfg: Config) -> None:
-    """Install the prek git hooks unless an external manager owns ``core.hooksPath``.
-
-    ``-c`` must be passed here *and* in ``fmt``: prek bakes the flag into the generated
-    shim, so without it the commit-time gate rediscovers nested projects and stops meaning
-    what ``fmt`` means.
-
-    Args:
-        cfg: The resolved config.
-    """
-    git = shutil.which("git") or "git"
-    hooks_path = subprocess.run(  # noqa: S603  # nosec B603
-        [git, "config", "--get", "core.hooksPath"],
-        capture_output=True,
-        text=True,
-        cwd=cfg.root,
-        check=False,
-    ).stdout.strip()
-    if hooks_path:
-        print("[INFO] skipping hook install: core.hooksPath is set")
-        return
-    # A hook-install failure warns rather than fails, as python.mk does: it does not
-    # invalidate the environment that was just built.
-    uvx("prek", "install", "-c", ".pre-commit-config.yaml", cwd=cfg.root, check=False)

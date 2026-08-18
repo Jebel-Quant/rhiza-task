@@ -23,8 +23,8 @@ class Call:
     """One recorded invocation.
 
     Attributes:
-        kind: Which entry point was used -- ``uv``, ``uvx`` or ``uv_run``.
-        args: The positional arguments, tool name first for uvx/uv_run.
+        kind: Which entry point was used -- ``uv``, ``uvx``, ``uv_run`` or ``tool``.
+        args: The positional arguments, tool name first for uvx/uv_run/tool.
         kwargs: The keyword arguments, notably ``withs`` and ``check``.
     """
 
@@ -67,7 +67,7 @@ class Recorder:
         """Build a stand-in for one uv entry point.
 
         Args:
-            kind: ``uv``, ``uvx`` or ``uv_run``.
+            kind: ``uv``, ``uvx``, ``uv_run`` or ``tool``.
 
         Returns:
             A callable with the same shape as the real function.
@@ -129,7 +129,8 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> Recorder:
     """Patch uv in every task module and return the recorder.
 
     The task modules do ``from ..uv import uv, uv_run, uvx``, binding the functions into
-    their own namespace, so patching :mod:`rhiza_task.uv` alone would not take effect.
+    their own namespace, so patching :mod:`rhiza_task.uv` alone would not take effect. The
+    Rust and Go modules bind ``tool`` the same way, so it is patched alongside.
 
     Args:
         monkeypatch: pytest's patcher.
@@ -138,10 +139,10 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> Recorder:
         The recorder collecting every call.
     """
     rec = Recorder()
-    modules = ("python", "quality", "extras", "book")
+    modules = ("python", "quality", "extras", "book", "rust", "go")
     for name in modules:
         module = pytest.importorskip(f"rhiza_task.tasks.{name}")
-        for kind in ("uv", "uvx", "uv_run"):
+        for kind in ("uv", "uvx", "uv_run", "tool"):
             if hasattr(module, kind):
                 monkeypatch.setattr(module, kind, rec.make(kind))
     return rec

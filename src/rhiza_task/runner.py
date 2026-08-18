@@ -12,6 +12,10 @@ back; nothing else belongs here.
 4. **A missing prerequisite is not an error.** book.mk declares ``test:: ; @:`` no-op
    stubs so ``book`` can depend on gates that may not have been synced; here a
    prerequisite absent from the registry is simply not run, and the stubs are gone.
+
+Every name goes through :func:`~rhiza_task.spec.lookup` rather than a dict subscript, so
+``test`` means pytest in a Python repository and ``cargo nextest`` in a crate. That is the
+question the make layer answered by syncing exactly one language fragment.
 """
 
 from __future__ import annotations
@@ -20,7 +24,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from .config import Config
-from .spec import REGISTRY, Failed, Skip
+from .spec import Failed, Skip, lookup
 
 
 class Status(StrEnum):
@@ -97,11 +101,11 @@ def run(names: list[str], cfg: Config) -> Run:
         The completed :class:`Run`.
 
     Raises:
-        KeyError: When an explicitly requested task does not exist. Only for requested
-            names -- an unknown *prerequisite* is skipped, whereas an unknown request is a
-            typo and should say so.
+        KeyError: When an explicitly requested task does not exist *in this repository's
+            layers*. Only for requested names -- an unknown prerequisite is skipped,
+            whereas an unknown request is a typo and should say so.
     """
-    unknown = [n for n in names if n not in REGISTRY]
+    unknown = [n for n in names if lookup(n, cfg.layers) is None]
     if unknown:
         msg = f"unknown task{'s' if len(unknown) > 1 else ''}: {', '.join(unknown)}"
         raise KeyError(msg)
@@ -120,16 +124,18 @@ def _run_one(name: str, cfg: Config, state: Run) -> None:
         cfg: The resolved config.
         state: The invocation state, appended to in place.
     """
-    if name in state.seen or name not in REGISTRY:
+    spec = lookup(name, cfg.layers)
+    # The registry key, not the requested name: `rust:test` and `test` are one task in a
+    # crate, and a run that named both would otherwise run it twice.
+    if spec is None or spec.key in state.seen:
         return
-    state.seen.add(name)
-    spec = REGISTRY[name]
+    state.seen.add(spec.key)
 
     for need in spec.needs:
         _run_one(need, cfg, state)
     blocked = [n for n in spec.needs if state.status_of(n) in {Status.FAILED, Status.BLOCKED}]
     if blocked:
-        state.results.append(Result(name, Status.BLOCKED, f"prerequisite failed: {', '.join(blocked)}"))
+        state.results.append(Result(spec.name, Status.BLOCKED, f"prerequisite failed: {', '.join(blocked)}"))
         return
 
     try:
@@ -140,10 +146,10 @@ def _run_one(name: str, cfg: Config, state: Run) -> None:
         # The strict switch is the whole reason Skip is a distinct outcome rather than a
         # warning printed on the way to exit 0.
         if cfg.strict:
-            state.results.append(Result(name, Status.FAILED, f"skipped under --strict: {exc}"))
+            state.results.append(Result(spec.name, Status.FAILED, f"skipped under --strict: {exc}"))
         else:
-            state.results.append(Result(name, Status.SKIPPED, str(exc)))
+            state.results.append(Result(spec.name, Status.SKIPPED, str(exc)))
     except Failed as exc:
-        state.results.append(Result(name, Status.FAILED, str(exc)))
+        state.results.append(Result(spec.name, Status.FAILED, str(exc)))
     else:
-        state.results.append(Result(name, Status.OK))
+        state.results.append(Result(spec.name, Status.OK))
