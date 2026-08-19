@@ -7,6 +7,7 @@ the make recipes said in ``$$``-escaped shell.
 from __future__ import annotations
 
 import shutil
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -332,6 +333,35 @@ class TestQuality:
         assert "pytest_rhiza.checks.test_readme" in call.flags
         assert not [f for f in call.flags if "test_cargo_toml" in f or "test_go_module" in f]
         assert call.kwargs["withs"] == (cfg.pytest_rhiza,)
+
+    def test_rhiza_test_tells_the_docstring_check_where_to_look(self, cfg: Config, recorder: Recorder) -> None:
+        """``RHIZA_DOCTEST_FOLDERS`` carries ``source_folder`` into the checks.
+
+        Without it ``test_docstrings`` falls back to a literal ``src`` and reports
+        ``SKIPPED  No doctest folder found`` -- a green gate that measured nothing, which is
+        exactly the regression rhiza's doctest gate exists to prevent.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        quality.rhiza_test(cfg)
+        assert recorder.find("pytest").kwargs["env"] == {"RHIZA_DOCTEST_FOLDERS": cfg.source_folder}
+
+    def test_rhiza_test_honours_a_relocated_source_folder(self, cfg: Config, recorder: Recorder) -> None:
+        """A repo declaring ``source-folder = "utils"`` gets its doctests checked.
+
+        The default would pass the assertion above by coincidence, since ``source_folder``
+        already defaults to ``src``. This is the case that actually failed: rhiza itself
+        ships configuration, so its only non-test Python is ``utils/``.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        relocated = replace(cfg, source_folder="utils")
+        quality.rhiza_test(relocated)
+        assert recorder.find("pytest").kwargs["env"] == {"RHIZA_DOCTEST_FOLDERS": "utils"}
 
     def test_todos_reports_file_and_line(self, cfg: Config, capsys: pytest.CaptureFixture[str]) -> None:
         """A TODO is reported with a repo-relative path and a line number.
