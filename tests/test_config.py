@@ -279,7 +279,13 @@ def test_folders_and_path_resolve(tmp_path: Path) -> None:
         tmp_path: The repository root.
     """
     cfg = Config.load(root=tmp_path)
-    assert set(cfg.folders) == {"source_folder", "tests_folder", "marimo_folder"}
+    assert set(cfg.folders) == {
+        "source_folder",
+        "tests_folder",
+        "marimo_folder",
+        "docker_folder",
+        "paper_folder",
+    }
     assert cfg.path("source_folder") == tmp_path / "src"
 
 

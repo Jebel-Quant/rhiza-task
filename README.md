@@ -20,7 +20,7 @@ a full copy at a template tag, and everything downstream was damage control.
 | before, per consumer repo | after |
 |---|---|
 | `.rhiza/rhiza.mk` — 200 lines, synced | *gone* |
-| `.rhiza/make.d/*.mk` — 823 lines in 10 files, synced | *gone* |
+| `.rhiza/make.d/*.mk` — 1023 lines in 15 files, synced | *gone* |
 | `exclude:` entries in `template.yml`, because "a deletion alone is undone by the next sync" | not needed |
 | targets shadowed in the repo Makefile, make printing `overriding commands for target` as the mechanism working | `[tool.rhiza-task]` |
 | ~40 lines of GNU-make guard and Windows POSIX-shell probe | gone — no make, no shell |
@@ -60,6 +60,20 @@ pinned CLI, so a consumer still on an older reusable workflow needs no change.
 | Testing extras | `benchmark` `hypothesis-test` `stress` `mutation` |
 | Book | `book` `serve` `marimo` `marimo-validate` |
 | Dev | `doctor` `clean` |
+| GitHub Helpers | `view-prs` `view-issues` `failed-workflows` `workflow-status` `latest-release` `whoami` |
+| Docker | `docker-build` `docker-run` `docker-clean` |
+| Git LFS | `lfs-install` `lfs-pull` `lfs-track` `lfs-status` |
+| Paper | `paper` `paper-clean` |
+| Presentation | `presentation` `presentation-pdf` `presentation-serve` |
+
+The last five sections are the bundle-owned fragments `.rhiza/make.d/` had to keep because
+nothing here answered for their targets. None is a gate — no `all` names them and no
+workflow invokes them — so each is guarded on the CLI it wraps and **skips** when that tool
+is absent, with `--strict` available to a caller who wants the fragment's hard failure
+instead. Two changed behaviour on purpose, and say so in their module docstring:
+`lfs-install` configures the repository and reports how to install the binary rather than
+downloading one, and `presentation` reaches Marp through `npx --yes` rather than
+`npm install -g`.
 
 ### Three layers, one set of names
 

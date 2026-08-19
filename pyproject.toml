@@ -47,6 +47,14 @@ quality = "rhiza_task.tasks.quality"
 extras = "rhiza_task.tasks.extras"
 book = "rhiza_task.tasks.book"
 doctor = "rhiza_task.tasks.doctor"
+# The five bundle-owned fragments `.rhiza/make.d/` kept because nothing here answered for
+# their targets. One module per bundle, so which bundle owns a task stays as legible as it
+# was when each was a file the template synced.
+github = "rhiza_task.tasks.github"
+docker = "rhiza_task.tasks.docker"
+lfs = "rhiza_task.tasks.lfs"
+paper = "rhiza_task.tasks.paper"
+presentation = "rhiza_task.tasks.presentation"
 
 [project.urls]
 Homepage = "https://github.com/jebel-quant/rhiza-task"
