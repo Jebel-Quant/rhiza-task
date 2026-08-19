@@ -173,6 +173,21 @@ class Config:
     go_flags: tuple[str, ...] = ()
     go_test_flags: tuple[str, ...] = ("-race", "-shuffle=on")
     mkdocs_extra_packages: tuple[str, ...] = ()
+
+    # The five bundle-owned fragments' settings. docker.mk's DOCKER_FOLDER was a `:=`
+    # rather than a `?=` -- not configurable at all -- and paper.mk hard-coded the
+    # PRESENTATION.md equivalent; both are ordinary settings here, because there is no
+    # longer a cost to making one.
+    docker_folder: str = "docker"
+    # Empty rather than a computed default: docker.mk's `?= $(shell basename $(CURDIR))`
+    # cannot be spelled as a dataclass default, and resolving it in the task body keeps
+    # `rhiza-task print docker_image` honest about the setting being unset.
+    docker_image: str = ""
+    paper_folder: str = "docs/paper"
+    presentation_file: str = "PRESENTATION.md"
+    # Unpinned, because `npm install -g @marp-team/marp-cli` was too: presentation.mk
+    # installed whatever latest resolved to. Set it to `@marp-team/marp-cli@4.2.3` to pin.
+    marp_package: str = "@marp-team/marp-cli"
     zensical_version: str = ">=0.0.36"
     uv_sync_args: tuple[str, ...] = ("--all-extras", "--all-groups")
     ci_os_matrix: tuple[str, ...] = DEFAULT_CI_OS_MATRIX
@@ -382,9 +397,7 @@ def _table(path: Path, select: Callable[[dict[str, Any]], Any]) -> dict[str, Any
     if not isinstance(table, dict):
         return {}
     return {
-        k.replace("-", "_"): tuple(v) if isinstance(v, list) else v
-        for k, v in table.items()
-        if not isinstance(v, dict)
+        k.replace("-", "_"): tuple(v) if isinstance(v, list) else v for k, v in table.items() if not isinstance(v, dict)
     }
 
 

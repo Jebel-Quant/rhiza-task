@@ -76,12 +76,25 @@ class Guard:
     manifest rather than a folder, because ``cargo`` and ``go`` find the sources
     themselves. It is a literal path, not a config field -- ``Cargo.toml`` and ``go.mod``
     are named by their toolchains and are not a repository's choice to make.
+
+    ``tool`` is a precondition on the *machine* rather than on the repository, and it is
+    what github.mk's ``require-gh`` was: a target whose whole body is
+    ``command -v gh >/dev/null || exit 1``, declared as a prerequisite of every helper.
+    The five bundle-owned fragments are mostly wrappers over a CLI nobody can assume is
+    installed -- gh, docker, git-lfs, latexmk, marp -- so the check is declared once here
+    rather than repeated as the first three lines of a dozen task bodies.
+
+    A missing tool is a :class:`Skip`, not a failure, which is a deliberate change from
+    ``require-gh``'s hard exit. Nothing here is a gate, so a machine without docker should
+    not fail a run that asked for something else too -- and ``--strict`` is the switch for
+    a caller who does want it to.
     """
 
     folder: str | None = None
     glob: str | None = None
     reason: str = ""
     file: str | None = None
+    tool: str | None = None
 
     def check(self, root: Path, folders: dict[str, str]) -> None:
         """Raise :class:`Skip` when the guard is not satisfied.
@@ -91,9 +104,11 @@ class Guard:
             folders: Resolved folder settings, e.g. ``{"source_folder": "src"}``.
 
         Raises:
-            Skip: When the file is missing, or the folder is missing, or the folder holds
-                no file matching ``glob``.
+            Skip: When the tool is absent, or the file is missing, or the folder is
+                missing, or the folder holds no file matching ``glob``.
         """
+        if self.tool and not have(self.tool):
+            raise Skip(self.reason or f"{self.tool} not found")
         if self.file and not (root / self.file).is_file():
             raise Skip(self.reason or f"no {self.file}")
         if self.folder is None:

@@ -139,7 +139,19 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> Recorder:
         The recorder collecting every call.
     """
     rec = Recorder()
-    modules = ("python", "quality", "extras", "book", "rust", "go")
+    modules = (
+        "python",
+        "quality",
+        "extras",
+        "book",
+        "rust",
+        "go",
+        "github",
+        "docker",
+        "lfs",
+        "paper",
+        "presentation",
+    )
     for name in modules:
         module = pytest.importorskip(f"rhiza_task.tasks.{name}")
         for kind in ("uv", "uvx", "uv_run", "tool"):
