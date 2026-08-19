@@ -99,10 +99,26 @@ def rhiza_test(cfg: Config) -> None:
     ``install`` is a prerequisite because the docstring check imports the project's own
     packages to run their doctests, which needs the dependencies present.
 
+    ``RHIZA_DOCTEST_FOLDERS`` is what tells ``test_docstrings`` where to look, and it has
+    to be passed: the check falls back to ``SOURCE_FOLDER`` in ``.rhiza/.env`` and then to
+    a literal ``src``, so a repo whose Python lives anywhere else got
+    ``SKIPPED  No doctest folder found (looked for: src)`` and a **green** gate -- the
+    doctests went unchecked with nothing failing to say so. ``.rhiza/.env`` cannot cover
+    for it either: since rhiza stopped shipping ``.rhiza/.gitignore``, whose only content
+    was the ``!.env`` negation, that file is gitignored and a CI checkout never has one.
+    ``quality.mk`` exported the variable from ``DOCSTRING_FOLDERS``; this is that export.
+
     Args:
         cfg: The resolved config.
     """
-    uv_run("pytest", "--pyargs", *cfg.rhiza_checks, cwd=cfg.root, withs=(cfg.pytest_rhiza,))
+    uv_run(
+        "pytest",
+        "--pyargs",
+        *cfg.rhiza_checks,
+        cwd=cfg.root,
+        withs=(cfg.pytest_rhiza,),
+        env={"RHIZA_DOCTEST_FOLDERS": cfg.source_folder},
+    )
 
 
 @task(
