@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.1] - 2026-08-19
+
+### 🐛 Bug Fixes
+
+- *(book)* Provision mkdocstrings, which the book bundle's own config requires
+
 ## [0.3.0] - 2026-08-19
 
 ### 🚀 Features
