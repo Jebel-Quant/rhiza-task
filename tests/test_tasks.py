@@ -430,6 +430,46 @@ class TestBook:
         assert (cfg.path("book_output") / ".nojekyll").is_file()
         assert recorder.find(f"zensical{cfg.zensical_version}").flags[0] == "build"
 
+    def test_mkdocstrings_is_provisioned_by_default(self, cfg: Config, recorder: Recorder) -> None:
+        """The zensical run must carry mkdocstrings without the repo configuring anything.
+
+        rhiza's ``book`` bundle enables the plugin in ``docs/mkdocs-base.yml`` for every
+        consumer, and no bundle can install it -- so an empty default made zensical fail with
+        "mkdocstrings plugin is enabled, but mkdocstrings is not installed" on a freshly
+        synced repo. Asserted on ``withs`` rather than on the config value, because passing
+        the setting to :func:`uvx` is the half that actually reaches the build.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        (cfg.root / "mkdocs.yml").write_text("site_name: demo\n")
+        book_tasks.book(cfg)
+        withs = recorder.find(f"zensical{cfg.zensical_version}").kwargs["withs"]
+        assert any("mkdocstrings" in spec for spec in withs), (
+            f"the book build must provision mkdocstrings; withs={withs!r}"
+        )
+
+    def test_extra_packages_can_be_turned_off_in_the_manifest(self, cfg: Config, recorder: Recorder) -> None:
+        """``mkdocs-extra-packages = []`` must reach the build as no packages at all.
+
+        The escape hatch for the non-empty default. TOML is the only layer that can express
+        it -- ``.rhiza/.env`` and the environment drop empties on purpose -- so if this
+        stopped working the default would be impossible to opt out of.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        (cfg.root / "mkdocs.yml").write_text("site_name: demo\n")
+        (cfg.root / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "0.0.0"\n\n[tool.rhiza-task]\nmkdocs-extra-packages = []\n'
+        )
+        reloaded = Config.load(root=cfg.root)
+        assert reloaded.mkdocs_extra_packages == ()
+        book_tasks.book(reloaded)
+        assert not recorder.find(f"zensical{reloaded.zensical_version}").kwargs["withs"]
+
     def test_generates_a_coverage_badge_when_coverage_exists(self, cfg: Config, recorder: Recorder) -> None:
         """The badge is produced from the XML report that ``test`` leaves behind.
 

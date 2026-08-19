@@ -172,7 +172,24 @@ class Config:
     cargo_flags: tuple[str, ...] = ()
     go_flags: tuple[str, ...] = ()
     go_test_flags: tuple[str, ...] = ("-race", "-shuffle=on")
-    mkdocs_extra_packages: tuple[str, ...] = ()
+    # Non-empty on purpose, and it pairs with ``zensical_version`` below: this setting is
+    # the other half of "what the book gate provisions", and only one half was ever set.
+    #
+    # rhiza's ``book`` bundle ships ``docs/mkdocs-base.yml`` with ``mkdocstrings`` enabled
+    # unconditionally, and every consumer inherits it via ``INHERIT``. With this empty,
+    # ``book`` invoked ``uvx zensical build`` with no ``--with``, and zensical refused:
+    #
+    #     Error: mkdocstrings plugin is enabled, but mkdocstrings is not installed.
+    #
+    # So the bundle shipped a config that could not build with its own default. The default
+    # belongs here rather than in the bundle because a bundle has nowhere to put it: core
+    # ships no ``.rhiza/.env`` (jebel-quant/rhiza#1545 deleted it), ``pyproject.toml`` is
+    # repo-owned, and ``_from_manifest`` reads only pyproject/Cargo -- so a ``book`` +
+    # ``go-core`` repo has no TOML surface at all. This is the one layer every consumer has.
+    #
+    # A repo that wants no plugins sets ``mkdocs-extra-packages = []`` in its manifest.
+    # That is TOML-only, deliberately -- see :func:`_from_env_file`.
+    mkdocs_extra_packages: tuple[str, ...] = ("mkdocstrings[python]",)
 
     # The five bundle-owned fragments' settings. docker.mk's DOCKER_FOLDER was a `:=`
     # rather than a `?=` -- not configurable at all -- and paper.mk hard-coded the
@@ -319,9 +336,19 @@ def _from_env_file(path: Path) -> dict[str, Any]:
     """Read ``.rhiza/.env``.
 
     An empty assignment (``RHIZA_CI_OS_MATRIX=``) is dropped rather than carried as an
-    empty string, for the reason given in :func:`_from_environ`: no field's type has a
-    meaningful empty value, so the only thing an empty setting can sensibly mean is
-    "leave the lower layer alone".
+    empty string, for the reason given in :func:`_from_environ`: that rule mirrors make's
+    ``?=``, which is what ``rhiza_ci.yml`` relies on when it exports the matrix empty for
+    every consumer so their own ``.rhiza/.env`` can answer.
+
+    **A consequence, now that one default is non-empty.** The rule used to be justified as
+    "no field's type has a meaningful empty value", and that stopped being true when
+    :attr:`Config.mkdocs_extra_packages` gained a default: for it, empty means "install no
+    plugins", which is a real choice rather than an absent one. It is expressible as
+    ``mkdocs-extra-packages = []`` in a manifest, where TOML distinguishes an empty array
+    from an absent key -- and *not* here or in the environment, where both arrive as the
+    same empty string. The behaviour is unchanged and deliberate: the matrix case above
+    needs it, and a dotenv layer cannot tell the two apart. Only the reasoning is amended,
+    so a reader does not conclude from the old wording that ``[]`` is meaningless anywhere.
 
     Args:
         path: Path to the dotenv file.

@@ -383,3 +383,50 @@ def test_rhiza_checks_is_settable_from_the_env_file(tmp_path: Path) -> None:
     (tmp_path / ".rhiza").mkdir()
     (tmp_path / ".rhiza" / ".env").write_text("RHIZA_CHECKS=pkg.a pkg.b\n")
     assert Config.load(root=tmp_path).rhiza_checks == ("pkg.a", "pkg.b")
+
+
+def test_mkdocs_extra_packages_defaults_to_mkdocstrings(tmp_path: Path) -> None:
+    """The default must name mkdocstrings, with no repo configuration at all.
+
+    rhiza's ``book`` bundle enables the plugin for every consumer and has no surface on which
+    to install it -- core ships no ``.rhiza/.env``, and a ``book`` + ``go-core`` repo has no
+    manifest this reader accepts. This default is the only layer that reaches all of them.
+
+    Args:
+        tmp_path: An empty repository root.
+    """
+    cfg = Config.load(root=tmp_path)
+    assert any("mkdocstrings" in spec for spec in cfg.mkdocs_extra_packages), (
+        f"mkdocs_extra_packages must default to mkdocstrings; got {cfg.mkdocs_extra_packages!r}"
+    )
+
+
+def test_an_empty_toml_array_overrides_the_default_away(tmp_path: Path) -> None:
+    """``mkdocs-extra-packages = []`` must win over the non-empty default.
+
+    TOML is the only layer that can express "none": :func:`_from_env_file` and
+    :func:`_from_environ` drop empties to mirror make's ``?=``, which the CI matrix relies
+    on. Without this, the default could not be opted out of anywhere.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\nversion = "0.0.0"\n\n[tool.rhiza-task]\nmkdocs-extra-packages = []\n'
+    )
+    assert Config.load(root=tmp_path).mkdocs_extra_packages == ()
+
+
+def test_an_empty_env_value_leaves_the_default_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An empty environment value must not be read as "no packages".
+
+    The documented consequence of the empty-is-unset rule, pinned so the amended
+    :func:`_from_env_file` docstring stays true: the manifest is the escape hatch, the
+    environment is not.
+
+    Args:
+        tmp_path: The repository root.
+        monkeypatch: To set the environment variable.
+    """
+    monkeypatch.setenv("RHIZA_MKDOCS_EXTRA_PACKAGES", "")
+    assert Config.load(root=tmp_path).mkdocs_extra_packages != ()
