@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.3.0] - 2026-08-19
+
+### 🚀 Features
+
+- *(tasks)* Tasks for the five bundles `.rhiza/make.d` could not retire (#22). One module
+  per bundle — `github`, `docker`, `lfs`, `paper`, `presentation` — covering all eighteen
+  targets under their original names, so `make view-prs` keeps working through the shim's
+  catch-all. This reverses 0.1.0's "not ported: github.mk's seven `gh` wrappers (use `gh`
+  directly)": `github` is in rhiza's `github-project` profile, so leaving it out kept the
+  whole `.rhiza/make.d/` folder alive for the flagship profile.
+- *(spec)* `Guard(tool=...)`, which is what `require-gh` and `require-marp` were — a target
+  whose entire body is `command -v X >/dev/null || exit 1`, declared as a prerequisite of
+  every helper. A missing tool is a **skip** carrying the install hint rather than the
+  fragment's hard exit, because nothing in these five bundles is a gate; `--strict` gives
+  the failure back to a caller who wants it.
+- *(config)* `docker_folder`, `docker_image`, `paper_folder`, `presentation_file` and
+  `marp_package`. `docker.mk`'s `DOCKER_FOLDER` was a `:=` — not configurable at all — and
+  `PRESENTATION.md` was a literal.
+
+### Deliberate differences from the fragments
+
+Three, each recorded in its module docstring:
+
+- **`lfs-install` configures the repository; it no longer downloads a binary.** lfs.mk's
+  macOS branch queried the releases API, unzipped git-lfs into `.local/bin`, and ran
+  `git-lfs install` — but `.local/bin` is not on PATH afterwards and every other target
+  invokes the bare command, so `lfs-install` followed by `lfs-pull` still failed on a
+  machine that had none. The `git lfs install` at the end is the part that worked and is
+  what survives; the binary is now reported per platform, not fetched. Consumers who
+  relied on the Linux `sudo apt-get` branch need one line of their own.
+- **Marp comes from `npx --yes`, not `npm install -g`.** `require-marp` did not check for
+  Marp, it installed it globally as a side effect of typing `make presentation`. `npx`
+  keeps the convenience without mutating the machine; Marp on PATH still wins, and
+  `marp_package` pins the spec.
+- **`paper` no longer prefers `basanos.tex`** — one downstream repository's filename,
+  hard-coded in a template every consumer syncs. Now `main.tex`, then `paper.tex`, then
+  alphabetical, which is identical behaviour for a folder holding one `.tex`.
+
+Dropped with the fragments: `require-gh`/`gh-install`, the same question spelled twice
+because make cannot say it once; `require-marp`; and `FORGE_TYPE`, which github.mk computed
+at parse time and no target ever read. The six gh templates are carried over byte-identical
+— reproducing `timeago` and gh's colour handling in Python would be a worse table.
+
 ## [0.2.0] - 2026-08-18
 
 ### 🚀 Features
