@@ -3,8 +3,10 @@
 The shim is the one artefact this package ships that is not Python, and its failure modes
 are make's, not the CLI's: a circular dependency, a match-anything rule applied to the
 makefile itself, a bootstrap that runs twice or never. None of those are visible in the
-file, so the tests below run ``make -n`` against a throwaway checkout with a stub ``uvx``
-on PATH -- no network, no uv, and every recipe printed rather than executed.
+file, so the tests below run make against a throwaway checkout with a stub ``uvx`` on
+PATH -- no network and no uv. Mostly under ``-n``, which prints every recipe rather than
+executing it; the exceptions are the PATH-export tests, which need a recipe's actual
+environment and so run a ``local.mk`` target that shells out to nothing but ``echo``.
 """
 
 from __future__ import annotations
@@ -40,6 +42,33 @@ def _make(root: Path, *args: str, path: str) -> subprocess.CompletedProcess[str]
     env.pop("MAKEFLAGS", None)
     return subprocess.run(  # nosec B603
         [shutil.which("make") or "make", "-n", *args],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _make_run(root: Path, *args: str, path: str) -> subprocess.CompletedProcess[str]:
+    """Run make for real in ``root`` with a controlled PATH.
+
+    The sibling of :func:`_make`, without ``-n``. The PATH export is only observable in a
+    recipe's *environment*, which ``-n`` never builds -- it prints the recipe instead of
+    handing it to a shell.
+
+    Args:
+        root: Directory holding the shim.
+        *args: Goals to pass to make.
+        path: The PATH the invocation sees.
+
+    Returns:
+        The completed process, with output captured.
+    """
+    env = dict(os.environ, PATH=path)
+    env.pop("MAKEFLAGS", None)
+    return subprocess.run(  # nosec B603
+        [shutil.which("make") or "make", *args],
         cwd=root,
         env=env,
         capture_output=True,
@@ -148,3 +177,43 @@ def test_local_mk_wins_over_the_catch_all(shim: Path, stub_path: str) -> None:
     assert result.returncode == 0, result.stderr
     assert "repo-owned" in result.stdout
     assert "rhiza-task@" not in result.stdout
+
+
+def test_install_dir_is_exported_first_on_path(shim: Path, stub_path: str) -> None:
+    """A recipe's environment has ``./bin`` on PATH, ahead of everything inherited.
+
+    The other half of the bootstrap: the shim reaches the CLI by absolute path, but the
+    CLI's task bodies shell out to bare ``uv``/``uvx``, so a child that inherits a PATH
+    without ``./bin`` dies with ``FileNotFoundError: 'uvx'`` on the first gate that shells
+    out -- immediately after a bootstrap that appeared to succeed.
+
+    Args:
+        shim: The directory holding the Makefile.
+        stub_path: A PATH whose ``uvx`` is a stub.
+    """
+    (shim / "local.mk").write_text('show-path:\n\t@echo "$$PATH"\n')
+    result = _make_run(shim, "show-path", path=stub_path)
+    assert result.returncode == 0, result.stderr
+    entries = result.stdout.strip().split(os.pathsep)
+    # First, not merely present: an older uv earlier on PATH would otherwise win, and
+    # RHIZA_TASK would stop being the whole version contract.
+    assert entries[0] == str(shim / "bin")
+    # And nothing inherited is dropped or reordered behind it.
+    assert entries[1:] == stub_path.split(os.pathsep)
+
+
+def test_the_exported_path_survives_an_overridden_install_dir(shim: Path, stub_path: str) -> None:
+    """``INSTALL_DIR=/somewhere`` moves the exported entry too, not just the bootstrap.
+
+    ``INSTALL_DIR`` is a ``?=`` override, and the export is computed from it, so the two
+    cannot drift into provisioning one directory and exporting another.
+
+    Args:
+        shim: The directory holding the Makefile.
+        stub_path: A PATH whose ``uvx`` is a stub.
+    """
+    (shim / "local.mk").write_text('show-path:\n\t@echo "$$PATH"\n')
+    elsewhere = shim / "elsewhere"
+    result = _make_run(shim, f"INSTALL_DIR={elsewhere}", "show-path", path=stub_path)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().split(os.pathsep)[0] == str(elsewhere)

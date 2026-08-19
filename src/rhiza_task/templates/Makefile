@@ -17,10 +17,21 @@ RHIZA_TASK ?= rhiza-task@0.3.1
 # runs `make fmt` with no `astral-sh/setup-uv` step, and `ubuntu-latest` ships no uv. A shim
 # that only ran `uvx` would turn a required status check red on the day a repo migrated.
 #
-# So the bootstrap survives, minus the parts the CLI took over: no `bin/uv`, no PATH export,
-# no clean-up, just the one binary needed to reach the pin above.
+# So the bootstrap survives, minus the parts the CLI took over: no `bin/uv`, no clean-up,
+# just the one binary needed to reach the pin above -- and the PATH export, because
+# reaching the CLI is not the same as letting it run. Every task body shells out to a bare
+# `uv` or `uvx` (`uv.py` resolves both with `shutil.which`, which reads the PATH it
+# inherits), so provisioning `./bin/uvx` and then not exporting `./bin` gets as far as the
+# first gate that shells out and dies with `FileNotFoundError: 'uvx'` -- after a bootstrap
+# that looked like it worked. `version`, `print` and `list` are pure-CLI and stay green,
+# which is how this reached a required status check.
+#
+# Prepended, not appended: with `$(INSTALL_DIR)` last, a runner carrying an older uv
+# earlier on PATH resolves differently from a bare one, and `RHIZA_TASK` quietly stops
+# being the whole version contract the header above claims it is.
 INSTALL_DIR ?= $(abspath ./bin)
 UVX ?= $(shell command -v uvx 2>/dev/null || echo $(INSTALL_DIR)/uvx)
+export PATH := $(INSTALL_DIR):$(PATH)
 
 .DEFAULT_GOAL := help
 
