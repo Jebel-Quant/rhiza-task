@@ -121,6 +121,19 @@ def test_shim_forwards_every_target_as_phony() -> None:
     assert ".PHONY: FORCE" in result.stdout
 
 
+def test_shim_provisions_uv_alongside_uvx() -> None:
+    """``local.mk`` reaches `uv` through the shim rather than re-deriving it.
+
+    The astral installer writes both binaries into the same directory, so once ``$(UVX)``
+    exists ``$(UV)`` does too -- an empty recipe is the whole rule. Without it every repo
+    with a `local.mk` target that shells out to `uv` copies the `command -v` dance, and the
+    catch-all forwards the resolved path as if it were a task name.
+    """
+    result = runner.invoke(cli.app, ["shim"])
+    assert "UV ?= $(shell command -v uv 2>/dev/null || echo $(INSTALL_DIR)/uv)" in result.stdout
+    assert "$(UV): $(UVX) ;" in result.stdout
+
+
 def test_unknown_task_exits_two_and_suggests_list(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A typo names itself and points at ``list``, rather than doing nothing.
 

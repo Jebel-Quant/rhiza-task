@@ -14,12 +14,23 @@ INSTALL_DIR ?= $(abspath ./bin)
 UVX ?= $(shell command -v uvx 2>/dev/null || echo $(INSTALL_DIR)/uvx)
 export PATH := $(INSTALL_DIR):$(PATH)
 
+# `UV` too, for `local.mk` to reach: the astral installer writes both binaries into the
+# same directory, so once $(UVX) exists this does, and the empty recipe both satisfies
+# make's remake attempt and keeps the catch-all from forwarding the path as a task name.
+UV ?= $(shell command -v uv 2>/dev/null || echo $(INSTALL_DIR)/uv)
+$(UV): $(UVX) ;
+
 .DEFAULT_GOAL := help
 
 .PHONY: help
 
+# `rhiza-task list` cannot know about the targets `local.mk` adds, so anything there with
+# a `##` comment is listed under them. This is what lets a repo move its own targets out
+# of this file without losing them from `make help`.
 help: $(UVX)
 	@$(UVX) $(RHIZA_TASK) list
+	@own=$$(grep -hE '^[a-zA-Z0-9_-]+:.*##' $(MAKEFILE_LIST) | sed -e 's/:.*##/ -- /' -e 's/^/  /'); \
+		[ -z "$$own" ] || printf '\nRepo-owned targets:\n%s\n' "$$own"
 
 # Every task, and every typo -- the CLI's "unknown task" error is the backstop. `FORCE` is
 # what keeps them phony: .PHONY takes no patterns, but a phony prerequisite is never up to
