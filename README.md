@@ -176,6 +176,27 @@ def audit(cfg):
     uvx("my-auditor", cfg.source_folder, cwd=cfg.root)
 ```
 
+The decorator has already done the registering, so the task is now reachable by the same
+`lookup` the runner and the CLI use — no override, no second path:
+
+```python
+from rhiza_task.spec import lookup
+
+spec = lookup("audit")
+print(spec.key, "-", spec.help)
+print(spec.needs, spec.guards[0].folder, spec.section)
+```
+
+```result
+audit - run the in-house audit
+('install',) source_folder Quality
+```
+
+That last pair of blocks is executed and diffed, not just rendered: the `result` block is
+compared against the fences' real output by the same convention `rhiza-task rhiza-test`
+applies to every docstring's `>>>` examples. A change to `lookup`, to `Task`, or to the
+decorator above breaks the README rather than quietly outdating it.
+
 A one-off that is only ever a make target goes in `local.mk` — but that file is in core's
 `.gitignore`, so it holds developer-local targets only. A repo-owned target CI invokes
 needs a committed home, and the repo's own `Makefile` is the only committed make surface
@@ -218,7 +239,13 @@ repo, which is the problem being deleted.
 ```bash
 uv sync --all-groups
 uv run pytest
+uv run rhiza-task all      # every gate, as the `gates` job runs them
 ```
+
+The examples above are checked, not decorative — `rhiza-task rhiza-test` runs the `>>>`
+examples in `config.py`, `runner.py` and `spec.py` and diffs this README's `python` fences
+against its `result` block. Both need the project environment, since the fences import the
+package: `uv run` rather than a bare interpreter.
 
 No test in the suite runs uv. Every task test patches the three entry points in `uv.py`
 and asserts on the argument vector that would have been executed — which is exactly what

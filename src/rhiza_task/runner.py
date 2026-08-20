@@ -79,13 +79,39 @@ class Run:
         return next((r.status for r in self.results if r.name == name), None)
 
     def exit_code(self) -> int:
-        """Return the aggregate exit status.
+        """Return the aggregate exit status: 0 when nothing failed or was blocked, else 1.
 
-        The first real failure's own code is propagated where there is one, so a caller
-        can still distinguish e.g. pytest's exit codes. Blocked-only runs exit 1.
+        Uniformly 1, and the example below is what says so. :class:`~rhiza_task.spec.Failed`
+        carries the failing process's own code, but :class:`Result` does not record it, so
+        nothing here *can* propagate e.g. pytest's 3 or 4 -- and this docstring claimed it
+        did until a doctest was put under it. Whether the code should be carried through
+        is issue #33; until it is decided, the behaviour and its description agree.
 
         Returns:
-            0 when nothing failed, else the failing task's exit status.
+            0 when nothing failed or was blocked, else 1.
+
+        Examples:
+            An empty run, and a run whose only entry is a skip, both succeed -- a skip is
+            an outcome, not a failure, and ``--strict`` is the switch that changes that:
+
+            >>> state = Run()
+            >>> state.exit_code()
+            0
+            >>> state.results.append(Result("fmt", Status.SKIPPED, "no .pre-commit-config.yaml"))
+            >>> state.failed, state.exit_code()
+            (False, 0)
+
+            A failure, and the dependent it blocks, are both non-zero -- and both collapse
+            to 1 rather than to pytest's own status:
+
+            >>> state.results.append(Result("test", Status.FAILED, "tests failed"))
+            >>> state.results.append(Result("book", Status.BLOCKED, "prerequisite failed: test"))
+            >>> state.failed, state.exit_code()
+            (True, 1)
+            >>> state.status_of("book") is Status.BLOCKED
+            True
+            >>> state.status_of("todos") is None
+            True
         """
         return 1 if self.failed else 0
 

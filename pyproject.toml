@@ -106,3 +106,30 @@ version = "{new_version}\""""
 # (DEP001). Declaring it is the documented fix, and cheaper than making the gate install
 # the project first.
 python-dotenv = "dotenv"
+
+# This repository's own settings, read by `rhiza-task` as layer 4 of its own resolution
+# order -- the package configuring itself with the mechanism it sells.
+#
+# The floor is raised from the shipped default of 90 because 90 is the *tool's* answer for
+# a repo it knows nothing about, and this repo can do better: the suite covers 96.5% of
+# 1070 statements, so 95 is a floor that is met with headroom and still says something. It
+# is enforced wherever `test` runs -- the `gates` job's `rhiza-task all` in CI, and every
+# local invocation -- which is what makes it a gate rather than a note.
+[tool.rhiza-task]
+coverage_fail_under = 95
+
+# The suite is organised by *behaviour*, not as a 1:1 mirror of `src/`: `test_tasks.py`,
+# `test_bundle_tasks.py`, `test_dev_tasks.py` and `test_language_layers.py` cover the
+# twelve task modules as groups, because what is worth asserting about them is the shape
+# they share -- a guard, a provision, an argument vector -- and a per-module test file
+# would be twelve copies of one test. Undeclared, `check_test_layout.py` reads that as 18
+# missing mirrors and 9 orphans, and reports disorder where there is a decision.
+#
+# `enforce = false` requires a non-empty `reason` precisely so the opt-out cannot be a
+# silent one. What the reason deliberately does *not* claim is per-module coverage: only a
+# 100% floor would guarantee that, and this repo's is 95 (see above), so the honest
+# statement is that tests are located by behaviour and covered globally. Raising the floor
+# to 100 is the change that would make a stronger claim available.
+[tool.check_test_layout]
+enforce = false
+reason = "Tests are grouped by behaviour, not mirrored 1:1 -- the twelve task modules share one shape and are covered as groups. Coverage is enforced globally by the 95% floor in [tool.rhiza-task], met at 96.5%."
