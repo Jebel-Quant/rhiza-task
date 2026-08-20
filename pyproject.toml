@@ -126,10 +126,10 @@ python-dotenv = "dotenv"
 # what makes it a gate rather than a note.
 #
 # What 100 does *not* claim is that every line is meaningfully asserted -- only that none
-# is unvisited. Four lines stay excluded by `# pragma: no cover`, each carrying its reason:
-# the TYPE_CHECKING guard in spec.py, the `__main__` delegation, and two defensive `except`
-# branches (go.py's malformed total line, quality.py's unreadable file). The first two are
-# structural; the last two are testable and would be the change that retires the pragmas.
+# is unvisited. Two lines stay excluded by `# pragma: no cover`, each carrying its reason:
+# the TYPE_CHECKING guard in spec.py and the `__main__` delegation. Both are structural --
+# unreachable under test by construction rather than merely awkward to reach -- so every
+# exclusion left is one no test could retire, and a third would need that argument made.
 [tool.rhiza-task]
 coverage_fail_under = 100
 

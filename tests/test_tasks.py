@@ -436,6 +436,48 @@ class TestQuality:
         quality.todos(cfg)
         assert "0 item(s) found" in capsys.readouterr().out
 
+    def test_todos_skips_an_unreadable_file_without_losing_the_rest(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """One unopenable path costs its own hits, not every hit after it.
+
+        Patched rather than provoked with a permission bit: ``chmod`` does not deny the
+        owner a read on Windows, and Windows is in the matrix deliberately.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        (cfg.root / "src" / "locked.py").write_text("# TODO: never seen\n")
+        (cfg.root / "src" / "open.py").write_text("# TODO: still reported\n")
+        real = Path.read_text
+
+        def read_text(self: Path, *args: object, **kwargs: object) -> str:
+            """Raise for the locked file, and read everything else normally.
+
+            Args:
+                self: The path being read.
+                *args: Passed through.
+                **kwargs: Passed through.
+
+            Returns:
+                The file's text.
+
+            Raises:
+                PermissionError: When the path is the locked file.
+            """
+            if self.name == "locked.py":
+                raise PermissionError(self.name)
+            return real(self, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(Path, "read_text", read_text)
+        quality.todos(cfg)
+        out = capsys.readouterr().out
+        assert "src/open.py:1" in out
+        assert "locked.py" not in out
+        assert "1 item(s) found" in out
+
 
 class TestMutation:
     """test.mk's ``mutation``, and its exit-status subtlety."""

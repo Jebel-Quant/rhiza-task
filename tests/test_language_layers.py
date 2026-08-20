@@ -526,6 +526,26 @@ class TestGoGates:
         go_tasks.coverage(Config.load(root=module))
         assert "floor not enforced" in capsys.readouterr().out
 
+    def test_a_malformed_total_reads_as_no_total(
+        self, module: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A total line whose number will not parse is the same miss as no total line.
+
+        ``go tool cover`` prints ``-`` for a profile covering no statements, so this is the
+        empty-package case rather than a hypothetical. Guessing a number would be worse
+        than reporting that the floor went unenforced.
+
+        Args:
+            module: A Go module root.
+            recorder: The command recorder.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        monkeypatch.setattr(go_tasks, "_cobertura", lambda *a: None)
+        monkeypatch.setattr(go_tasks, "capture", lambda *a, **k: "total:\t(statements)\t-\n")
+        go_tasks.coverage(Config.load(root=module))
+        assert "floor not enforced" in capsys.readouterr().out
+
     def test_the_cobertura_conversion_is_a_pipe(self, module: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """gocover-cobertura reads stdin and writes stdout, and still runs without a shell.
 

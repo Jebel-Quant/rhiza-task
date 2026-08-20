@@ -108,8 +108,10 @@ required `reason` argues that per-module coverage is guaranteed by the floor ins
 
 **So lowering the floor invalidates the opt-out.** The two move together, or neither moves.
 
-Four lines are excluded by `# pragma: no cover`, each carrying its reason. Two are
-structural; two are testable and retiring them would be a real improvement.
+Two lines are excluded by `# pragma: no cover`, each carrying its reason, and both are
+structural: the `TYPE_CHECKING` guard in `spec.py` and the `__main__` delegation. Neither
+is reachable under test by construction, so there is no exclusion left that a test could
+retire — a new `# pragma: no cover` should be argued for rather than added.
 
 ## Where the gates run
 

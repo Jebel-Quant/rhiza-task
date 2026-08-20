@@ -173,7 +173,12 @@ def todos(cfg: Config) -> None:
     for path in sorted(_walk(cfg.root)):
         try:
             lines = path.read_text(errors="replace").splitlines()
-        except OSError:  # pragma: no cover - unreadable file
+        except OSError:
+            # Skip, not fail: a file the gate cannot open is not a TODO, and one unreadable
+            # path in a tree must not cost the report every hit after it. `errors="replace"`
+            # already absorbs undecodable *bytes*, so what reaches here is the file that
+            # could not be opened at all -- a permission bit, a dangling symlink, a name the
+            # OS accepted and cannot serve.
             continue
         for number, line in enumerate(lines, start=1):
             if TODO_PATTERN.search(line):
