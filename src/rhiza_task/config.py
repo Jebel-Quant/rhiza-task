@@ -324,7 +324,13 @@ class Config:
         Returns:
             The absolute path.
         """
-        return self.root / getattr(self, folder_field)
+        # The annotation is load-bearing under `mypy --strict`: `getattr` is typed to return
+        # `Any`, `Path / Any` is `Any` too, and returning that from a `-> Path` function is
+        # what `no-any-return` reports. Naming the type here is also the honest spelling --
+        # every field this reaches ends in `_folder` and holds a `str`, which is the same
+        # assumption `folders` above encodes in its `dict[str, str]`.
+        value: str = getattr(self, folder_field)
+        return self.root / value
 
     @staticmethod
     def field_for(name: str) -> str:
