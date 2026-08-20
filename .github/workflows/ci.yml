@@ -50,6 +50,36 @@ jobs:
       - name: Run tests
         run: uv run --group test --python ${{ matrix.python-version }} pytest -ra
 
+  # ruff.toml is 9 KB of deliberate rule selection, and until this job existed nothing
+  # ran it: `rhiza-task fmt` skips here (see the `gates` job below), no other workflow
+  # mentioned ruff, and no task in the registry invokes it. The repo was clean by
+  # discipline, with nothing holding it there.
+  #
+  # A separate job rather than two more steps in `gates`: a red check named `ruff` says
+  # what broke without opening a log, and this needs no venv, no sync and no matrix.
+  #
+  # `ruff@0.16.3` is pinned for the reason the uv pin below is -- a floating ruff means a
+  # new release's new rules can turn a green PR red without a commit touching this repo.
+  # Bumping it is then a deliberate commit that carries whatever fixes the new rules want.
+  lint:
+    name: ruff (lint + format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.16"
+          enable-cache: true
+
+      # Both halves run even when the first fails: a formatting diff and a lint error are
+      # independent findings, and reporting one at a time costs a round trip per fix.
+      - name: ruff check
+        run: uvx ruff@0.16.3 check --output-format=github .
+
+      - name: ruff format --check
+        if: ${{ !cancelled() }}
+        run: uvx ruff@0.16.3 format --check --diff .
+
   gates:
     name: the gates this package applies to others
     runs-on: ubuntu-latest
@@ -68,6 +98,10 @@ jobs:
       # -- so `fmt` and `semgrep` have genuinely nothing to measure here and skip. --strict
       # is the right setting in a *consumer* repository, where a skip means a gate lost its
       # subject; asserting it here would only assert that this repo is something it is not.
+      #
+      # The skipped `fmt` is why ruff gets its own job above rather than riding along in a
+      # pre-commit config: adding one to satisfy ruff would make this repo the managed
+      # thing it is not, and would quietly change what `fmt` means in the dogfood run.
       - name: rhiza-task all
         run: uv run rhiza-task all
 
