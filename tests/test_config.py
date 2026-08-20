@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from rhiza_task.config import Config, _coerce, _key
+from rhiza_task.config import Config, _coerce
 
 
 def test_defaults_need_no_files(tmp_path: Path) -> None:
@@ -404,7 +404,7 @@ def test_key_strips_the_prefix_only_when_a_field_remains(var: str, expected: str
         var: The variable name as a consumer spells it.
         expected: The field it must resolve to.
     """
-    assert _key(var) == expected
+    assert Config.field_for(var) == expected
 
 
 def test_rhiza_checks_is_settable_from_the_env_file(tmp_path: Path) -> None:

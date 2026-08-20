@@ -244,6 +244,23 @@ def security(cfg: Config) -> None:
     missing ini as a usage error, so a project without one gets a red gate reporting a
     configuration problem as if it were a security finding.
 
+    ``security`` does not mean the same thing in all three layers, and the asymmetry is
+    inherited rather than introduced here. Rust runs ``cargo deny check advisories`` and Go
+    runs ``govulncheck ./...`` -- both scan *dependencies* against an advisory database.
+    Bandit is SAST: it lints the source this repository owns and never looks at what is
+    installed. So Python, which has the largest advisory surface of the three, is the one
+    layer whose ``security`` gate is not a dependency scan.
+
+    No ``pip-audit`` here is a decision taken upstream, not an omission: ``jebel-quant/rhiza``
+    dropped it in #1416 along with rhiza-tools, and pins its absence with a test
+    (``tests/docs/test_doc_consistency.py`` -- "pip-audit is deliberately not wired up;
+    this pins the fact the gate depends on"). This module is owned by this repository and
+    nothing syncs it, so adding a scan here is *possible* -- but it would put a gate in
+    consumers' CI that the template they also follow says is not there, and a transitive
+    advisory with no fix available would then fail a run the template would have passed.
+    Closing the gap belongs upstream, where both halves move together. Recorded here so
+    the next reader does not have to rediscover which of the two it is.
+
     Args:
         cfg: The resolved config.
     """
