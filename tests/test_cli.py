@@ -415,3 +415,50 @@ def test_run_propagates_the_failing_tasks_exit_code(repo: Path, monkeypatch: pyt
     monkeypatch.chdir(repo)
     result = runner.invoke(cli.app, ["run", "t-cli-exits-5"])
     assert result.exit_code == 5
+
+
+def test_version_prints_the_package_version(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``version`` is what a consumer's CI echoes to record which pin it ran.
+
+    Args:
+        repo: The throwaway repository.
+        monkeypatch: pytest's patcher.
+    """
+    from rhiza_task import __version__
+
+    monkeypatch.chdir(repo)
+    result = runner.invoke(cli.app, ["version"])
+    assert result.exit_code == 0
+    assert __version__ in result.stdout
+
+
+def test_list_survives_a_config_it_cannot_resolve(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``list`` is what you run *because* something is wrong, so it must still print.
+
+    A config error resolving the layers falls back to showing every layer -- a superset,
+    where the alternative is showing nothing at the moment the user most needs the list.
+
+    Args:
+        repo: The throwaway repository.
+        monkeypatch: pytest's patcher.
+    """
+    (repo / ".rhiza").mkdir()
+    (repo / ".rhiza" / ".env").write_text("TYPECHECKER=tpye\n")
+    monkeypatch.chdir(repo)
+    result = runner.invoke(cli.app, ["list"])
+    assert result.exit_code == 0
+    # Every layer, not just Python's: the fallback is deliberately a superset.
+    for expected in ("cargo-tools", "go-tools", "test"):
+        assert expected in result.stdout
+
+
+def test_the_module_entry_point_exposes_main() -> None:
+    """``python -m rhiza_task`` works in a checkout with no console script installed.
+
+    Importing the module is enough to assert the wiring: ``__name__`` is
+    ``rhiza_task.__main__`` rather than ``__main__``, so the guard does not fire and no
+    CLI runs.
+    """
+    from rhiza_task import __main__ as entry
+
+    assert entry.main is cli.main

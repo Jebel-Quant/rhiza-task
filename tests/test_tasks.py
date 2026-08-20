@@ -70,6 +70,21 @@ class TestInstall:
         with pytest.raises(Skip, match="pyproject"):
             python.install(Config.load(root=tmp_path))
 
+    def test_reuses_an_existing_virtualenv(
+        self, cfg: Config, recorder: Recorder, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A second run does not recreate the environment, and names the one it reused.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+            capsys: pytest's output capture.
+        """
+        (cfg.root / ".venv").mkdir()
+        python.install(cfg)
+        assert "venv" not in recorder.tools()
+        assert str(cfg.root / ".venv") in capsys.readouterr().out
+
 
 class TestTest:
     """python.mk's ``test`` -- the recipe that justified a real language."""
@@ -205,6 +220,23 @@ class TestCoverage:
         state = runner.run(["coverage"], cfg)
         assert state.status_of("coverage") is runner.Status.SKIPPED
         assert "pytest" not in recorder.tools()
+
+    def test_clears_stale_coverage_data_first(self, cfg: Config, recorder: Recorder) -> None:
+        """Leftover data from an interrupted run must not be merged into this one.
+
+        Both shapes go: the plain ``.coverage`` file and the per-process
+        ``.coverage.<host>.<pid>`` shards that xdist leaves behind.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        (cfg.root / ".coverage").write_text("stale")
+        (cfg.root / ".coverage.host.4711").write_text("stale")
+        python.coverage(cfg)
+        assert not (cfg.root / ".coverage").exists()
+        assert not (cfg.root / ".coverage.host.4711").exists()
+        assert (cfg.root / "_tests" / "html-coverage").is_dir()
 
 
 class TestTypecheck:
@@ -363,6 +395,21 @@ class TestQuality:
         quality.rhiza_test(relocated)
         assert recorder.find("pytest").kwargs["env"] == {"RHIZA_DOCTEST_FOLDERS": "utils"}
 
+    def test_fmt_skips_without_a_config(self, cfg: Config, recorder: Recorder) -> None:
+        """No ``.pre-commit-config.yaml`` is a skip with a reason, not a failure.
+
+        This is the outcome that lets one aggregate serve repositories with different
+        bundles installed -- and the one ``--strict`` promotes when a consumer wants a
+        missing config to be a red build.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        with pytest.raises(Skip, match=r"\.pre-commit-config\.yaml"):
+            quality.fmt(cfg)
+        assert recorder.calls == []
+
     def test_todos_reports_file_and_line(self, cfg: Config, capsys: pytest.CaptureFixture[str]) -> None:
         """A TODO is reported with a repo-relative path and a line number.
 
@@ -408,6 +455,30 @@ class TestMutation:
             extras.mutation(cfg)
         assert recorder.tools() == ["mutmut", "mutmut", "mutmut"]
         assert [c.flags[0] for c in recorder.calls] == ["run", "html", "results"]
+
+    def test_relocates_the_generated_html_report(self, cfg: Config, recorder: Recorder) -> None:
+        """The report lands in ``html/`` at the root, and belongs under ``_tests``.
+
+        The previous run's report is removed rather than merged, so the folder describes
+        one run.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        generated = cfg.root / "html"
+        generated.mkdir()
+        (generated / "index.html").write_text("<html></html>")
+        previous = cfg.root / "_tests" / "mutation" / "html"
+        previous.mkdir(parents=True)
+        (previous / "stale.html").write_text("stale")
+
+        extras.mutation(cfg)
+
+        moved = cfg.root / "_tests" / "mutation" / "html"
+        assert (moved / "index.html").is_file()
+        assert not (moved / "stale.html").exists()
+        assert not generated.exists()
 
 
 class TestHypothesis:
@@ -584,3 +655,48 @@ class TestSecurity:
         """
         python.security(cfg)
         assert "--ini" not in recorder.find("bandit").flags
+
+
+class TestPythonDocsCoverage:
+    """python.mk's ``docs-coverage``."""
+
+    def test_measures_both_folders_the_gate_claims(self, cfg: Config, recorder: Recorder) -> None:
+        """Both the source and the test tree are measured, at a 100% floor.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        python.docs_coverage(cfg)
+        call = recorder.find("interrogate")
+        assert call.flags[:5] == ["-vv", "--fail-under", "100", "--ignore-init-method", "--ignore-magic"]
+        assert call.flags[5:] == ["src", "tests"]
+
+    def test_omits_a_folder_that_is_not_there(self, cfg: Config, recorder: Recorder) -> None:
+        """A repository with no test folder is measured on what it has.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        shutil.rmtree(cfg.root / "tests")
+        python.docs_coverage(cfg)
+        assert recorder.find("interrogate").flags[5:] == ["src"]
+
+
+class TestPyprojectStructure:
+    """quality.mk's ``test-pyproject``: one check, reported loudly."""
+
+    def test_runs_only_the_pyproject_check_verbosely(self, cfg: Config, recorder: Recorder) -> None:
+        """A narrower, louder view of the one module ``rhiza-test`` also runs.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        quality.test_pyproject(cfg)
+        call = recorder.find("pytest")
+        assert call.flags[:3] == ["--pyargs", "pytest_rhiza.checks.test_pyproject", "-v"]
+        for loud in ("--tb=long", "--showlocals", "-rA", "--durations=0", "--no-header"):
+            assert loud in call.flags
+        assert call.kwargs["withs"] == (cfg.pytest_rhiza,)
