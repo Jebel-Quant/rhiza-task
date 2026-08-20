@@ -159,10 +159,12 @@ typechecker = "ty"
 # test file could leave unexercised, because an unexercised module would put the total
 # below the floor.
 #
-# The reason says "95" and not "95%" on purpose: radon reads *every* `[tool.*]` table
+# The reason spells that floor "100" and never "100%": radon reads *every* `[tool.*]` table
 # through configparser, which treats `%` as interpolation syntax and dies on any value
-# containing one -- so a percent sign here breaks `radon cc src`, the command the
-# complexity notes in spec.py, runner.py and config.py are there to answer.
+# containing one -- so a percent sign anywhere in this string breaks `radon cc src`, the
+# command the complexity notes in spec.py, runner.py and config.py are there to answer.
+# The constraint outlives the number, so it is stated as a rule rather than about one
+# value: whatever the floor becomes, write it bare in here.
 [tool.check_test_layout]
 enforce = false
 reason = "Tests are grouped by behaviour, not mirrored 1:1 -- the twelve task modules share one shape and are covered as groups. Per-module coverage is guaranteed instead by the coverage_fail_under floor of 100 in [tool.rhiza-task]: at that floor no module a missing test file would have covered can go unexercised."
