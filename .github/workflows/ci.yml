@@ -26,7 +26,7 @@ jobs:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Exact version, not a floating major: astral-sh/setup-uv publishes no `v8`, `v9` or
       # `v10` alias tag, so `@v10` fails to resolve at job start.
@@ -37,7 +37,7 @@ jobs:
       # `version` pins the uv binary itself, not just the action, to the same uv that
       # rhiza_release.yml builds and publishes with. A gate that passes here on one uv and
       # a release built on another is a resolver difference nothing would catch.
-      - uses: astral-sh/setup-uv@v10.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: "0.11.16"
           python-version: ${{ matrix.python-version }}
@@ -54,8 +54,8 @@ jobs:
     name: the gates this package applies to others
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: "0.11.16"
           enable-cache: true
@@ -70,3 +70,34 @@ jobs:
       # subject; asserting it here would only assert that this repo is something it is not.
       - name: rhiza-task all
         run: uv run rhiza-task all
+
+  # The floors in pyproject.toml -- typer>=0.15, rich>=13.0, python-dotenv>=1.0 -- are a
+  # claim, and `--frozen` everywhere else means nothing tests it: the lockfile resolves
+  # typer 0.27.1 and rich 15.0.0, nine and two minor versions above what the manifest
+  # says is enough. This job is the only place those numbers are asserted. Lifted from
+  # rhiza's rhiza_ci.yml `lowest-deps`, which is the one job there that calls plain uv
+  # rather than a pinned older rhiza-task, so it carries no circular dependency on this
+  # package.
+  lowest-deps:
+    name: lowest-direct dependency floors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.16"
+          enable-cache: true
+
+      # Deliberately not --frozen: resolving against the manifest rather than the
+      # lockfile is the whole point.
+      - name: Resolve the declared floors
+        run: uv sync --all-extras --all-groups --resolution lowest-direct
+
+      - name: Show what that resolved to
+        run: uv pip list
+
+      # pytest directly rather than `rhiza-task test`: the task provisions pytest through
+      # `uv run --with`, which resolves newest and would silently undo the floors this job
+      # exists to check.
+      - name: Run tests against the floors
+        run: uv run --all-extras --all-groups --resolution lowest-direct pytest -ra

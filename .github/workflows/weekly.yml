@@ -1,0 +1,69 @@
+# Adapted from jebel-quant/rhiza's rhiza_weekly.yml (v1.4.2) rather than delegated to it
+# as a stub. The reusable workflow runs its gates as `uvx "$RHIZA_TASK" <gate>` with
+# RHIZA_TASK pinned to rhiza-task@0.3.1 -- correct for a consumer, circular here: this
+# repository's own gates would run through a published, pre-1.0 copy of itself instead of
+# the working tree. So the two jobs worth having are lifted and the indirection dropped.
+#
+# Its third job, semgrep, is not lifted: `rhiza-task semgrep` skips without
+# .rhiza/semgrep.yml and this repository ships none, exactly as pytest-rhiza does not.
+
+name: Weekly
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: "0 8 * * 1"  # Every Monday at 08:00 UTC
+  workflow_dispatch:
+
+jobs:
+  # The complement of ci.yml's `lowest-deps`: that job pins the floors the manifest
+  # declares, this one resolves the ceiling nobody has seen yet. Between them, both ends
+  # of `typer>=0.15` are actually tested -- and a break here is upstream's release, not a
+  # commit, which is why it runs on a schedule rather than on push.
+  dep-compat:
+    name: latest compatible dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.16"
+          enable-cache: true
+
+      # --upgrade ignores the committed lockfile and resolves the newest versions that
+      # still satisfy pyproject.toml. Deliberately not --frozen, for the same reason
+      # `lowest-deps` is not.
+      - name: Resolve the newest compatible dependencies
+        run: uv sync --all-extras --all-groups --upgrade
+
+      - name: Show what that resolved to
+        run: uv pip list
+
+      # `uv run`, not `uvx rhiza-task@<pin>`: the point is to test HEAD against tomorrow's
+      # dependencies, so the CLI under test has to be the one in the tree.
+      - name: Run the gates
+        run: uv run rhiza-task test
+
+  # The README carries six badges and a dozen links -- to PyPI, to sibling repos, to the
+  # uv and Ruff endpoints. Nothing else notices when one of them rots.
+  link-check:
+    name: README links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check links in README.md
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: >-
+            --verbose
+            --no-progress
+            --accept 200,206,429
+            README.md
+          fail: true
