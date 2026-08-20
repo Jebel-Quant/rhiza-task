@@ -44,11 +44,15 @@ class Result:
         name: The task name.
         status: Its outcome.
         detail: Why, for anything other than :attr:`Status.OK`.
+        code: The failing process's own exit status, carried from
+            :class:`~rhiza_task.spec.Failed` so :meth:`Run.exit_code` can propagate it.
+            0 for every outcome that is not a failure.
     """
 
     name: str
     status: Status
     detail: str = ""
+    code: int = 0
 
 
 @dataclass
@@ -79,16 +83,19 @@ class Run:
         return next((r.status for r in self.results if r.name == name), None)
 
     def exit_code(self) -> int:
-        """Return the aggregate exit status: 0 when nothing failed or was blocked, else 1.
+        """Return the aggregate exit status: 0 when nothing failed or was blocked, else non-zero.
 
-        Uniformly 1, and the example below is what says so. :class:`~rhiza_task.spec.Failed`
-        carries the failing process's own code, but :class:`Result` does not record it, so
-        nothing here *can* propagate e.g. pytest's 3 or 4 -- and this docstring claimed it
-        did until a doctest was put under it. Whether the code should be carried through
-        is issue #33; until it is decided, the behaviour and its description agree.
+        The first real failure's own code is propagated where there is one, so a caller can
+        still distinguish e.g. pytest's 2 from a gate that merely exited 1. "First real"
+        means the first :attr:`Status.FAILED` entry: a :attr:`Status.BLOCKED` dependent has
+        no process of its own, and the failure that blocked it is recorded earlier in the
+        list, so it is the one that speaks. Anything outside a shell's 1-255 range -- a
+        code of 0, or the negative signal number ``subprocess`` reports for a killed child
+        -- collapses to 1, since it cannot be handed to ``exit`` as-is.
 
         Returns:
-            0 when nothing failed or was blocked, else 1.
+            0 when nothing failed or was blocked; else the first failing task's exit status,
+            or 1 when that status is unusable.
 
         Examples:
             An empty run, and a run whose only entry is a skip, both succeed -- a skip is
@@ -101,19 +108,30 @@ class Run:
             >>> state.failed, state.exit_code()
             (False, 0)
 
-            A failure, and the dependent it blocks, are both non-zero -- and both collapse
-            to 1 rather than to pytest's own status:
+            A failure, and the dependent it blocks, are both non-zero -- and pytest's own 2
+            is what the run exits with, not a flattened 1:
 
-            >>> state.results.append(Result("test", Status.FAILED, "tests failed"))
+            >>> state.results.append(Result("test", Status.FAILED, "tests failed", 2))
             >>> state.results.append(Result("book", Status.BLOCKED, "prerequisite failed: test"))
             >>> state.failed, state.exit_code()
-            (True, 1)
+            (True, 2)
             >>> state.status_of("book") is Status.BLOCKED
             True
             >>> state.status_of("todos") is None
             True
+
+            A failure with no usable code of its own -- a guard's own verdict rather than a
+            child process's, or a blocked dependent standing alone -- is 1:
+
+            >>> Run([Result("doctor", Status.FAILED, "missing or outdated: uv")]).exit_code()
+            1
+            >>> Run([Result("book", Status.BLOCKED, "prerequisite failed: test")]).exit_code()
+            1
         """
-        return 1 if self.failed else 0
+        if not self.failed:
+            return 0
+        code = next((r.code for r in self.results if r.status is Status.FAILED), 1)
+        return code if 1 <= code <= 255 else 1
 
 
 def run(names: list[str], cfg: Config) -> Run:
@@ -181,6 +199,6 @@ def _run_one(name: str, cfg: Config, state: Run) -> None:
         else:
             state.results.append(Result(spec.name, Status.SKIPPED, str(exc)))
     except Failed as exc:
-        state.results.append(Result(spec.name, Status.FAILED, str(exc)))
+        state.results.append(Result(spec.name, Status.FAILED, str(exc), exc.code))
     else:
         state.results.append(Result(spec.name, Status.OK))

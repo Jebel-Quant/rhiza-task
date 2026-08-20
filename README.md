@@ -238,9 +238,15 @@ repo, which is the problem being deleted.
 
 ```bash
 uv sync --all-groups
-uv run pytest
-uv run rhiza-task all      # every gate, as the `gates` job runs them
+uv run pytest              # the fast inner loop
+uv run rhiza-task all      # run before pushing: every gate, as CI runs them
 ```
+
+`uv run rhiza-task all` is the pre-push check, and it is what `ci.yml`'s `gates` job runs
+— deptry, the 100% coverage floor, interrogate, bandit, the copyleft scan, `ty` and
+`rhiza-test` on top of the suite. `uv run pytest` alone is strictly weaker than the check
+that will fail a pull request, so a green pytest is not yet a green PR. This repo exists to
+provide that aggregate, so it gates itself with it.
 
 The examples above are checked, not decorative — `rhiza-task rhiza-test` runs the `>>>`
 examples in `config.py`, `runner.py` and `spec.py` and diffs this README's `python` fences
