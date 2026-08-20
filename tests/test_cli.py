@@ -107,6 +107,20 @@ def test_shim_prints_a_usable_makefile() -> None:
     assert "-include local.mk" in result.stdout
 
 
+def test_shim_forwards_every_target_as_phony() -> None:
+    """The catch-all depends on ``FORCE``, which is what keeps forwarded tasks phony.
+
+    A match-anything rule is still subject to make's up-to-date check, so without this a
+    repository with a ``book/`` directory gets "``book'`` is up to date" from ``make book``
+    and the task never runs. .PHONY takes no patterns; an always-out-of-date prerequisite
+    is the substitute, and it replaces the hand-maintained list of named phony targets.
+    """
+    result = runner.invoke(cli.app, ["shim"])
+    assert "%: $(UVX) FORCE" in result.stdout
+    assert "\nFORCE:\n" in result.stdout
+    assert ".PHONY: FORCE" in result.stdout
+
+
 def test_unknown_task_exits_two_and_suggests_list(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A typo names itself and points at ``list``, rather than doing nothing.
 
