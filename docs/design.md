@@ -149,3 +149,19 @@ assert — and it is why the suite is fast enough to be the inner loop.
 - [Adding a Task](adding_a_task.md) — the entry-point mechanism, from the outside
 - [Configuration](configuration.md) — the six layers in detail
 - [API Reference](api.md) — the modules above, with signatures
+
+### Upstream decision records
+
+This page argues the design from the code. The decision that *created* the package was
+taken in the template's repository, and its records are worth reading alongside — linked
+rather than copied, because they are `jebel-quant/rhiza`'s decisions to revise, and a
+local copy would be a fork going stale from the day it landed:
+
+- [ADR 0011 — Replace the Synced Make Layer with a Pinned CLI](https://github.com/Jebel-Quant/rhiza/blob/main/docs/adr/0011-replace-the-synced-make-layer-with-a-pinned-cli.md)
+  is why this package exists. It supersedes ADR 0004's modular-Makefile split, and its
+  context section is the case against a synced make layer stated from the template's side:
+  make cannot `include` a remote file, so every consumer held a full copy at whatever tag
+  it last synced, version pinning was a copy rather than a dependency, and the recipes were
+  untestable — `make -n` proves the text of a command, never that its flags are right.
+- [ADR 0005 — Separate rhiza Template Repository from rhiza-cli](https://github.com/Jebel-Quant/rhiza/blob/main/docs/adr/0005-separate-rhiza-template-from-cli.md)
+  is the earlier split that made a pinned CLI thinkable in the first place.
