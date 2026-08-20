@@ -198,8 +198,13 @@ body now *derives* by asking whether the contributing task is registered. See `d
 
 Register a module under the `rhiza_task.tasks` entry-point group — the same mechanism the
 built-ins use, so a project's own task is a first-class citizen rather than an override.
-That replaces `-include local.mk`. Repo-specific one-offs can also just stay in the
-`Makefile`, where an explicit rule beats the shim's catch-all.
+That replaces `-include local.mk` for anything that wants to be a real task. A one-off
+that is only ever a make target goes in `local.mk`, where an explicit rule beats the
+shim's catch-all — but `local.mk` is in core's `.gitignore`, so it holds developer-local
+targets only. A repo-owned target CI invokes needs a committed home, and the `Makefile` is
+the only committed make surface there is: rhiza's own `e2e`, `gitlab-docker-test` and
+`sync-self` sit below the shim for exactly that reason. So the shim is generated but the
+file is not closed, and a bump is a merge rather than an overwrite.
 
 ```python
 from rhiza_task.spec import Guard, task
