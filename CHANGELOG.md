@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.0.0] - 2026-08-20
+
+### 🚀 Features
+
+- *(shim)* Spell out the named tasks and declare them phony
+- *(shim)* Name paper and presentation too
+- *(shim)* Drop doctor from the named set
+- *(shim)* List local.mk's own targets in `make help`
+- *(shim)* Provision `uv` alongside `uvx`
+- *(cli)* [**breaking**] Remove the Makefile shim
+
+### 🚜 Refactor
+
+- *(shim)* Name the goal the catch-all forwards
+- *(shim)* Make FORCE the phony mechanism, drop the named list
+
+### 📚 Documentation
+
+- *(shim)* Cut the shim's comments back, and say what belongs in it
+
+### ⚙️ Miscellaneous Tasks
+
+- Untrack the root Makefile again
+
 ## [0.3.1] - 2026-08-19
 
 ### 🐛 Bug Fixes
