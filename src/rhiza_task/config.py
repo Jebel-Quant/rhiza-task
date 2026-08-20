@@ -304,6 +304,51 @@ class Config:
 
         Returns:
             The resolved config.
+
+        Examples:
+            Layer 4 -- ``[tool.rhiza-task]`` in the manifest -- over the dataclass
+            defaults, with an unset flag passed as ``None`` and correctly *not* shadowing
+            what the manifest said:
+
+            >>> import tempfile
+            >>> from pathlib import Path
+            >>> manifest = '''
+            ... [tool.rhiza-task]
+            ... source_folder = "lib"
+            ... coverage_fail_under = 100
+            ... uv_sync_args = "--group test"
+            ... '''
+            >>> with tempfile.TemporaryDirectory() as tmp:
+            ...     root = Path(tmp)
+            ...     _ = (root / "pyproject.toml").write_text(manifest)
+            ...     cfg = Config.load(root, source_folder=None, typechecker="mypy")
+            >>> cfg.source_folder, cfg.coverage_fail_under, cfg.typechecker
+            ('lib', 100, 'mypy')
+
+            A ``tuple[str, ...]`` field given as a string is split on whitespace rather
+            than one character per argument, which is the make layer's own format and the
+            bug ``__post_init__`` exists to prevent:
+
+            >>> cfg.uv_sync_args
+            ('--group', 'test')
+
+            The manifest that carried the table is also what put the repository in a
+            layer, and the check set follows from the layers rather than from a list
+            anyone maintains:
+
+            >>> cfg.layers
+            ('python',)
+            >>> cfg.rhiza_checks[-1]
+            'pytest_rhiza.checks.test_docstrings'
+
+            An unreadable setting fails here, before any tool is provisioned -- the shell
+            ``case`` that used to validate it ran after:
+
+            >>> with tempfile.TemporaryDirectory() as tmp:
+            ...     Config.load(Path(tmp), typechecker="pyright")
+            Traceback (most recent call last):
+                ...
+            ValueError: typechecker must be one of ty, mypy, both (got 'pyright')
         """
         root = (root or Path.cwd()).absolute()
         raw: dict[str, Any] = {}

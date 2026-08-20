@@ -106,6 +106,46 @@ class Guard:
         Raises:
             Skip: When the tool is absent, or the file is missing, or the folder is
                 missing, or the folder holds no file matching ``glob``.
+
+        Examples:
+            A satisfied guard returns nothing, which is the whole of its success case:
+
+            >>> import tempfile
+            >>> from pathlib import Path
+            >>> tmp = tempfile.TemporaryDirectory()
+            >>> root = Path(tmp.name)
+            >>> (root / "src").mkdir()
+            >>> folders = {"source_folder": "src", "tests_folder": "tests"}
+            >>> Guard("source_folder").check(root, folders)
+
+            Each way of not being satisfied raises :class:`Skip` carrying the line the
+            runner prints, and ``folder`` is resolved through *folders* -- so the guard
+            names a setting and never a path:
+
+            >>> for guard in (
+            ...     Guard("tests_folder"),
+            ...     Guard("source_folder", glob="test_*.py"),
+            ...     Guard(file="Cargo.toml"),
+            ...     Guard(tool="a-tool-nobody-has"),
+            ... ):
+            ...     try:
+            ...         guard.check(root, folders)
+            ...     except Skip as exc:
+            ...         print(exc)
+            tests_folder 'tests' not found
+            no test_*.py below 'src'
+            no Cargo.toml
+            a-tool-nobody-has not found
+
+            ``reason`` replaces the generated message wherever a task has something more
+            useful to say:
+
+            >>> try:
+            ...     Guard("tests_folder", glob="test_*.py", reason="no test files found").check(root, folders)
+            ... except Skip as exc:
+            ...     print(exc)
+            no test files found
+            >>> tmp.cleanup()
         """
         if self.tool and not have(self.tool):
             raise Skip(self.reason or f"{self.tool} not found")
@@ -252,6 +292,37 @@ def lookup(name: str, layers: Sequence[str] = ()) -> Task | None:
 
     Returns:
         The task, or None when nothing matches.
+
+    Examples:
+        Importing a task module is what registers its tasks -- the entry point group in
+        ``pyproject.toml`` only decides *which* modules the CLI imports:
+
+        >>> from rhiza_task.tasks import python, quality, rust
+        >>> lookup("test", ["python"]).help
+        'run all tests'
+        >>> lookup("test", ["rust"]).help
+        'run the test suite with nextest, then the doctests'
+
+        The layers are tried in order, so a crate that has grown a Python package gets one
+        answer rather than an ambiguity -- and the explicit key is how the layer that lost
+        is still reachable:
+
+        >>> lookup("test", ["python", "rust"]).key
+        'python:test'
+        >>> lookup("test", ["rust", "python"]).key
+        'rust:test'
+        >>> lookup("rust:test", ["python"]).key
+        'rust:test'
+
+        A neutral task answers to its bare name whatever the layers are, and a name no
+        active layer has is None rather than an error -- which is what lets ``book``
+        depend on gates a repository may not have, in place of make's ``test:: ; @:``
+        no-op stubs:
+
+        >>> lookup("fmt", ["rust"]).key
+        'fmt'
+        >>> lookup("cargo-tools", ["python"]) is None
+        True
     """
     if ":" in name:
         return REGISTRY.get(name)
