@@ -463,3 +463,35 @@ def test_an_empty_env_value_leaves_the_default_alone(tmp_path: Path, monkeypatch
     """
     monkeypatch.setenv("RHIZA_MKDOCS_EXTRA_PACKAGES", "")
     assert Config.load(root=tmp_path).mkdocs_extra_packages != ()
+
+
+def test_a_list_valued_override_is_tupled(tmp_path: Path) -> None:
+    """A caller passing a list gets a tuple, as the TOML readers already produce.
+
+    The string case is make's -- ``LICENSE_FAIL_ON=GPL LGPL`` is one space-separated
+    variable -- and is covered above. This is the other shape a ``tuple[str, ...]`` field
+    can arrive as: a Python list, from a programmatic caller or a ``--root`` override,
+    which must normalise the same way so that no task has to accept both.
+
+    Args:
+        tmp_path: pytest's temporary directory.
+    """
+    cfg = Config(root=tmp_path, license_fail_on=["GPL", "AGPL"], deptry_ignore=["DEP002"])
+    assert cfg.license_fail_on == ("GPL", "AGPL")
+    assert cfg.deptry_ignore == ("DEP002",)
+
+
+def test_a_settings_table_that_is_not_a_table_is_ignored(tmp_path: Path) -> None:
+    """``rhiza-task = "..."`` is a typo, not a settings table, and must not crash the load.
+
+    The readers select ``tool.rhiza-task`` out of the parsed document, and nothing
+    guarantees what they find is a table. Falling back to no settings keeps a misplaced
+    key from taking every gate down with it.
+
+    Args:
+        tmp_path: pytest's temporary directory.
+    """
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n\n[tool]\nrhiza-task = "oops"\n')
+    cfg = Config.load(root=tmp_path)
+    assert cfg.coverage_fail_under == 90
+    assert cfg.source_folder == "src"

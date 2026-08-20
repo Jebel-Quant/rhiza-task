@@ -321,6 +321,77 @@ class TestRustGates:
             "cargo-machete",
         ]
 
+    def test_cargo_tools_bootstraps_binstall_from_source(
+        self, crate: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Only binstall is built from source, because it is what installs the rest.
+
+        Args:
+            crate: A Rust project root.
+            recorder: The command recorder.
+            monkeypatch: pytest's patcher.
+            tmp_path: pytest's temporary directory.
+        """
+        cargo_bin = tmp_path / "empty-cargo-bin"
+        cargo_bin.mkdir()
+        monkeypatch.setattr(rust_tasks, "_cargo_bin", lambda: cargo_bin)
+        monkeypatch.setattr(rust_tasks, "have", lambda _: False)
+
+        rust_tasks.cargo_tools(Config.load(root=crate))
+        cargo = [c.flags for c in recorder.calls if c.tool == "cargo"]
+        assert cargo[0] == ["install", "cargo-binstall", "--locked"]
+        assert cargo[1][0] == "binstall"
+
+    def test_security_checks_the_advisory_database(self, crate: Path, recorder: Recorder) -> None:
+        """The Rust analogue of govulncheck: dependencies, not the crate's own source.
+
+        Args:
+            crate: A Rust project root.
+            recorder: The command recorder.
+        """
+        rust_tasks.security(Config.load(root=crate))
+        assert recorder.find("cargo").flags == ["deny", "check", "advisories"]
+
+    def test_license_checks_the_allow_list(self, crate: Path, recorder: Recorder) -> None:
+        """The allow-list lives in deny.toml, which is why no ``license_fail_on`` appears here.
+
+        Args:
+            crate: A Rust project root.
+            recorder: The command recorder.
+        """
+        rust_tasks.license_(Config.load(root=crate))
+        assert recorder.find("cargo").flags == ["deny", "check", "licenses"]
+
+    def test_deps_reports_unused_dependencies(self, crate: Path, recorder: Recorder) -> None:
+        """cargo-machete is the deptry of the Rust layer.
+
+        Args:
+            crate: A Rust project root.
+            recorder: The command recorder.
+        """
+        rust_tasks.deps(Config.load(root=crate))
+        assert recorder.find("cargo").flags == ["machete"]
+
+    def test_cargo_bin_follows_cargo_s_own_variables(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """The two variables cargo reads, in cargo's order, then its default.
+
+        Resolved rather than assumed, because the whole point of the probe is that this
+        directory is often not on PATH.
+
+        Args:
+            monkeypatch: pytest's patcher.
+            tmp_path: pytest's temporary directory.
+        """
+        monkeypatch.setenv("CARGO_INSTALL_ROOT", str(tmp_path / "install-root"))
+        monkeypatch.setenv("CARGO_HOME", str(tmp_path / "home"))
+        assert rust_tasks._cargo_bin() == tmp_path / "install-root" / "bin"
+
+        monkeypatch.delenv("CARGO_INSTALL_ROOT")
+        assert rust_tasks._cargo_bin() == tmp_path / "home" / "bin"
+
+        monkeypatch.delenv("CARGO_HOME")
+        assert rust_tasks._cargo_bin() == Path.home() / ".cargo" / "bin"
+
     def test_a_gate_without_a_manifest_skips(self, tmp_path: Path) -> None:
         """The guard is the manifest, because cargo finds the sources from it.
 
@@ -528,3 +599,100 @@ class TestGoGates:
         monkeypatch.setattr(go_tasks.shutil, "which", lambda name: f"/usr/local/bin/{name}")
         go_tasks.security(Config.load(root=module))
         assert recorder.calls[-1].tool == "govulncheck"
+
+    def test_install_without_go_says_where_to_get_it(self, module: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A missing toolchain is a failure with an address, as the Rust layer does it.
+
+        Args:
+            module: A Go module root.
+            monkeypatch: pytest's patcher.
+        """
+        monkeypatch.setattr(go_tasks, "have", lambda _: False)
+        with pytest.raises(Failed, match=r"go\.dev"):
+            go_tasks.install(Config.load(root=module))
+
+    def test_install_warns_when_there_is_no_module_file(
+        self,
+        tmp_path: Path,
+        recorder: Recorder,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """No go.mod means nothing to download -- a warning, not a download of nothing.
+
+        Args:
+            tmp_path: An empty directory pinned to the Go layer.
+            recorder: The command recorder.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        monkeypatch.setattr(go_tasks, "have", lambda _: True)
+        go_tasks.install(Config.load(root=tmp_path, layers=("go",)))
+        assert "no go.mod" in capsys.readouterr().out
+        assert recorder.calls == []
+
+    def test_typecheck_vets_then_lints(self, module: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The compiler already type-checks, so this layer's ``typecheck`` is vet plus lint.
+
+        Args:
+            module: A Go module root.
+            recorder: The command recorder.
+            monkeypatch: pytest's patcher.
+        """
+        monkeypatch.setattr(go_tasks.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+        go_tasks.typecheck(Config.load(root=module))
+        assert [(c.tool, c.flags) for c in recorder.calls] == [
+            ("go", ["vet", "./..."]),
+            ("golangci-lint", ["run"]),
+        ]
+
+    def test_typecheck_passes_the_configured_go_flags(
+        self, module: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``go_flags`` reaches vet, as it reaches every other go invocation.
+
+        Args:
+            module: A Go module root.
+            recorder: The command recorder.
+            monkeypatch: pytest's patcher.
+        """
+        monkeypatch.setattr(go_tasks.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+        go_tasks.typecheck(Config.load(root=module, go_flags=("-tags=integration",)))
+        assert recorder.find("go").flags == ["vet", "./...", "-tags=integration"]
+
+    def test_docs_coverage_sets_the_exit_status(
+        self, module: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Undocumented exports are revive's job, and ``-set_exit_status`` makes it a gate.
+
+        Without that flag revive prints its findings and exits 0, which is a report rather
+        than a gate.
+
+        Args:
+            module: A Go module root.
+            recorder: The command recorder.
+            monkeypatch: pytest's patcher.
+        """
+        monkeypatch.setattr(go_tasks.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+        go_tasks.docs_coverage(Config.load(root=module))
+        assert recorder.find("revive").flags == ["-config", "revive.toml", "-set_exit_status", "./..."]
+
+    def test_a_failed_cobertura_conversion_propagates_its_status(
+        self, module: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The one recipe that needs a pipe still reports the converter's own status.
+
+        Args:
+            module: A Go module root.
+            monkeypatch: pytest's patcher.
+        """
+        reports = module / "_tests"
+        reports.mkdir()
+        profile = reports / "coverage.out"
+        profile.write_text("mode: atomic\n")
+
+        monkeypatch.setattr(go_tasks.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+        monkeypatch.setattr(go_tasks.subprocess, "call", lambda *a, **k: 2)
+        with pytest.raises(Failed, match="gocover-cobertura failed") as excinfo:
+            go_tasks._cobertura(Config.load(root=module), profile, reports / "coverage.xml")
+        assert excinfo.value.code == 2
