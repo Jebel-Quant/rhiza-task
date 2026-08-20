@@ -130,6 +130,11 @@ coverage_fail_under = 95
 # 100% floor would guarantee that, and this repo's is 95 (see above), so the honest
 # statement is that tests are located by behaviour and covered globally. Raising the floor
 # to 100 is the change that would make a stronger claim available.
+#
+# The reason says "95" and not "95%" on purpose: radon reads *every* `[tool.*]` table
+# through configparser, which treats `%` as interpolation syntax and dies on any value
+# containing one -- so a percent sign here breaks `radon cc src`, the command the
+# complexity notes in spec.py, runner.py and config.py are there to answer.
 [tool.check_test_layout]
 enforce = false
-reason = "Tests are grouped by behaviour, not mirrored 1:1 -- the twelve task modules share one shape and are covered as groups. Coverage is enforced globally by the 95% floor in [tool.rhiza-task], met at 96.5%."
+reason = "Tests are grouped by behaviour, not mirrored 1:1 -- the twelve task modules share one shape and are covered as groups. Coverage is enforced globally by the coverage_fail_under floor of 95 in [tool.rhiza-task], which the suite meets with headroom."

@@ -142,6 +142,11 @@ def run(names: list[str], cfg: Config) -> Run:
     return run_state
 
 
+# radon scores this function C (12), which is one branch per *outcome* a task can have:
+# already seen, unknown, blocked by a prerequisite, skipped, skipped under --strict,
+# failed, ok. Each writes exactly one line of the run summary, so the branch count is the
+# size of :class:`Status` plus the two early returns -- flat dispatch over a closed set,
+# and deliberate. Splitting it would put the outcomes in two places.
 def _run_one(name: str, cfg: Config, state: Run) -> None:
     """Run one task after its prerequisites, recording the outcome.
 

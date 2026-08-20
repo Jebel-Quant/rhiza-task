@@ -61,6 +61,12 @@ class Failed(Exception):  # noqa: N818 - ditto
         self.code = code
 
 
+# radon scores this class C (14) and :meth:`Guard.check` C (13) -- the class figure *is*
+# check's, since everything else here is five fields and a docstring. Both count the same
+# five ``if ... raise Skip`` clauses: one per kind of precondition, flat, no nesting, in
+# the order they fire. A dispatch table of five predicates would move that count rather
+# than reduce it, and would cost the reader the ordering -- tool before file before folder
+# before glob, cheapest and most likely first. The shape is deliberate.
 @dataclass(frozen=True)
 class Guard:
     """A precondition on the repository layout.
@@ -147,6 +153,8 @@ class Guard:
             no test files found
             >>> tmp.cleanup()
         """
+        # Five guard clauses, each one precondition and each raising the line the runner
+        # prints -- see the note above the class for why they are not factored apart.
         if self.tool and not have(self.tool):
             raise Skip(self.reason or f"{self.tool} not found")
         if self.file and not (root / self.file).is_file():
