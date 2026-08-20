@@ -7,9 +7,9 @@ five positional arguments including a *quoted shell command to eval* for extract
 version. The escaping is such that the awk field references appear as ``\\$$i``.
 
 The change of substance is which tools are required. doctor.mk requires GNU make, because
-the whole task layer was make; here make is optional -- the shim uses it, but every task is
-reachable without it. Requiring a tool the layer no longer needs is how a diagnostic starts
-lying about its own prerequisites.
+the whole task layer was make; here make is optional -- a repo may keep a Makefile that
+forwards to the CLI, but every task is reachable without one. Requiring a tool the layer no
+longer needs is how a diagnostic starts lying about its own prerequisites.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ class Tool:
 TOOLS = (
     Tool("uv", "0.4.0", "https://docs.astral.sh/uv/getting-started/installation/"),
     Tool("git", "2.0.0", "https://git-scm.com"),
-    # Optional: only the Makefile shim needs it, and the shim is a convenience.
+    # Optional: only a repo-owned forwarding Makefile needs it, and that is a convenience.
     Tool("make", "3.8.0", "https://www.gnu.org/software/make/", required=False),
 )
 

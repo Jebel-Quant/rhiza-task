@@ -96,44 +96,6 @@ def test_ci_os_matrix_ignores_an_empty_environment_override(repo: Path, monkeypa
     assert json.loads(result.stdout) == ["macos-latest"]
 
 
-def test_shim_prints_a_usable_makefile() -> None:
-    """``shim`` emits the catch-all Makefile, pinned to this version."""
-    from rhiza_task import __version__
-
-    result = runner.invoke(cli.app, ["shim"])
-    assert result.exit_code == 0
-    assert f"rhiza-task@{__version__}" in result.stdout
-    assert "%:" in result.stdout
-    assert "-include local.mk" in result.stdout
-
-
-def test_shim_forwards_every_target_as_phony() -> None:
-    """The catch-all depends on ``FORCE``, which is what keeps forwarded tasks phony.
-
-    A match-anything rule is still subject to make's up-to-date check, so without this a
-    repository with a ``book/`` directory gets "``book'`` is up to date" from ``make book``
-    and the task never runs. .PHONY takes no patterns; an always-out-of-date prerequisite
-    is the substitute, and it replaces the hand-maintained list of named phony targets.
-    """
-    result = runner.invoke(cli.app, ["shim"])
-    assert "%: $(UVX) FORCE" in result.stdout
-    assert "\nFORCE:\n" in result.stdout
-    assert ".PHONY: FORCE" in result.stdout
-
-
-def test_shim_provisions_uv_alongside_uvx() -> None:
-    """``local.mk`` reaches `uv` through the shim rather than re-deriving it.
-
-    The astral installer writes both binaries into the same directory, so once ``$(UVX)``
-    exists ``$(UV)`` does too -- an empty recipe is the whole rule. Without it every repo
-    with a `local.mk` target that shells out to `uv` copies the `command -v` dance, and the
-    catch-all forwards the resolved path as if it were a task name.
-    """
-    result = runner.invoke(cli.app, ["shim"])
-    assert "UV ?= $(shell command -v uv 2>/dev/null || echo $(INSTALL_DIR)/uv)" in result.stdout
-    assert "$(UV): $(UVX) ;" in result.stdout
-
-
 def test_unknown_task_exits_two_and_suggests_list(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A typo names itself and points at ``list``, rather than doing nothing.
 
@@ -307,19 +269,3 @@ def test_list_shows_this_repository_s_layer(tmp_path: Path, monkeypatch: pytest.
     every = runner.invoke(cli.app, ["list", "--all"])
     assert "mutation" in every.stdout
     assert "cargo-tools" in every.stdout
-
-
-def test_shim_is_emitted_byte_for_byte() -> None:
-    """The Makefile is written verbatim: tabs intact, no line rewrapped.
-
-    Rich's Console word-wraps to the terminal width and expands tabs. A wrapped comment is
-    merely ugly, but a wrapped recipe line is a syntax error, and a tab expanded to spaces
-    stops make recognising the line as a recipe at all -- so this has to be a byte-for-byte
-    copy, not pretty-printed output.
-    """
-    from rhiza_task import cli as cli_module
-
-    template = (Path(cli_module.__file__).parent / "templates" / "Makefile").read_text()
-    result = runner.invoke(cli.app, ["shim"])
-    assert result.stdout == template
-    assert "\t@$(UVX) $(RHIZA_TASK) $(RHIZA_TASK_GOAL)" in result.stdout

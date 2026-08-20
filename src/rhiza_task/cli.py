@@ -38,7 +38,7 @@ STATUS_COLOUR = {
     Status.BLOCKED: "red",
 }
 
-RESERVED = frozenset({"list", "print", "run", "ci-os-matrix", "shim", "version"})
+RESERVED = frozenset({"list", "print", "run", "ci-os-matrix", "version"})
 """Subcommand names, so the bare-task shorthand in :func:`main` can tell them apart."""
 
 
@@ -136,23 +136,6 @@ def ci_os_matrix() -> None:
     print(json.dumps(list(Config.load().ci_os_matrix) or list(DEFAULT_CI_OS_MATRIX)))
 
 
-@app.command("shim")
-def shim() -> None:
-    """Print the Makefile that forwards to this CLI.
-
-    ``uvx rhiza-task shim > Makefile`` is the whole migration for a consumer repository:
-    it is what replaces ``.rhiza/rhiza.mk`` and the ten fragments in ``.rhiza/make.d/``.
-    Generated rather than synced, so it cannot drift from the version that produced it.
-    """
-    template = Path(__file__).parent / "templates" / "Makefile"
-    # sys.stdout, not the rich Console: Console word-wraps to the terminal width and
-    # expands tabs, and a Makefile survives neither. A wrapped comment is merely ugly, but
-    # a wrapped recipe line is a syntax error and a tab expanded to spaces stops make
-    # recognising the line as a recipe at all -- so `rhiza-task shim > Makefile` would
-    # write a broken file.
-    sys.stdout.write(template.read_text())
-
-
 @app.command("version")
 def version() -> None:
     """Print the rhiza-task version."""
@@ -198,9 +181,9 @@ def run_tasks(
 def main() -> None:
     """Entry point. A bare ``rhiza-task <task>`` is shorthand for ``rhiza-task run <task>``.
 
-    Not sugar -- it is the compatibility contract. The reusable workflows and the Makefile
-    shim both invoke ``rhiza-task test``, and a consumer's muscle memory is ``make test``.
-    Requiring ``run`` would put a word between the two for no gain.
+    Not sugar -- it is the compatibility contract. The reusable workflows and a repo-owned
+    forwarding ``Makefile`` both invoke ``rhiza-task test``, and a consumer's muscle memory
+    is ``make test``. Requiring ``run`` would put a word between the two for no gain.
     """
     load_tasks()
     argv = sys.argv[1:]
