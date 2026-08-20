@@ -386,11 +386,12 @@ def test_run_skipped_under_strict_exits_one(repo: Path, monkeypatch: pytest.Monk
     assert "failed" in result.stdout
 
 
-def test_run_exit_code_collapses_to_one(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Any non-zero exit code from a task becomes 1 at the CLI boundary.
+def test_run_propagates_the_failing_tasks_exit_code(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A task's own exit code reaches the process exit status.
 
-    This pins the documented collapse behaviour: pytest exits 5 for "no tests collected",
-    but ``rhiza-task run test`` must exit 1 so callers never need to enumerate codes.
+    The CLI boundary is where propagation would be lost if it were lost anywhere: pytest
+    exits 5 for "no tests collected", and ``rhiza-task run`` exits 5 too, so a caller
+    reading ``$?`` sees what the gate actually reported.
 
     Args:
         repo: The throwaway repository.
@@ -413,4 +414,4 @@ def test_run_exit_code_collapses_to_one(repo: Path, monkeypatch: pytest.MonkeyPa
 
     monkeypatch.chdir(repo)
     result = runner.invoke(cli.app, ["run", "t-cli-exits-5"])
-    assert result.exit_code == 1
+    assert result.exit_code == 5
