@@ -79,13 +79,6 @@ tag = false
 [[tool.bumpversion.files]]
 filename = "src/rhiza_task/__init__.py"
 
-[[tool.bumpversion.files]]
-# The shim's default pin. A release that did not update this would hand consumers a
-# Makefile pinned to the previous version.
-filename = "src/rhiza_task/templates/Makefile"
-search = "rhiza-task@{current_version}"
-replace = "rhiza-task@{new_version}"
-
 [tool.deptry.package_module_name_map]
 # python-dotenv installs a module called `dotenv`. deptry runs isolated via `uvx`, so the
 # package is not importable and it cannot discover the mapping itself -- it guesses
