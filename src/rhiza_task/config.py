@@ -250,8 +250,8 @@ class Config:
 
         Raises:
             ValueError: When ``typechecker`` is not one of ty, mypy, both,
-                ``coverage_fail_under`` is outside 0-100, or ``layers`` names a layer that
-                does not exist.
+                ``coverage_fail_under`` is outside 0-100, ``layers`` names a layer that
+                does not exist, or a ``*_folder`` escapes :attr:`root`.
         """
         for f in fields(self):
             if str(f.type).replace(" ", "") != "tuple[str,...]":
@@ -278,6 +278,31 @@ class Config:
             msg = f"coverage_fail_under must be a percentage (got {self.coverage_fail_under!r})"
             raise ValueError(msg)
 
+        self._validate_folders()
+
+    def _validate_folders(self) -> None:
+        """Reject a ``*_folder`` setting that resolves outside :attr:`root`.
+
+        Not a sandbox: the folder settings arrive from ``.rhiza/.env``, ``rhiza.toml``, the
+        manifest and the environment, which sit at the same trust level as the code they
+        configure. It is the containment the enumerated fields above already get.
+        ``SOURCE_FOLDER=../../elsewhere`` silently points a gate at a different checkout,
+        and that is a typo far more often than an intention -- so it should say the field's
+        name rather than run and report on somebody else's tree.
+
+        Both sides are resolved because ``root`` itself is routinely a symlink -- macOS
+        ``/tmp``, and every :func:`tempfile.mkdtemp` under it -- and comparing a resolved
+        child against an unresolved parent would reject every folder in such a checkout.
+
+        Raises:
+            ValueError: When a folder setting escapes ``root``.
+        """
+        root = self.root.resolve()
+        for name, value in self.folders.items():
+            if not (root / value).resolve().is_relative_to(root):
+                msg = f"{name} must stay inside the repository root (got {value!r})"
+                raise ValueError(msg)
+
     @property
     def folders(self) -> dict[str, str]:
         """Return the folder settings, for :meth:`~rhiza_task.spec.Guard.check`.
@@ -289,6 +314,9 @@ class Config:
 
     def path(self, folder_field: str) -> Path:
         """Resolve a folder field to an absolute path.
+
+        No containment check here: :meth:`_validate_folders` did it once at construction,
+        so every field this resolves is already known to stay under ``root``.
 
         Args:
             folder_field: A field name such as ``source_folder``.

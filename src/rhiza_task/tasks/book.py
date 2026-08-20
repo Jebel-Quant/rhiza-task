@@ -15,7 +15,7 @@ from __future__ import annotations
 import shutil
 
 from ..config import Config
-from ..spec import Guard, Skip, task
+from ..spec import Failed, Guard, Skip, task
 from ..uv import uv_run, uvx
 
 
@@ -126,8 +126,6 @@ def marimo_validate(cfg: Config) -> None:
         Skip: When the folder holds no notebooks.
         Failed: When any notebook fails to run.
     """
-    from ..spec import Failed
-
     notebooks = sorted(cfg.path("marimo_folder").glob("*.py"))
     if not notebooks:
         raise Skip(f"no notebooks in '{cfg.marimo_folder}'")

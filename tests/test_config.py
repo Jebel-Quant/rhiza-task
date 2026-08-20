@@ -272,6 +272,39 @@ def test_invalid_coverage_threshold_fails_at_load(tmp_path: Path) -> None:
         Config.load(root=tmp_path, coverage_fail_under=900)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("source_folder", "../../elsewhere"),
+        ("tests_folder", "/etc"),
+        ("marimo_folder", "docs/../../notebooks"),
+    ],
+)
+def test_folder_escaping_the_root_fails_at_load(tmp_path: Path, field: str, value: str) -> None:
+    """A ``*_folder`` pointing outside the repository is rejected, by name.
+
+    The three shapes that reach the same check: a relative climb, an absolute path, and a
+    climb hidden behind a descent that ``resolve`` has to normalise before it shows.
+
+    Args:
+        tmp_path: The repository root.
+        field: The folder setting under test.
+        value: The escaping path.
+    """
+    with pytest.raises(ValueError, match=f"{field} must stay inside"):
+        Config.load(root=tmp_path, **{field: value})
+
+
+def test_folder_inside_the_root_is_accepted(tmp_path: Path) -> None:
+    """The containment check does not reject a nested folder, or the root itself.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    cfg = Config.load(root=tmp_path, source_folder="packages/core/src", tests_folder=".")
+    assert cfg.path("source_folder") == tmp_path / "packages" / "core" / "src"
+
+
 def test_folders_and_path_resolve(tmp_path: Path) -> None:
     """``folders`` exposes exactly the folder fields, and ``path`` makes them absolute.
 
