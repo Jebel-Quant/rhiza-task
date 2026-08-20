@@ -217,3 +217,59 @@ def test_the_exported_path_survives_an_overridden_install_dir(shim: Path, stub_p
     result = _make_run(shim, f"INSTALL_DIR={elsewhere}", "show-path", path=stub_path)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip().split(os.pathsep)[0] == str(elsewhere)
+
+
+NAMED = (
+    "fmt",
+    "test",
+    "typecheck",
+    "coverage",
+    "all",
+    "deps",
+    "docs-coverage",
+    "license",
+    "security",
+    "rhiza-test",
+    "install",
+    "clean",
+    "doctor",
+    "book",
+)
+"""The tasks the shim spells out as rules of their own, rather than leaving to `%:`."""
+
+
+@pytest.mark.parametrize("task", NAMED)
+def test_named_tasks_forward_their_own_name(shim: Path, stub_path: str, task: str) -> None:
+    """Each spelled-out rule invokes the task it is named for.
+
+    A copy-paste in fourteen near-identical rules is silent: the recipe still runs and the
+    CLI still succeeds, just for the wrong task.
+
+    Args:
+        shim: The directory holding the Makefile.
+        stub_path: A PATH whose ``uvx`` is a stub.
+        task: The target to make.
+    """
+    result = _make(shim, task, path=stub_path)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.rstrip().endswith(f"rhiza-task@0.3.1 {task}")
+
+
+@pytest.mark.parametrize("task", NAMED)
+def test_named_tasks_are_phony(shim: Path, stub_path: str, task: str) -> None:
+    """A file or directory sharing a task's name does not shadow it.
+
+    The catch-all could not be protected this way -- ``.PHONY`` cannot name targets make
+    has not heard of -- so ``make book`` in a repo with a ``book/`` directory newer than
+    ``bin/uvx`` was "nothing to be done for 'book'". Naming the rules is what makes the
+    declaration possible.
+
+    Args:
+        shim: The directory holding the Makefile.
+        stub_path: A PATH whose ``uvx`` is a stub.
+        task: The target to make, also created as a directory.
+    """
+    (shim / task).mkdir()
+    result = _make(shim, task, path=stub_path)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.rstrip().endswith(f"rhiza-task@0.3.1 {task}")
