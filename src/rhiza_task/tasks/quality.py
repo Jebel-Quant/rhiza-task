@@ -15,7 +15,12 @@ from __future__ import annotations
 
 import re
 import shutil
-import subprocess  # nosec B404 - fixed argument vectors
+
+# The hook-path probe below is a fixed argument vector, with no shell -- which is what bandit's
+# B404 asks about. The reason sits here rather than on the suppression comment itself: bandit
+# reads everything after that marker as a comma-separated list of test IDs, so a trailing
+# explanation becomes one `Test in comment:` warning per word.
+import subprocess  # nosec B404
 from pathlib import Path
 
 from ..config import Config
