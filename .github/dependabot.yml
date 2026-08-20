@@ -1,0 +1,77 @@
+# Every third-party action in .github/workflows/ is pinned to a full 40-character SHA, and
+# the uv binary and ruff are pinned to exact versions. That is deliberate -- it is what
+# makes a run reproducible and what stops a tag being re-pointed under us. It is also what
+# makes the toolchain *static*: an unpinned dependency rots loudly, on the next resolve,
+# while a SHA-pinned one rots silently and forever. A patched harden-runner or a
+# security-fixed gh-action-pypi-publish never arrives on its own.
+#
+# So this file is the other half of the pinning practice, not an addition to it. It does
+# not relax a single pin; it makes each one a thing somebody is asked about on a schedule.
+#
+# Monday 08:00 UTC matches weekly.yml's cron, so the dependency mail arrives together with
+# the `dep-compat` result that says whether the current ceiling still works.
+version: 2
+
+updates:
+  # The SHA pins, and the `@v1.4.2` refs to jebel-quant/rhiza's reusable workflows --
+  # dependabot rewrites both, and keeps the trailing `# vX.Y.Z` comment in step with the
+  # SHA it writes, which is the whole reason that comment convention is worth following.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+    # One PR for the lot rather than one per action. These bumps are read as a batch --
+    # "are any of these a security fix?" -- and eleven separate PRs against seven workflow
+    # files is eleven CI runs to answer one question. A bump that then fails CI can still
+    # be split out by hand; the default cannot be un-split.
+    groups:
+      actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+
+  # pyproject.toml and uv.lock. The floors here (`typer>=0.15`, `rich>=13.0`,
+  # `python-dotenv>=1.0`) are asserted by ci.yml's `lowest-deps` job and the ceiling by
+  # weekly.yml's `dep-compat`, so both ends of every range already have a gate -- what was
+  # missing is anything that *moves* the lockfile between them.
+  #
+  # Lockfile-only: a lockfile bump is reviewable in one diff and reverts cleanly, whereas
+  # rewriting a declared floor is a compatibility claim about the package's own API surface
+  # and belongs in a deliberate commit. `lowest-deps` exists precisely to keep those floors
+  # meaningful, and an automated bump would quietly narrow what it tests.
+  - package-ecosystem: uv
+    directory: /
+    versioning-strategy: lockfile-only
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+    groups:
+      python:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+
+# Two pins dependabot cannot reach, and both are reviewed by hand. Recorded here rather
+# than only at the call sites, because this is the file a reader consults to learn what is
+# and is not automated -- and silence here would read as "everything is covered".
+#
+#   * `uvx ruff@0.16.3` in ci.yml (twice) and `rev: 'v0.16.3'` in
+#     .pre-commit-config.yaml. These are one pin written in two places on purpose, so that
+#     the `lint` job and the `fmt` gate cannot report different findings; an updater that
+#     moved one and not the other would reintroduce exactly the drift that pairing exists
+#     to prevent. There is no `pre-commit` ecosystem here to move the second half, so
+#     neither moves automatically. Bump both in one commit, carrying whatever fixes the
+#     new rules want.
+#   * `version: "0.11.16"` in every setup-uv step, which pins the uv *binary* rather than
+#     the action. It must stay equal to the uv that rhiza_release.yml builds and publishes
+#     with, for the reason ci.yml's first job records: a gate that passes on one uv and a
+#     release built on another is a resolver difference nothing would catch.
+#
+# The remaining .pre-commit-config.yaml hook revs are unautomated for the same
+# no-such-ecosystem reason, but carry no cross-file pairing, so `prek autoupdate` is a
+# sufficient answer for those.

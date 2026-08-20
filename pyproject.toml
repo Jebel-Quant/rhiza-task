@@ -62,7 +62,15 @@ Repository = "https://github.com/jebel-quant/rhiza-task"
 Issues = "https://github.com/jebel-quant/rhiza-task/issues"
 
 [dependency-groups]
-test = ["pytest>=8.0", "pytest-cov>=6.0"]
+# hypothesis is declared here rather than left to `rhiza-task hypothesis-test`'s own
+# `--with`, so that the property tests in tests/test_properties.py are collected by every
+# runner and not only by that gate. `all` does not depend on hypothesis-test, so without
+# this line CI would never execute them: ci.yml's matrix job syncs `--group test` and the
+# `gates` job's `uv sync --all-extras --all-groups` picks it up too.
+#
+# The floor is what ci.yml's `lowest-deps` job installs, so it has to be a version that
+# works with `pytest>=8.0` resolved to 8.0.0 on Python 3.11. 6.98 is the first that does.
+test = ["pytest>=8.0", "pytest-cov>=6.0", "hypothesis>=6.98"]
 
 [build-system]
 requires = ["hatchling"]

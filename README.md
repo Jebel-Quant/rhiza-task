@@ -286,3 +286,7 @@ package: `uv run` rather than a bare interpreter.
 No test in the suite runs uv. Every task test patches the three entry points in `uv.py`
 and asserts on the argument vector that would have been executed — which is exactly what
 the make recipes expressed in `$$`-escaped shell, and could not assert.
+
+`CLAUDE.md` carries the rest: the layering invariant the import graph holds by discipline,
+why the 100% coverage floor is load-bearing rather than decorative, and the house rule on
+comments. Read it before a first change.

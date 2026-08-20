@@ -36,7 +36,9 @@ jobs:
       #
       # `version` pins the uv binary itself, not just the action, to the same uv that
       # rhiza_release.yml builds and publishes with. A gate that passes here on one uv and
-      # a release built on another is a resolver difference nothing would catch.
+      # a release built on another is a resolver difference nothing would catch -- which is
+      # also why dependabot is not asked to move it. It is reviewed by hand; see the note
+      # at the foot of .github/dependabot.yml.
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: "0.11.16"
@@ -59,9 +61,11 @@ jobs:
   # broke without opening a log, and this needs no venv, no sync and no matrix. The
   # duplicated work is the price of that, and it is cheap.
   #
-  # `ruff@0.16.3` is pinned for the reason the uv pin below is -- a floating ruff means a
+  # `ruff@0.16.3` is pinned for the reason the uv pin above is -- a floating ruff means a
   # new release's new rules can turn a green PR red without a commit touching this repo.
-  # Bumping it is then a deliberate commit that carries whatever fixes the new rules want.
+  # Bumping it is then a deliberate commit that carries whatever fixes the new rules want,
+  # in both places at once: .pre-commit-config.yaml pins the same version, and dependabot
+  # moves neither, deliberately. See the note at the foot of .github/dependabot.yml.
   lint:
     name: ruff (lint + format)
     runs-on: ubuntu-latest
