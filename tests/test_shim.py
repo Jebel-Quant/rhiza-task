@@ -234,6 +234,8 @@ NAMED = (
     "clean",
     "doctor",
     "book",
+    "paper",
+    "presentation",
 )
 """The tasks the shim spells out as rules of their own, rather than leaving to `%:`."""
 

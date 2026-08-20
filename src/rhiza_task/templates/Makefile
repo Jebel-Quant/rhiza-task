@@ -14,15 +14,15 @@ export PATH := $(INSTALL_DIR):$(PATH)
 
 .DEFAULT_GOAL := help
 
-# The named tasks: the CI gates, the daily loop, and the book. Spelled out rather than left
-# to the catch-all so `make -p`, shell completion and a reader all see them, and so .PHONY
-# can protect them -- `make book` next to a `book/` directory is "nothing to be done"
-# otherwise. `make help` lists whatever the pinned CLI actually offers for this repo.
+# The named tasks: the CI gates, the daily loop, and the documents. Spelled out rather than
+# left to the catch-all so `make -p`, shell completion and a reader all see them, and so
+# .PHONY can protect them -- `make book` next to a `book/` directory, or `paper` next to
+# `paper/`, is "nothing to be done" otherwise. `make help` lists what this repo offers.
 .PHONY: help \
         fmt test typecheck coverage \
         all deps docs-coverage license security rhiza-test \
         install clean doctor \
-        book
+        book paper presentation
 
 help: $(UVX)
 	@$(UVX) $(RHIZA_TASK) list
@@ -69,8 +69,15 @@ doctor: $(UVX)
 book: $(UVX)
 	@$(UVX) $(RHIZA_TASK) book
 
-# Everything else the CLI offers -- docker-*, lfs-*, the GitHub helpers, marimo, paper,
-# presentation, semgrep, todos, the testing extras -- reaches it through here. A typo lands
+paper: $(UVX)
+	@$(UVX) $(RHIZA_TASK) paper
+
+presentation: $(UVX)
+	@$(UVX) $(RHIZA_TASK) presentation
+
+# Everything else the CLI offers -- docker-*, lfs-*, the GitHub helpers, marimo, semgrep,
+# todos, the testing extras, and the -clean/-pdf/-serve siblings above -- comes through
+# here. A typo lands
 # here too, and the CLI's "unknown task" error is the backstop. `RHIZA_TASK_GOAL` is `$@`
 # named; recursive `=` because `$@` only has a value while make is running the rule.
 RHIZA_TASK_GOAL = $@
