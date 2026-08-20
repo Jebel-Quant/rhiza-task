@@ -227,6 +227,11 @@ class Config:
 
     root: Path = field(default_factory=Path.cwd)
 
+    # radon scores this method C (12): one branch per field that needs normalising or
+    # checking -- str and list coercion, layer defaulting and membership, rhiza_checks
+    # defaulting, typechecker, coverage_fail_under. It is a flat sequence, one field per
+    # step, with no interaction between the steps; the count grows with the number of
+    # validated settings and not with the depth of anything. Deliberate.
     def __post_init__(self) -> None:
         """Normalise the list fields, then validate the enumerated and numeric ones.
 
