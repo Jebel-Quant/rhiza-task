@@ -86,6 +86,19 @@ filename = "README.md"
 search = "rhiza-task@{current_version}"
 replace = "rhiza-task@{new_version}"
 
+# The lockfile records this package's own version, and `uv lock --check` is the first
+# command `install` runs -- so a bump that leaves uv.lock behind fails every gate that
+# names `install` as a prerequisite, which is all of them. v1.0.0 shipped that way: the
+# release commit touched pyproject.toml, __init__.py and CHANGELOG.md only. The search is
+# anchored on the package name because a bare `version = "..."` matches every one of the
+# seventeen locked packages.
+[[tool.bumpversion.files]]
+filename = "uv.lock"
+search = """name = "rhiza-task"
+version = "{current_version}\""""
+replace = """name = "rhiza-task"
+version = "{new_version}\""""
+
 [tool.deptry.package_module_name_map]
 # python-dotenv installs a module called `dotenv`. deptry runs isolated via `uvx`, so the
 # package is not importable and it cannot discover the mapping itself -- it guesses
