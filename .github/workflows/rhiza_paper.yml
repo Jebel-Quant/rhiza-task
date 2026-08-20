@@ -1,0 +1,137 @@
+# Adapted from jebel-quant/rhiza's rhiza_paper.yml. Unlike the book workflow this one
+# carries no circularity to remove -- upstream's version never calls rhiza-task at all, it
+# reimplements the recipe in shell. Two things change as a result:
+#
+#   * The compile step calls `uv run rhiza-task paper` instead of inlining `latexmk`, so the
+#     workflow and a local `rhiza-task paper` cannot drift. This repository's dogfood
+#     position is that its own gates run through the CLI under test.
+#   * Upstream's "prefer basanos.tex, else the first *.tex" step is gone with it. That was a
+#     named preference for one downstream repository's paper, living in a template every
+#     consumer synced; tasks/paper.py replaced it with two conventional names -- main.tex,
+#     then paper.tex -- and then alphabetical order. Re-deriving the filename here would
+#     reintroduce exactly the duplication the task removed, so the artifact step globs for
+#     whatever PDF the task produced instead.
+#
+# The `tex_present` guard is kept even though `rhiza-task paper` skips on its own: the task
+# skipping is cheap, but installing TeX Live first is not, and this repository ships no
+# docs/paper. So the guard is about the apt-get, not about the gate.
+#
+# Workflow: Paper
+# Purpose: Compile the LaTeX paper (docs/paper/*.tex) to a PDF, publish it as a workflow
+#          artifact, and keep the latest PDF on the `paper` branch.
+
+name: "(RHIZA) PAPER"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/paper/**'
+      - '.github/workflows/rhiza_paper.yml'
+  pull_request:
+    paths:
+      - 'docs/paper/**'
+      - '.github/workflows/rhiza_paper.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-pdf:
+    name: compile the paper
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to push the compiled PDF to the paper branch
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Detect docs/paper/*.tex
+        id: check_tex
+        run: |
+          if compgen -G "docs/paper/*.tex" > /dev/null 2>&1; then
+            echo "tex_present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tex_present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip notice (no docs/paper/*.tex present)
+        if: ${{ steps.check_tex.outputs.tex_present != 'true' }}
+        run: echo "No docs/paper/*.tex found; skipping LaTeX compilation." >> "$GITHUB_STEP_SUMMARY"
+
+      # The same action SHA and uv version as ci.yml, so the CLI runs under the resolver the
+      # gates were tested with.
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        if: ${{ steps.check_tex.outputs.tex_present == 'true' }}
+        with:
+          version: "0.11.16"
+          enable-cache: true
+
+      - name: Install TeX Live
+        if: ${{ steps.check_tex.outputs.tex_present == 'true' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            texlive-latex-extra \
+            texlive-fonts-recommended \
+            texlive-bibtex-extra \
+            latexmk
+
+      # `rhiza-task paper` guards on latexmk being present and on the paper folder
+      # existing, chooses the root document, and runs latexmk with -bibtex so the
+      # references converge. Everything this step used to spell out lives there.
+      - name: Compile the paper
+        if: ${{ steps.check_tex.outputs.tex_present == 'true' }}
+        run: uv run rhiza-task paper
+
+      - name: Locate the compiled PDF
+        id: pdf
+        if: ${{ steps.check_tex.outputs.tex_present == 'true' }}
+        run: |
+          pdf_path=$(find docs/paper -maxdepth 1 -name '*.pdf' | head -1)
+          if [ -z "$pdf_path" ]; then
+            echo "::error::rhiza-task paper produced no PDF under docs/paper"
+            exit 1
+          fi
+          echo "pdf_path=${pdf_path}" >> "$GITHUB_OUTPUT"
+          echo "pdf_file=$(basename "$pdf_path")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the PDF artifact
+        if: ${{ steps.check_tex.outputs.tex_present == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.pdf.outputs.pdf_file }}
+          path: ${{ steps.pdf.outputs.pdf_path }}
+          retention-days: 30
+
+      # An orphan `paper` branch holding only the current PDF, so the latest build has a
+      # stable URL that outlives the 30-day artifact retention.
+      - name: Push the PDF to the paper branch
+        if: ${{ steps.check_tex.outputs.tex_present == 'true' && github.event_name == 'push' }}
+        run: |
+          pdf_file="${{ steps.pdf.outputs.pdf_file }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          cp "${{ steps.pdf.outputs.pdf_path }}" "/tmp/${pdf_file}"
+          git fetch origin paper 2>/dev/null || true
+          if git show-ref --verify --quiet refs/remotes/origin/paper; then
+            git checkout -b paper origin/paper
+          else
+            git checkout --orphan paper
+            git rm -rf --quiet . || true
+            git reset
+          fi
+          cp "/tmp/${pdf_file}" "${pdf_file}"
+          git add "${pdf_file}"
+          git diff --staged --quiet || git commit -m "Update ${pdf_file} [skip ci]"
+          git push origin paper
