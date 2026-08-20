@@ -232,7 +232,6 @@ NAMED = (
     "rhiza-test",
     "install",
     "clean",
-    "doctor",
     "book",
     "paper",
     "presentation",

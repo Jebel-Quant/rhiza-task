@@ -21,7 +21,7 @@ export PATH := $(INSTALL_DIR):$(PATH)
 .PHONY: help \
         fmt test typecheck coverage \
         all deps docs-coverage license security rhiza-test \
-        install clean doctor \
+        install clean \
         book paper presentation
 
 help: $(UVX)
@@ -63,9 +63,6 @@ install: $(UVX)
 clean: $(UVX)
 	@$(UVX) $(RHIZA_TASK) clean
 
-doctor: $(UVX)
-	@$(UVX) $(RHIZA_TASK) doctor
-
 book: $(UVX)
 	@$(UVX) $(RHIZA_TASK) book
 
@@ -75,9 +72,9 @@ paper: $(UVX)
 presentation: $(UVX)
 	@$(UVX) $(RHIZA_TASK) presentation
 
-# Everything else the CLI offers -- docker-*, lfs-*, the GitHub helpers, marimo, semgrep,
-# todos, the testing extras, and the -clean/-pdf/-serve siblings above -- comes through
-# here. A typo lands
+# Everything else the CLI offers -- doctor, docker-*, lfs-*, the GitHub helpers, marimo,
+# semgrep, todos, the testing extras, and the -clean/-pdf/-serve siblings above -- comes
+# through here. A typo lands
 # here too, and the CLI's "unknown task" error is the backstop. `RHIZA_TASK_GOAL` is `$@`
 # named; recursive `=` because `$@` only has a value while make is running the rule.
 RHIZA_TASK_GOAL = $@
