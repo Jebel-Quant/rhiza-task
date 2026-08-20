@@ -93,15 +93,26 @@ jobs:
       # Dogfooding, and not for its own sake: `all` is the aggregate consumers run, so a
       # break in prerequisite resolution or outcome reporting fails here first.
       #
-      # Deliberately without --strict. This repository is not rhiza-managed -- it ships no
-      # .pre-commit-config.yaml and no .rhiza/semgrep.yml, exactly as pytest-rhiza does not
-      # -- so `fmt` and `semgrep` have genuinely nothing to measure here and skip. --strict
-      # is the right setting in a *consumer* repository, where a skip means a gate lost its
-      # subject; asserting it here would only assert that this repo is something it is not.
+      # What that covers is `fmt deps test docs-coverage security license typecheck
+      # rhiza-test` -- the prerequisite list in tasks/python.py's `all`. Two things in the
+      # registry are outside it, both on purpose, so that a reader can tell "skipped on
+      # purpose" from "forgotten":
       #
-      # The skipped `fmt` is why ruff gets its own job above rather than riding along in a
-      # pre-commit config: adding one to satisfy ruff would make this repo the managed
-      # thing it is not, and would quietly change what `fmt` means in the dogfood run.
+      #   * `semgrep` is not an `all` prerequisite anywhere -- upstream rhiza runs it on
+      #     the weekly cadence, not per PR, and this repository's weekly.yml records why
+      #     that job is not lifted either: `rhiza-task semgrep` skips without
+      #     .rhiza/semgrep.yml, and this repository ships none, exactly as pytest-rhiza
+      #     does not. So there is nothing for CI to invoke until a rule file exists.
+      #   * `fmt` is a prerequisite, and skips: no .pre-commit-config.yaml here, for the
+      #     same "not rhiza-managed" reason. That skip is why ruff gets its own job above
+      #     rather than riding along in a pre-commit config -- adding one to satisfy ruff
+      #     would make this repo the managed thing it is not, and would quietly change what
+      #     `fmt` means in the dogfood run. ruff.toml is enforced there, not here.
+      #
+      # Which is also why this runs deliberately without --strict: --strict turns a skip
+      # into a failure, and it is the right setting in a *consumer* repository, where a
+      # skip means a gate lost its subject. Asserting it here would only assert that this
+      # repo is something it is not.
       - name: rhiza-task all
         run: uv run rhiza-task all
 

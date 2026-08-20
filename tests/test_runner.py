@@ -277,12 +277,12 @@ def test_several_requested_tasks_run_in_order(cfg: Config, graph: None) -> None:
     assert state.status_of("t-right") == Status.OK
 
 
-def test_exit_code_collapses_any_nonzero_to_one(cfg: Config) -> None:
-    """A failing task's own exit code does not survive into the aggregate.
+def test_exit_code_propagates_the_failing_tasks_own_code(cfg: Config) -> None:
+    """A failing task's own exit code survives into the aggregate.
 
-    :class:`~rhiza_task.spec.Failed` carries e.g. pytest's 3 or 5, but :meth:`Run.exit_code`
-    collapses every failure to 1.  This is the documented behaviour; the test pins it so a
-    future change that starts propagating the code also updates the docstring.
+    :class:`~rhiza_task.spec.Failed` carries e.g. pytest's 3 or 5, and :meth:`Run.exit_code`
+    hands the first real failure's code back rather than flattening it, so a caller can
+    still tell "no tests collected" from "a gate exited 1".
 
     Args:
         cfg: The resolved config.
@@ -302,6 +302,33 @@ def test_exit_code_collapses_any_nonzero_to_one(cfg: Config) -> None:
 
     state = run(["t-exits-5"], cfg)
     assert state.status_of("t-exits-5") == Status.FAILED
+    assert state.exit_code() == 5
+
+
+def test_exit_code_collapses_a_code_no_shell_can_carry(cfg: Config) -> None:
+    """A code outside 1-255 becomes 1, because ``exit`` cannot be handed it as-is.
+
+    ``subprocess`` reports a child killed by a signal as the negative signal number, which
+    is the shape that reaches here in practice.
+
+    Args:
+        cfg: The resolved config.
+    """
+
+    @task("t-killed", "exits with a signal number", section="Test")
+    def killed(cfg: Config) -> None:
+        """Fail the way a SIGKILLed child does.
+
+        Args:
+            cfg: Unused.
+
+        Raises:
+            Failed: Always, with code -9.
+        """
+        raise Failed(-9, "killed")
+
+    state = run(["t-killed"], cfg)
+    assert state.status_of("t-killed") == Status.FAILED
     assert state.exit_code() == 1
 
 
