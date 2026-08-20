@@ -54,7 +54,9 @@ repos:
 
   # v0.16.3, not upstream's v0.16.2: ci.yml's `lint` job pins `ruff@0.16.3`, and a hook that
   # disagrees with the job means one of the two reports a finding the other does not. The
-  # two pins move together.
+  # two pins move together -- by hand, since dependabot has no pre-commit ecosystem and
+  # moving only the half it can reach would recreate the disagreement. .github/dependabot.yml
+  # records that at its foot.
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: 'v0.16.3'
     hooks:
@@ -78,6 +80,14 @@ repos:
       # "(no files to check)Skipped" line that reads like a check in the output of the gate
       # this repository runs most.
       - id: check-github-workflows
+        args: ["--verbose"]
+
+      # Added with .github/dependabot.yml, and worth more than the usual schema check:
+      # `package-ecosystem` is a closed vocabulary, and a name outside it -- a plausible
+      # `pip` where the repo means `uv`, say -- is not an error anywhere in git or CI. It
+      # is a silent no-update, visible only on the repository's Dependabot settings page,
+      # which is exactly the kind of failure nobody goes looking for.
+      - id: check-dependabot
         args: ["--verbose"]
 
   - repo: https://github.com/rhysd/actionlint
