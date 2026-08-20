@@ -269,3 +269,117 @@ def test_list_shows_this_repository_s_layer(tmp_path: Path, monkeypatch: pytest.
     every = runner.invoke(cli.app, ["list", "--all"])
     assert "mutation" in every.stdout
     assert "cargo-tools" in every.stdout
+
+
+def test_run_blocked_task_exits_one(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A task whose prerequisite failed is blocked; the CLI exits 1.
+
+    Args:
+        repo: The throwaway repository.
+        monkeypatch: pytest's patcher.
+    """
+    from rhiza_task.config import Config
+    from rhiza_task.spec import Failed, task
+
+    @task("t-cli-broken-req", "always fails", section="Test")
+    def broken_req(cfg: Config) -> None:
+        """Fail.
+
+        Args:
+            cfg: Unused.
+
+        Raises:
+            Failed: Always.
+        """
+        raise Failed(1, "boom")
+
+    @task("t-cli-downstream", "depends on the failure", section="Test", needs=("t-cli-broken-req",))
+    def downstream(cfg: Config) -> None:
+        """Should not run.
+
+        Args:
+            cfg: Unused.
+        """
+
+    monkeypatch.chdir(repo)
+    result = runner.invoke(cli.app, ["run", "t-cli-downstream"])
+    assert result.exit_code == 1
+    assert "blocked" in result.stdout
+
+
+def test_run_skipped_task_exits_zero(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A skipped gate is green in lenient mode; the CLI exits 0.
+
+    Args:
+        repo: The throwaway repository.
+        monkeypatch: pytest's patcher.
+    """
+    from rhiza_task.config import Config
+    from rhiza_task.spec import Guard, task
+
+    @task("t-cli-skipped", "skips via guard", section="Test", guards=(Guard("marimo_folder"),))
+    def skipped(cfg: Config) -> None:
+        """Should be skipped by the guard.
+
+        Args:
+            cfg: Unused.
+        """
+
+    monkeypatch.chdir(repo)
+    result = runner.invoke(cli.app, ["run", "t-cli-skipped"])
+    assert result.exit_code == 0
+    assert "skipped" in result.stdout
+
+
+def test_run_skipped_under_strict_exits_one(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``--strict`` turns a skip into a failure; the CLI exits 1.
+
+    Args:
+        repo: The throwaway repository.
+        monkeypatch: pytest's patcher.
+    """
+    from rhiza_task.config import Config
+    from rhiza_task.spec import Guard, task
+
+    @task("t-cli-strict-skip", "skips via guard", section="Test", guards=(Guard("marimo_folder"),))
+    def strict_skip(cfg: Config) -> None:
+        """Should be skipped by the guard, then escalated by --strict.
+
+        Args:
+            cfg: Unused.
+        """
+
+    monkeypatch.chdir(repo)
+    result = runner.invoke(cli.app, ["run", "--strict", "t-cli-strict-skip"])
+    assert result.exit_code == 1
+    assert "failed" in result.stdout
+
+
+def test_run_exit_code_collapses_to_one(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Any non-zero exit code from a task becomes 1 at the CLI boundary.
+
+    This pins the documented collapse behaviour: pytest exits 5 for "no tests collected",
+    but ``rhiza-task run test`` must exit 1 so callers never need to enumerate codes.
+
+    Args:
+        repo: The throwaway repository.
+        monkeypatch: pytest's patcher.
+    """
+    from rhiza_task.config import Config
+    from rhiza_task.spec import Failed, task
+
+    @task("t-cli-exits-5", "fails with a distinctive code", section="Test")
+    def exits_5(cfg: Config) -> None:
+        """Fail with exit code 5.
+
+        Args:
+            cfg: Unused.
+
+        Raises:
+            Failed: Always, with code 5.
+        """
+        raise Failed(5, "no tests collected")
+
+    monkeypatch.chdir(repo)
+    result = runner.invoke(cli.app, ["run", "t-cli-exits-5"])
+    assert result.exit_code == 1
