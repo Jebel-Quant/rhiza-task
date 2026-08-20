@@ -18,8 +18,13 @@ export PATH := $(INSTALL_DIR):$(PATH)
 
 .PHONY: help
 
+# `rhiza-task list` cannot know about the targets `local.mk` adds, so anything there with
+# a `##` comment is listed under them. This is what lets a repo move its own targets out
+# of this file without losing them from `make help`.
 help: $(UVX)
 	@$(UVX) $(RHIZA_TASK) list
+	@own=$$(grep -hE '^[a-zA-Z0-9_-]+:.*##' $(MAKEFILE_LIST) | sed -e 's/:.*##/ -- /' -e 's/^/  /'); \
+		[ -z "$$own" ] || printf '\nRepo-owned targets:\n%s\n' "$$own"
 
 # Every task, and every typo -- the CLI's "unknown task" error is the backstop. `FORCE` is
 # what keeps them phony: .PHONY takes no patterns, but a phony prerequisite is never up to
