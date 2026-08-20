@@ -38,9 +38,19 @@ gate lost its subject and nobody noticed.
 
 ### Why does this repository not use `--strict` on itself?
 
-Because several of its gates skip on purpose — `fmt` has no `.pre-commit-config.yaml` and
-`semgrep` has no `.rhiza/semgrep.yml`, both for the same "not rhiza-managed" reason.
-Asserting `--strict` here would only assert that the repository is something it is not.
+On `all`, it could: every gate `all` aggregates passes here, so `rhiza-task all --strict`
+is green.
+
+What skips is outside `all`, and for three different reasons worth separating:
+
+- `semgrep` has no `.rhiza/semgrep.yml`. This is the genuine "not rhiza-managed" case.
+- `presentation` has no `PRESENTATION.md`, and `marimo-validate` no `docs/notebooks`. These
+  skip for want of a *subject*, which any consumer that has not adopted the bundle shares.
+- `paper` skips on a machine without `latexmk` — a fact about the machine, not about this
+  repository.
+
+So a registry-wide `--strict` would assert that this is a consumer carrying every bundle,
+which it is not. `all --strict` is a narrower claim, and a true one.
 
 ### `unknown task` — but `list` shows it
 
