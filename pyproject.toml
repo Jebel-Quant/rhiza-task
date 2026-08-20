@@ -79,6 +79,13 @@ tag = false
 [[tool.bumpversion.files]]
 filename = "src/rhiza_task/__init__.py"
 
+# The README pins the CLI in its usage examples. Without this entry those examples drift:
+# they still read `rhiza-task@0.1.0` two releases after 0.1.0.
+[[tool.bumpversion.files]]
+filename = "README.md"
+search = "rhiza-task@{current_version}"
+replace = "rhiza-task@{new_version}"
+
 [tool.deptry.package_module_name_map]
 # python-dotenv installs a module called `dotenv`. deptry runs isolated via `uvx`, so the
 # package is not importable and it cannot discover the mapping itself -- it guesses
