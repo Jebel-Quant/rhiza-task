@@ -144,7 +144,65 @@ def test_failed_prerequisite_blocks_its_dependents(cfg: Config) -> None:
     assert state.status_of("t-broken") == Status.FAILED
     assert state.status_of("t-dependent") == Status.BLOCKED
     assert "t-dependent" not in ORDER
-    assert state.exit_code() == 1
+    # The failure's own 2, not the blocked dependent's nothing: see the test below.
+    assert state.exit_code() == 2
+
+
+def test_a_failing_task_s_own_exit_status_is_what_the_run_exits_with(cfg: Config) -> None:
+    """A failing task's own 2 survives to the caller, rather than collapsing to a flat 1.
+
+    This is the point of :attr:`~rhiza_task.runner.Result.code`: a consumer's CI can tell
+    "tests failed" (pytest 1) from "collection errored" (2) or "usage error" (4), which is
+    what :class:`~rhiza_task.spec.Failed` has always carried and nothing used to read.
+
+    Args:
+        cfg: The resolved config.
+    """
+
+    @task("t-pytest-2", "fails the way pytest fails", section="Test")
+    def collection_error(cfg: Config) -> None:
+        """Fail with pytest's collection-error status.
+
+        Args:
+            cfg: Unused.
+
+        Raises:
+            Failed: Always, with code 2.
+        """
+        raise Failed(2, "tests failed")
+
+    @task("t-guard-verdict", "fails on its own verdict", section="Test")
+    def guard_verdict(cfg: Config) -> None:
+        """Fail without a child process behind it.
+
+        Args:
+            cfg: Unused.
+
+        Raises:
+            Failed: Always, with code 1.
+        """
+        raise Failed(1, "coverage 87.0% is below the 100% floor")
+
+    @task("t-killed", "reports a signal, not a status", section="Test")
+    def killed(cfg: Config) -> None:
+        """Fail with what ``subprocess`` reports for a child killed by SIGKILL.
+
+        Args:
+            cfg: Unused.
+
+        Raises:
+            Failed: Always, with an unusable code.
+        """
+        raise Failed(-9, "killed")
+
+    assert run(["t-pytest-2"], cfg).exit_code() == 2
+    assert run(["t-guard-verdict"], cfg).exit_code() == 1
+    # -9 is not a status a shell can report; 1 is the honest floor.
+    assert run(["t-killed"], cfg).exit_code() == 1
+
+    # The *first* real failure speaks, so a later gate's code cannot mask it.
+    both = run(["t-pytest-2", "t-guard-verdict"], cfg)
+    assert both.exit_code() == 2
 
 
 def test_skip_is_green_by_default_and_red_under_strict(repo: Config) -> None:

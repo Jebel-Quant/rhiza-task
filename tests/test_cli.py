@@ -230,6 +230,37 @@ def test_run_exits_one_on_failure(repo: Path, monkeypatch: pytest.MonkeyPatch) -
     assert "failed" in result.stdout
 
 
+def test_run_propagates_the_failing_task_s_own_status(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``typer.Exit`` carries the task's own 2, not a flattened 1.
+
+    The end of the chain :class:`~rhiza_task.spec.Failed` starts: a consumer's CI reads
+    this process's status and nothing else.
+
+    Args:
+        repo: The throwaway repository.
+        monkeypatch: pytest's patcher.
+    """
+    from rhiza_task.config import Config
+    from rhiza_task.spec import Failed, task
+
+    @task("t-cli-code", "fails the way pytest fails", section="Test")
+    def collection_error(cfg: Config) -> None:
+        """Fail with pytest's collection-error status.
+
+        Args:
+            cfg: Unused.
+
+        Raises:
+            Failed: Always, with code 2.
+        """
+        raise Failed(2, "tests failed")
+
+    monkeypatch.chdir(repo)
+    result = runner.invoke(cli.app, ["run", "t-cli-code"])
+    assert result.exit_code == 2
+    assert "failed" in result.stdout
+
+
 def test_root_option_targets_another_repository(repo: Path, tmp_path_factory: pytest.TempPathFactory) -> None:
     """``--root`` operates on a repository other than the working directory.
 

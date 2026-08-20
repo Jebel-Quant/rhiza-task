@@ -156,7 +156,11 @@ def run_tasks(
         root: Repository root; defaults to the current directory.
 
     Raises:
-        typer.Exit: With 0 when everything passed, 1 on failure, 2 on a usage error.
+        typer.Exit: With 0 when everything passed, 2 on a usage error, and otherwise the
+            first failing task's own exit status -- pytest's 2 or 4, ``cargo``'s 101 --
+            falling back to 1 when it has none. A usage error and a task that exited 2
+            therefore share a status; the run summary above distinguishes them, and the
+            alternative is discarding the code every consumer's CI wants.
     """
     try:
         cfg = Config.load(root=root, strict=strict or None)
