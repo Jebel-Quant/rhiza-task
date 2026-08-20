@@ -42,8 +42,18 @@ help: $(UVX)
 # typo is routed here too (the CLI's "unknown task" error is the backstop), and a task
 # needing flags wants `uvx rhiza-task <task> --flag` directly. `.PHONY` cannot name unknown
 # targets, so a *file* sharing a task's name would shadow it -- none do.
+#
+# What gets forwarded is the target's own name, which in a match-anything rule is `$@`.
+# Naming it keeps make's punctuation out of the one line a reader of this file has to
+# understand: `make test` runs `uvx rhiza-task@<pin> test`, and the recipe now says that
+# rather than encoding it. Recursive `=` and not `:=`, because `$@` has a value only while
+# make is running a rule -- expanded here at assignment time it is empty, every target
+# shells out to a bare `uvx rhiza-task`, and that prints help and exits 2. Loud rather than
+# green, but wrong for every task at once.
+RHIZA_TASK_GOAL = $@
+
 %: $(UVX)
-	@$(UVX) $(RHIZA_TASK) $@
+	@$(UVX) $(RHIZA_TASK) $(RHIZA_TASK_GOAL)
 
 # Named as a file rather than a phony `install-uv`, so make's own up-to-date check is the
 # idempotence: when uvx is on PATH this is an existing file with no prerequisites and
