@@ -75,8 +75,25 @@ If you find yourself wanting a real subprocess in a test, that is a signal the l
 test belongs in a task body rather than in the plumbing.
 
 The exception is the doctests: `Config.load`, `Config.field_for`, `Run.exit_code`,
-`lookup` and `Guard.check` carry executable examples that do run. They are checked by
-`rhiza-test`, so an example that goes stale fails a gate.
+`lookup` and `Guard.check` carry 39 executable examples that do run. `tests/test_doctests.py`
+is what runs them — `doctest.testmod` over every module `pkgutil` finds under
+`src/rhiza_task`, one parametrised case each, plus five cases asserting those particular
+docstrings still carry examples at all.
+
+`rhiza-test` used to be credited with this and does not do it: pytest-rhiza's
+`test_docstrings` asks whether a docstring exists and is well-formed, and `interrogate`
+asks the same presence question at 100%. Neither evaluates a `>>>`, so until #66 the 39
+examples were unexecuted by any gate — stale-proof only by discipline, in exactly the five
+places a refactor is most likely to change quietly.
+
+Two things about the shape of that file, both deliberate. It imports every module under
+`src/`, which is the one place the suite's hermeticism bends — harmless, because importing
+a task module only registers its tasks, but it is why the rule above is about what a test
+*runs* rather than what it imports. And the doctests are collected by a test rather than by
+`--doctest-modules`: in the `test` task's vector that flag would ship to consumer repos,
+where gating doctests is their call, and in `pytest.ini`'s `addopts` it would also apply to
+`rhiza-test`'s `pytest --pyargs pytest_rhiza.checks.*` — gating a dependency's doctests in
+this repo's name.
 
 ## The coverage floor is 100, and it is load-bearing
 
