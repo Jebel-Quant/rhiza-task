@@ -232,6 +232,18 @@ class Config:
     # defaulting, typechecker, coverage_fail_under. It is a flat sequence, one field per
     # step, with no interaction between the steps; the count grows with the number of
     # validated settings and not with the depth of anything. Deliberate.
+    #
+    # Unlike the other three C blocks here, that growth rule needs a stated ceiling, and
+    # the ceiling is **C (15)**. `_run_one` is bounded by the size of `Status` and
+    # `Guard.check` by the number of guard kinds -- closed sets, so their figures cannot
+    # drift far. "One branch per validated setting" is not a closed set: every future
+    # setting adds one, and a justification with no limit is an open licence rather than a
+    # decision. At 15 -- roughly three more settings -- the flat form stops paying for
+    # itself, and the answer is per-group helpers (`_validate_layers`,
+    # `_validate_typechecker`, `_validate_coverage`) called in sequence from here, which
+    # keeps the readable one-field-per-step order while bounding each block.
+    #
+    # `uvx radon cc src -a -s` is the check; nothing gates it, so this is discipline.
     def __post_init__(self) -> None:
         """Normalise the list fields, then validate the enumerated and numeric ones.
 
