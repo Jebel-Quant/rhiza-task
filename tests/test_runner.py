@@ -275,3 +275,86 @@ def test_several_requested_tasks_run_in_order(cfg: Config, graph: None) -> None:
     assert ORDER.count("t-base") == 1
     assert state.status_of("t-left") == Status.OK
     assert state.status_of("t-right") == Status.OK
+
+
+def test_exit_code_collapses_any_nonzero_to_one(cfg: Config) -> None:
+    """A failing task's own exit code does not survive into the aggregate.
+
+    :class:`~rhiza_task.spec.Failed` carries e.g. pytest's 3 or 5, but :meth:`Run.exit_code`
+    collapses every failure to 1.  This is the documented behaviour; the test pins it so a
+    future change that starts propagating the code also updates the docstring.
+
+    Args:
+        cfg: The resolved config.
+    """
+
+    @task("t-exits-5", "exits with a non-1 code", section="Test")
+    def exits_5(cfg: Config) -> None:
+        """Fail with exit code 5 (pytest's "no tests collected").
+
+        Args:
+            cfg: Unused.
+
+        Raises:
+            Failed: Always, with code 5.
+        """
+        raise Failed(5, "no tests collected")
+
+    state = run(["t-exits-5"], cfg)
+    assert state.status_of("t-exits-5") == Status.FAILED
+    assert state.exit_code() == 1
+
+
+def test_blocked_status_produces_exit_code_one(cfg: Config) -> None:
+    """A task blocked by a failed prerequisite contributes to a non-zero exit code.
+
+    Args:
+        cfg: The resolved config.
+    """
+
+    @task("t-prereq-fail", "fails", section="Test")
+    def prereq_fail(cfg: Config) -> None:
+        """Fail.
+
+        Args:
+            cfg: Unused.
+
+        Raises:
+            Failed: Always.
+        """
+        raise Failed(1, "boom")
+
+    @task("t-blocked-task", "depends on failure", section="Test", needs=("t-prereq-fail",))
+    def blocked_task(cfg: Config) -> None:
+        """Should not run.
+
+        Args:
+            cfg: Unused.
+        """
+
+    state = run(["t-blocked-task"], cfg)
+    assert state.status_of("t-blocked-task") == Status.BLOCKED
+    assert state.failed
+    assert state.exit_code() == 1
+
+
+def test_skipped_status_produces_exit_code_zero(cfg: Config) -> None:
+    """A skipped task (lenient mode) does not cause a non-zero exit code.
+
+    Args:
+        cfg: The resolved config.
+    """
+    from rhiza_task.spec import Guard
+
+    @task("t-skipped-task", "skips", section="Test", guards=(Guard("marimo_folder"),))
+    def skipped_task(cfg: Config) -> None:
+        """Should be skipped by the guard.
+
+        Args:
+            cfg: Unused.
+        """
+
+    state = run(["t-skipped-task"], cfg)
+    assert state.status_of("t-skipped-task") == Status.SKIPPED
+    assert not state.failed
+    assert state.exit_code() == 0
