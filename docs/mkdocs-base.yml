@@ -1,0 +1,97 @@
+# Theme, markdown extensions and plugins, split out of mkdocs.yml so that the top-level
+# file holds only what identifies *this* project -- the same split rhiza's `book` bundle
+# ships as docs/mkdocs-base.yml and every consumer picks up via `INHERIT`.
+#
+# Lifted rather than inherited, for the reason weekly.yml gives for lifting its jobs: this
+# repository is not rhiza-managed, so there is no sync to deliver the file, and a book that
+# depends on one would not build from a fresh checkout.
+
+docs_dir: docs
+site_dir: _book
+
+# This file lives inside docs_dir, so the build copies it into the site as an asset. That
+# is cosmetic and deliberately left alone: `exclude_docs` is the mkdocs answer and zensical
+# does not implement it (verified against 0.0.36 -- the excluded page is still written), so
+# adding it would be config that reads as working and is not. Every rhiza book publishes
+# this file for the same reason.
+
+# ----------------------------------------------------------------------------
+# Theme
+# ----------------------------------------------------------------------------
+theme:
+  name: material
+  language: en
+  features:
+    - announce.dismiss
+    - content.code.annotate
+    - content.code.copy
+    - content.code.select
+    - content.footnote.tooltips
+    - content.tabs.link
+    - content.tooltips
+    - navigation.footer
+    - navigation.indexes
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.path
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - scheme: slate
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+
+# ----------------------------------------------------------------------------
+# Markdown extensions
+# ----------------------------------------------------------------------------
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.betterem
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+      combine_header_slug: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+  # base_path is the repository root, which is what lets docs/changelog.md pull in the
+  # root CHANGELOG.md rather than keeping a second copy under docs/.
+  - pymdownx.snippets:
+      base_path: ["."]
+
+# ----------------------------------------------------------------------------
+# Plugins
+# ----------------------------------------------------------------------------
+plugins:
+  - search

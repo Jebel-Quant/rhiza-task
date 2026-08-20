@@ -1,0 +1,66 @@
+# Theme, markdown extensions and plugins live in docs/mkdocs-base.yml; this file holds
+# only what identifies this project. `rhiza-task book` is what builds it, via
+# `uvx zensical build -f mkdocs.yml` -- so the presence of this file is also what turns
+# that task from a skip into a build.
+INHERIT: docs/mkdocs-base.yml
+
+site_name: rhiza-task
+# Quoted: the value contains ": ", which YAML would otherwise read as a nested mapping.
+site_description: "The rhiza developer tasks as a pinned CLI: one set of task names across Python, Rust and Go, replacing a synced make layer."
+site_author: Jebel Quant Research
+site_url: https://jebel-quant.github.io/rhiza-task/
+repo_url: https://github.com/jebel-quant/rhiza-task
+repo_name: jebel-quant/rhiza-task
+copyright: Copyright &copy; 2026 Jebel Quant Research
+
+nav:
+  - Home: index.md
+  - Getting Started: getting_started.md
+  - Tasks: tasks.md
+  - Configuration: configuration.md
+  - Language Layers: layers.md
+  - Guides:
+      - Adding a Task: adding_a_task.md
+      - Migrating from make: migration.md
+      - FAQ & Troubleshooting: faq.md
+  - Reference:
+      - Design: design.md
+      - API Reference: api.md
+      - Changelog: changelog.md
+  # Written by `rhiza-task book`, which copies `_tests/` here after the gates produce it.
+  # Both paths are gitignored, so these entries resolve in a built book and not in a bare
+  # checkout -- the same trade every rhiza consumer's book makes.
+  - Reports:
+      - Test Report: reports/html-report/report.html
+      - Coverage Report: reports/html-coverage/index.html
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/jebel-quant/rhiza-task
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/rhiza-task/
+
+theme:
+  icon:
+    logo: material/console-line
+
+plugins:
+  # `paths: [src]` rather than relying on an installed copy: the book builds under
+  # `uvx zensical`, which has no project environment, so the handler has to be pointed at
+  # the tree. mkdocstrings itself is provisioned by the `mkdocs_extra_packages` setting,
+  # whose default is exactly `mkdocstrings[python]` for this reason.
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            separate_signature: true
+            signature_crossrefs: true
+            merge_init_into_class: true
+            docstring_section_style: table
