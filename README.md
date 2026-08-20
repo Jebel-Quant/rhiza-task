@@ -1,11 +1,16 @@
 # rhiza-task
 
+[![PyPI](https://img.shields.io/pypi/v/rhiza-task.svg)](https://pypi.org/project/rhiza-task/)
+[![Python](https://img.shields.io/pypi/pyversions/rhiza-task.svg)](https://pypi.org/project/rhiza-task/)
+[![CI](https://github.com/Jebel-Quant/rhiza-task/actions/workflows/ci.yml/badge.svg)](https://github.com/Jebel-Quant/rhiza-task/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 The rhiza developer tasks as a **pinned CLI** rather than a synced make layer.
 
 ```bash
-uvx rhiza-task@0.1.0 test
+uvx rhiza-task@1.0.0 test
 ```
 
 Sibling to [`pytest-rhiza`](https://github.com/jebel-quant/pytest-rhiza), which did the
@@ -15,34 +20,33 @@ same thing for `.rhiza/tests`.
 
 The pain was never make's syntax — it was **distribution by copying**, which make
 structurally cannot fix, because `include` cannot reach a remote file. Every consumer got
-a full copy at a template tag, and everything downstream was damage control.
+a full copy at a template tag, and everything downstream was damage control. Version
+pinning becomes a dependency pin, which is a real mechanism instead of "copy files at tag
+v1.3.3 and hope nobody edited them."
 
 | before, per consumer repo | after |
 |---|---|
 | `.rhiza/rhiza.mk` — 200 lines, synced | *gone* |
 | `.rhiza/make.d/*.mk` — 1023 lines in 15 files, synced | *gone* |
-| `exclude:` entries in `template.yml`, because "a deletion alone is undone by the next sync" | not needed |
-| targets shadowed in the repo Makefile, make printing `overriding commands for target` as the mechanism working | `[tool.rhiza-task]` |
+| `exclude:` entries in `template.yml`, because a deletion alone is undone by the next sync | not needed |
+| targets shadowed in the repo Makefile | `[tool.rhiza-task]` |
 | ~40 lines of GNU-make guard and Windows POSIX-shell probe | gone — no make, no shell |
 | `install-uv` — 30 lines of `bootstrap.mk` shell | gone — `uvx` provisions the runtime |
 | `Makefile` | repo-owned, if a repo wants one |
-
-Version pinning becomes a dependency pin, which is a real mechanism instead of "copy files
-at tag v1.3.3 and hope nobody edited them."
 
 ## Install
 
 Nothing to install. `uvx` provisions it per invocation:
 
 ```bash
-uvx rhiza-task@0.1.0 list          # what is available
-uvx rhiza-task@0.1.0 all           # every gate, as CI runs them
-uvx rhiza-task@0.1.0 test --strict # fail rather than skip when a gate measures nothing
+uvx rhiza-task@1.0.0 list          # what is available
+uvx rhiza-task@1.0.0 all           # every gate, as CI runs them
+uvx rhiza-task@1.0.0 test --strict # fail rather than skip when a gate measures nothing
 ```
 
-A consumer repository calls the CLI directly. A repo that wants `make test` to keep
-working owns that `Makefile` itself and forwards the target to `uvx rhiza-task <task>`;
-task names are unchanged from the retired make layer, so the forwarding is one rule.
+Task names are unchanged from the retired make layer, so a repo that wants `make test` to
+keep working owns that `Makefile` itself and forwards each target to `uvx rhiza-task
+<task>` — one rule.
 
 ## Tasks
 
@@ -61,70 +65,46 @@ task names are unchanged from the retired make layer, so the forwarding is one r
 | Paper | `paper` `paper-clean` |
 | Presentation | `presentation` `presentation-pdf` `presentation-serve` |
 
-The last five sections are the bundle-owned fragments `.rhiza/make.d/` had to keep because
-nothing here answered for their targets. None is a gate — no `all` names them and no
-workflow invokes them — so each is guarded on the CLI it wraps and **skips** when that tool
-is absent, with `--strict` available to a caller who wants the fragment's hard failure
-instead. Two changed behaviour on purpose, and say so in their module docstring:
-`lfs-install` configures the repository and reports how to install the binary rather than
-downloading one, and `presentation` reaches Marp through `npx --yes` rather than
-`npm install -g`.
+The last five sections are bundle-owned fragments. None is a gate — no `all` names them,
+no workflow invokes them — so each is guarded on the CLI it wraps and **skips** when that
+tool is absent, with `--strict` for a caller who wants the hard failure instead. Two
+changed behaviour on purpose, and say so in their module docstring: `lfs-install`
+configures the repository and reports how to install the binary rather than downloading
+one; `presentation` reaches Marp through `npx --yes`.
 
 ### Three layers, one set of names
 
 `test` is pytest in a Python project, `cargo nextest` in a crate and `go test` in a
-module — the gate-parity contract rhiza's own CLAUDE.md documents, and the reason
-`rhiza_ci.yml` can call `make typecheck` without knowing the language.
+module — the gate-parity contract that lets `rhiza_ci.yml` call `typecheck` without
+knowing the language.
 
 The make layer answered "which one?" at sync time, by copying exactly one of `python.mk`,
 `rust.mk` and `go.mk` into a repository. A pinned CLI carries all three, so the answer is
 the **manifest present**: `pyproject.toml` → python, `Cargo.toml` → rust, `go.mod` → go.
 A repository with two gets both layers, in that order; `layers = ["rust"]` pins it. The
-other layer stays addressable as `rhiza-task rust:test`, and `rhiza-task list --all` shows
-what the layers you do not have call things.
+other stays addressable as `rhiza-task rust:test`, and `rhiza-task list --all` shows what
+the layers you do not have call things.
 
-`RHIZA_CHECKS` follows the same derivation, which is what the `+=` accumulator in each
-language fragment was standing in for: the neutral checks, plus `test_pyproject` and
+`RHIZA_CHECKS` derives the same way: the neutral checks, plus `test_pyproject` and
 `test_docstrings` for python, `test_cargo_toml` for rust, `test_go_module` for go.
 
 `coverage` writes `_tests/coverage.xml` in every layer, at that exact path, because that
-is what `book`'s badge step reads and what CI uploads. In Python it is the `--cov` flags
-`test` already carries, split out under the name the other two layers use; in Rust it is
-`cargo llvm-cov --cobertura`; in Go it is a coverage profile piped through
-`gocover-cobertura`, plus the floor check `go test` has no flag for.
+is what `book`'s badge step reads and what CI uploads — the `--cov` flags in Python,
+`cargo llvm-cov --cobertura` in Rust, and in Go a coverage profile piped through
+`gocover-cobertura` plus the floor check `go test` has no flag for.
 
-Not ported: `github.mk`'s seven `gh` wrappers — `gh pr list` is shorter than
-`make view-prs` and always current — and `install-uv`, which is not a task because it
-cannot be one: it is what provisions the runtime every task already runs under. A job
-that runs on a runner shipping no uv adds an `astral-sh/setup-uv` step — which is what
-rhiza's `pre-commit` job, a required status check that runs `fmt`, now does.
-
-### Fragments a repository owns go to `local.mk`
-
-This package replaces `.rhiza/rhiza.mk` and the ten fragments in `.rhiza/make.d/`. A
-repository carrying **its own** fragments has to relocate them first — deleting `rhiza.mk`
-removes the `-include .rhiza/make.d/*.mk` that was reaching them, so they stop being
-loaded without anything saying so.
-
-In rhiza's own case that is `bundles.mk`: `sync-self`, `sync-self-check`,
-`explain-bundles`, `e2e` and `gitlab-docker-test`. None of them is a candidate for this
-package — no bundle ships them, and the tooling behind them (`utils/link_dogfood.py`,
-`utils/explain_bundles.py`) lives in the mother repo. They belong in `local.mk`, which a
-repo-owned `Makefile` `-include`s for exactly this purpose.
-Worth doing deliberately rather than discovering later: `sync-self` is what maintains the
-`bundles/` ↔ root invariant the whole repository rests on.
+`install-uv` is not a task and cannot be one: it provisions the runtime every task already
+runs under. A runner shipping no uv adds an `astral-sh/setup-uv` step instead.
 
 ## Design
 
 Reading all ten make fragments back to back, **every recipe has the same three parts**: a
 guard on a folder existing, a provision via `uv run --with` or `uvx`, and a long, mostly
 static argument list. So the model is declarative, with an escape hatch for the four
-recipes that genuinely are not:
-
-- `test` — retry once on pytest exit 3 (xdist teardown race), never on 1/2/4
-- `mutation` — run/html/move/results, reporting the *first* status
-- `doctor` — semantic version comparison, formerly an awk function inside a make recipe
-- `book` — aggregate gates, copy reports, export notebooks, build, badge
+recipes that genuinely are not: `test` (retry once on pytest exit 3, the xdist teardown
+race, never on 1/2/4), `mutation` (run/html/move/results, reporting the *first* status),
+`doctor` (semantic version comparison, formerly an awk function inside a make recipe) and
+`book` (aggregate gates, copy reports, export notebooks, build, badge).
 
 | module | what |
 |---|---|
@@ -135,33 +115,18 @@ recipes that genuinely are not:
 | `cli.py` | Typer app, generated from the registry |
 | `tasks/*.py` | the gates themselves, loaded by entry point |
 
+Three things fall out for free. **Double-colon rules disappear** — a `book` that depends
+on gates the `tests` bundle may not have contributed just asks `"test" in REGISTRY`.
+**Skip is a first-class outcome**, so `--strict` turns every skip into a failure and CI
+can assert a gate actually measured something. And **help stops being a parser**: Typer
+reads the same registry the runner uses, so the two cannot drift.
+
 ### Configuration
 
 Six layers, lowest precedence first: dataclass defaults → `.rhiza/.env` (kept unchanged)
 → `rhiza.toml` → `[tool.rhiza-task]` in the language manifest (`Cargo.toml`, then
 `pyproject.toml`) → `RHIZA_*` or bare make-style environment variables → command-line
 flags.
-
-`rhiza.toml` is the language-neutral file, and the only committed settings surface a Go
-module can have — it has no manifest to hide a table in, and `.rhiza/.env` is now
-developer-local, since rhiza ships neither it nor the `.rhiza/.gitignore` whose entire
-content was the `!.env` negation that kept it tracked. Settings sit at the top level
-there; a `[tool.rhiza-task]` table is honoured too, and wins when both are present. It
-ranks *below* the manifest so that adding it to a Python repo cannot silently outrank the
-table already there.
-
-```toml
-# rhiza.toml — a Go module or a Rust crate, or any repo that would rather not
-# thread settings through a manifest
-source_folder = "cmd"
-coverage_fail_under = 95
-```
-
-An **empty value is unset** in the two string-valued layers: `RHIZA_CI_OS_MATRIX=` in
-`.rhiza/.env`, or an exported empty string, leaves the layer below it alone rather than
-resolving to `""`. That is make's `$(or ...)` rule, and the reusable workflows depend on
-it — `rhiza_ci.yml` exports one `RHIZA_CI_OS_MATRIX` for every caller and deliberately
-leaves it empty for consumers, whose own `.rhiza/.env` is meant to answer.
 
 ```toml
 [tool.rhiza-task]
@@ -171,33 +136,34 @@ coverage_fail_under = 95
 license_ignore_packages = ["docutils"]
 ```
 
-The `+=` accumulators (`DEPTRY_FOLDERS`, `LICENSE_IGNORE_PACKAGES`, `RHIZA_CHECKS`) have no
-successor and need none: each was a bundle contributing something it owned, which a task
-body now *derives* by asking whether the contributing task is registered. See `deps` and
-`license` in `tasks/python.py`.
+`rhiza.toml` is the language-neutral file, and the only committed settings surface a Go
+module can have — it has no manifest to hide a table in, and `.rhiza/.env` is now
+developer-local. Settings sit at the top level; a `[tool.rhiza-task]` table is honoured
+too and wins when both are present. It ranks *below* the manifest so that adding it to a
+Python repo cannot silently outrank the table already there.
 
-### Three things that fall out for free
+```toml
+# rhiza.toml — a Go module or a Rust crate, or any repo that would rather not
+# thread settings through a manifest
+source_folder = "cmd"
+coverage_fail_under = 95
+```
 
-1. **Double-colon rules disappear.** book.mk declares `test:: ; @:` no-op stubs so `book`
-   can depend on gates the `tests` bundle may not have contributed. Here that question is
-   `"test" in REGISTRY` — four stubs and the whole `::` mechanism gone.
-2. **Skip is a first-class outcome.** jointview's own Makefile complains that an excluded
-   folder leaves "a green gate measuring nothing". `--strict` turns every skip into a
-   failure, so CI can assert a gate actually measured something.
-3. **Help stops being a parser.** rhiza.mk runs awk over `$(MAKEFILE_LIST)` hunting `##`
-   and `##@` comments. Typer has descriptions natively, from the same registry the runner
-   uses, so they cannot drift.
+An **empty value is unset** in the two string-valued layers: an empty
+`RHIZA_CI_OS_MATRIX` leaves the layer below it alone rather than resolving to `""`. That
+is make's `$(or ...)` rule, and the reusable workflows depend on it — `rhiza_ci.yml`
+exports one for every caller and deliberately leaves it empty for consumers, whose own
+`.rhiza/.env` is meant to answer.
+
+The `+=` accumulators (`DEPTRY_FOLDERS`, `LICENSE_IGNORE_PACKAGES`, `RHIZA_CHECKS`) need no
+successor: each was a bundle contributing something it owned, which a task body now
+*derives* by asking whether the contributing task is registered. See `deps` and `license`
+in `tasks/python.py`.
 
 ### Adding a task
 
 Register a module under the `rhiza_task.tasks` entry-point group — the same mechanism the
 built-ins use, so a project's own task is a first-class citizen rather than an override.
-That replaces `-include local.mk` for anything that wants to be a real task. A one-off
-that is only ever a make target goes in `local.mk` — but `local.mk` is in core's
-`.gitignore`, so it holds developer-local targets only. A repo-owned target CI invokes
-needs a committed home, and the `Makefile` is the only committed make surface there is:
-rhiza's own `e2e`, `gitlab-docker-test` and `sync-self` live there for exactly that
-reason.
 
 ```python
 from rhiza_task.spec import Guard, task
@@ -210,45 +176,40 @@ def audit(cfg):
     uvx("my-auditor", cfg.source_folder, cwd=cfg.root)
 ```
 
+A one-off that is only ever a make target goes in `local.mk` — but that file is in core's
+`.gitignore`, so it holds developer-local targets only. A repo-owned target CI invokes
+needs a committed home, and the repo's own `Makefile` is the only committed make surface
+there is.
+
+## Migrating from the make layer
+
+1. Replace the synced make layer with direct `uvx rhiza-task` calls, or a repo-owned
+   `Makefile` that forwards to them.
+2. Exclude `.rhiza/make.d` and `.rhiza/rhiza.mk` in `template.yml`, exactly as
+   `.rhiza/tests` already is.
+3. **Relocate your own fragments first.** Deleting `rhiza.mk` removes the
+   `-include .rhiza/make.d/*.mk` that was reaching them, so repo-owned fragments stop
+   being loaded without anything saying so. They belong in `local.mk`, or in the
+   `Makefile` if CI invokes them.
+
 ## Why not a Taskfile (or `just`)
 
-Considered and rejected. go-task is a genuinely better make — real `deps:`, `desc:` giving
-`task --list` for free, and `preconditions:`/`status:` that express `Guard` declaratively.
-Its **remote includes** would even attack the same root problem.
-
-Two reasons against. First, that feature is experimental and env-var-gated, and it would
-be the single load-bearing dependency of the whole multi-repo task layer, whereas
-`uvx pkg@version` is boring, stable and already used ~15 times per repo. Second, the four
-recipes listed above are procedural; in YAML they stay embedded shell, which improves the
-syntax *around* the mess without removing it — and embedded shell keeps the Windows
-problem too.
+Considered and rejected. go-task is a genuinely better make, and its **remote includes**
+would even attack the same root problem — but that feature is experimental and
+env-var-gated, and it would be the single load-bearing dependency of the whole multi-repo
+task layer, whereas `uvx pkg@version` is boring and already used ~15 times per repo. The
+four procedural recipes above would also stay embedded shell in YAML, improving the syntax
+*around* the mess without removing it — and keeping the Windows problem.
 
 `just` and `poe` don't apply: a Justfile or a noxfile still has to be copied into every
 repo, which is the problem being deleted.
-
-## Migration
-
-Make target names are the interface between the reusable workflows and the consumer
-checkout — `rhiza_ci.yml` alone calls `make test`, `typecheck`, `deps`, `fmt`,
-`docs-coverage`, `security`, `license`, `rhiza-test`. Consumers pin `@v1.3.3`, so old pins
-keep calling make forever. Hence task names identical to the retired target names: a
-repo that keeps a `Makefile` forwards each one to `uvx rhiza-task <task>` unchanged.
-
-1. Ship this package; consumers replace the synced make layer with direct `uvx
-   rhiza-task` calls, or a repo-owned `Makefile` that forwards to them.
-2. `template.yml` excludes `.rhiza/make.d` and `.rhiza/rhiza.mk`, exactly as it already
-   excludes `.rhiza/tests`.
-3. Bump the reusable workflows to invoke `uvx rhiza-task` directly, with one
-   `astral-sh/setup-uv` step in place of `install-uv` — faster and cached.
-4. Second pass: retire `github.mk` and fold `doctor` into the release checklist.
 
 ## Open questions
 
 - **Python as a prerequisite for a Rust repo.** `rust.mk`/`go.mk` needed only make; the
   Rust and Go layers here are Python calling `cargo` and `go`, so a crate now needs uv to
-  run its gates. That is the trade the whole package makes — distribution by pin instead of
-  by copy — but it is the layer where it costs the most, and it is the one place the
-  Taskfile argument stays strong.
+  run its gates. That is the trade the whole package makes, and the layer where it costs
+  the most.
 - **Nested uv cost.** `uvx rhiza-task test` then internally `uv run --with pytest ...`.
   Cached this should be milliseconds; measure before rolling out widely.
 
@@ -259,6 +220,6 @@ uv sync --all-groups
 uv run pytest
 ```
 
-No test in the suite runs uv. Every task test patches the three entry points in `uv.py` and
-asserts on the argument vector that would have been executed — which is exactly what the
-make recipes expressed in `$$`-escaped shell, and could not assert.
+No test in the suite runs uv. Every task test patches the three entry points in `uv.py`
+and asserts on the argument vector that would have been executed — which is exactly what
+the make recipes expressed in `$$`-escaped shell, and could not assert.
