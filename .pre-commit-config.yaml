@@ -1,0 +1,147 @@
+# Adapted from jebel-quant/rhiza's .pre-commit-config.yaml.
+#
+# Adding this file is a deliberate reversal of the note in ci.yml's `gates` job, which
+# recorded that this repository shipped no pre-commit config on purpose -- `rhiza-task fmt`
+# skipped, and ruff got a dedicated CI job instead. Two consequences follow, and neither is
+# silent:
+#
+#   * `fmt` now runs rather than skipping, so the dogfood `rhiza-task all` in CI covers one
+#     more gate than it did. That is the point.
+#   * ci.yml's `lint` job and this config's ruff hooks now enforce the same ruff.toml. The
+#     job is no longer the only thing running ruff, so it is redundant work -- kept for now
+#     because a red check named `ruff` still says what broke without opening a log, which
+#     is the reason it was split out in the first place.
+#
+# `rhiza-task install` also installs the prek git hooks once this file exists (see
+# tasks/quality.py's install_hooks), so a commit is now gated locally too.
+#
+# Hook revisions are pinned, as everything in this repository is: a formatter that moves
+# under you turns a green pull request red without a commit.
+
+# Pin node so prek provisions a compatible runtime instead of using the system node. Some
+# npm-based hooks (markdownlint-cli) pull transitive deps that reject odd-numbered current
+# node releases (e.g. v25), failing on EBADENGINE.
+default_language_version:
+  node: "24.12.0"
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-toml
+      # `--unsafe` is load-bearing here, not caution: docs/mkdocs-base.yml carries
+      # `!!python/name:material.extensions.emoji.to_svg` tags, which a safe load rejects
+      # outright. Upstream's `exclude: ^recipe/meta\.yaml$` is dropped -- there is no conda
+      # recipe in this repository.
+      - id: check-yaml
+        args: ['--unsafe']
+
+  - repo: local
+    hooks:
+      - id: no-python-cache-files
+        name: Prevent committing Python cache files
+        language: fail
+        # Upstream says "run 'make clean'"; there is no Makefile here, and the task that
+        # replaced that target is the one to name.
+        entry: Python cache files (__pycache__, .pyc, .pyo, .pyd) must not be committed. Run 'rhiza-task clean' to remove them.
+        files: '(/__pycache__/|\.py[cod]$)'
+
+      - id: no-rej-files
+        name: Reject .rej files
+        entry: "bash -c 'find . -type f -name \"*.rej\" | grep -q . && { echo \"ERROR: .rej files detected\"; find . -type f -name \"*.rej\"; exit 1; } || exit 0'"
+        language: system
+        pass_filenames: false
+
+  # v0.16.3, not upstream's v0.16.2: ci.yml's `lint` job pins `ruff@0.16.3`, and a hook that
+  # disagrees with the job means one of the two reports a finding the other does not. The
+  # two pins move together.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: 'v0.16.3'
+    hooks:
+      - id: ruff
+        args: [ --fix, --exit-non-zero-on-fix, --unsafe-fixes ]
+
+      - id: ruff-format
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.49.0
+    hooks:
+      - id: markdownlint
+        args: ["--disable", "MD013"]
+
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.38.0
+    hooks:
+      # Upstream also runs `check-renovate` and validates `.rhiza/template-bundles.yml`
+      # against its schema. Both are dropped: this repository has no renovate.json and no
+      # `.rhiza/` at all, so each hook would be inert -- and an inert hook prints a
+      # "(no files to check)Skipped" line that reads like a check in the output of the gate
+      # this repository runs most.
+      - id: check-github-workflows
+        args: ["--verbose"]
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: v0.25
+    hooks:
+      - id: validate-pyproject
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.9.4
+    hooks:
+      # Upstream passes `--ini .bandit`; this repository ships no `.bandit`, and bandit
+      # fails outright on a missing ini rather than falling back. The task itself already
+      # handles that -- tasks/python.py:250 passes `--ini` only when the file exists -- so
+      # the args here mirror what `rhiza-task security` actually runs: `-ll`, medium
+      # severity and above. Without it the hook is a *stricter* standard than the gate and
+      # the two disagree, which is the trap upstream's own interrogate comment describes.
+      - id: bandit
+        args: ["-ll"]
+        files: ^src/.*\.py$
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      # No `.sh` files here yet. Kept rather than dropped because the workflows carry
+      # multi-line `run:` blocks, and the first committed script should meet the same bar
+      # rather than arriving unchecked.
+      - id: shellcheck
+        files: '\.sh$'
+
+  - repo: https://github.com/betterleaks/betterleaks
+    rev: v1.7.4
+    hooks:
+      - id: betterleaks
+
+  # Worth more here than in most repositories: pyproject.toml's own comment records that
+  # v1.0.0 shipped with a stale uv.lock, which fails every gate naming `install` as a
+  # prerequisite -- because `uv lock --check` is the first thing `install` runs. This hook
+  # is what catches that before the tag rather than after.
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.12.3
+    hooks:
+      - id: uv-lock
+
+  # Upstream's interrogate hook is deliberately NOT carried over. It runs
+  # `--config=pyproject.toml`, and this repository has no `[tool.interrogate]` table --
+  # interrogate falls back to its own defaults for a missing table rather than failing, so
+  # the hook would enforce fail-under 80 where `rhiza-task docs-coverage` already enforces
+  # 100.0%. A weaker duplicate of a gate that already passes is exactly the disagreement
+  # upstream's own comment on that hook warns about.
+
+  # Upstream's rhiza-hooks block is also mostly dropped: `update-readme-help` regenerates a
+  # README section from `make help`, `check-makefile-targets` needs a Makefile, and
+  # `check-rhiza-config` and `check-rhiza-workflow-names` read `.rhiza/`. None of those
+  # exists here. The one that is about this repository rather than about the template is
+  # kept.
+  - repo: https://github.com/Jebel-Quant/rhiza-hooks
+    rev: v1.2.0
+    hooks:
+      # Asserts .python-version, [project.requires-python] and the
+      # `Programming Language :: Python :: X.Y` classifiers agree -- three places this
+      # repository states a version, and ci.yml's matrix mirrors the classifiers.
+      - id: check-python-version-consistency
