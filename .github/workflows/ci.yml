@@ -48,9 +48,35 @@ jobs:
       # Windows is in the matrix deliberately. The make layer needed a 40-line probe to
       # detect make falling back to cmd.exe, because its recipes were POSIX shell; every
       # command here is an argument vector, so this job is what asserts that the shell
-      # dependency is really gone.
+      # dependency is really gone. It asserts it of the vectors; the step below asserts it
+      # of an actual process.
       - name: Run tests
         run: uv run --group test --python ${{ matrix.python-version }} pytest -ra
+
+      # Because no test in the suite runs a tool -- conftest.py patches all four of uv.py's
+      # entry points and asserts on the vectors instead, which is why it finishes in under
+      # two seconds -- the Windows and macOS legs never resolved a binary, spawned a
+      # process, or compared a real path. The only end-to-end invocation anywhere was
+      # `rhiza-task all` in the `gates` job below, on ubuntu. So the platform this package's
+      # premise is aimed at was the one platform the CLI was never started on.
+      #
+      # This is deliberately a smoke step and not the gate suite: most gates provision a
+      # toolchain and would triple the matrix for little signal, because the failure mode
+      # being guarded against is "the CLI does not start, or cannot find its own tools, on
+      # this OS". `list` executes config resolution, layer detection and the registry walk;
+      # `doctor` then resolves binaries for real -- `shutil.which` (uv.exe on Windows), a
+      # real subprocess, `cfg.root` path handling -- which is the layer the suite stubs.
+      # Neither provisions anything, and `make` is optional in `doctor`'s TOOLS, so its
+      # absence on the runners is reported rather than fatal.
+      #
+      # `!cancelled()` for the reason the ruff job's two halves have it: a broken CLI and a
+      # failing test are independent findings, and reporting one at a time costs a round
+      # trip per fix.
+      - name: CLI smoke (the layer the suite stubs)
+        if: ${{ !cancelled() }}
+        run: |
+          uv run --python ${{ matrix.python-version }} rhiza-task list
+          uv run --python ${{ matrix.python-version }} rhiza-task doctor
 
   # ruff.toml is 9 KB of deliberate rule selection, and this job is not the only thing
   # enforcing it: `.pre-commit-config.yaml` carries the same ruff hooks, so `rhiza-task
