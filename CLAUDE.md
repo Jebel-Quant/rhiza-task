@@ -143,5 +143,11 @@ When changing such code, update the comment with it. A stale comment is worse th
 `ci.yml` once asserted that `rhiza-task fmt` skipped for want of a pre-commit config, for
 several commits after that config was added.
 
+One placement rule the convention has to bend to: a suppression comment's reason goes
+*above* the line, never after the marker. bandit reads everything following `# nosec` as a
+comma-separated list of test IDs, so `# nosec B404 - fixed argument vectors` cost six
+`Test in comment:` warnings per occurrence. For the same reason the prose explaining it
+must not spell the marker itself — bandit scans every comment for it, wherever it sits.
+
 Docstring coverage is enforced at **100% over `src/` *and* `tests/`** — test functions and
 fixtures need docstrings too, with an `Args:` section for every parameter.

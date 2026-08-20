@@ -36,7 +36,12 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess  # nosec B404 - fixed argument vectors, never shell=True
+
+# Every call in this module is a fixed argument vector, and `shell=True` appears nowhere -- which
+# is what bandit's B404 asks about. The reason sits here rather than on the suppression comment
+# itself: bandit reads everything after that marker as a comma-separated list of test IDs, so a
+# trailing explanation becomes one `Test in comment:` warning per word.
+import subprocess  # nosec B404
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -82,7 +87,14 @@ def _run(argv: Sequence[str], cwd: Path, env: Mapping[str, str] | None = None) -
     merged.pop("VIRTUAL_ENV", None)
     merged.setdefault("UV_NO_MODIFY_PATH", "1")
     print(f"{BLUE}$ {' '.join(argv)}{RESET}", file=sys.stderr, flush=True)
-    return subprocess.call(list(argv), cwd=cwd, env=merged)  # noqa: S603  # nosec B603
+    # `list(argv)` on its own line, not inlined into the call below. Inlined, the line held
+    # two call nodes, and bandit runs every test against each: B603 fired on the subprocess
+    # call and was suppressed, then returned None for `list(...)` and -- seeing B603 named in
+    # the line's suppression comment -- warned `encountered (B603), but no failed test` on
+    # every clean run. The suppression is live: B603 is a real finding here, low severity and
+    # so below `bandit -ll`'s threshold. Hence one call per line rather than a deletion.
+    command = list(argv)
+    return subprocess.call(command, cwd=cwd, env=merged)  # noqa: S603  # nosec B603
 
 
 def uv(*args: str, cwd: Path, check: bool = True, env: Mapping[str, str] | None = None) -> int:
