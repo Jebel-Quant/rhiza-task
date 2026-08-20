@@ -6,12 +6,17 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Docs](https://img.shields.io/badge/docs-jebel--quant.github.io-blue)](https://jebel-quant.github.io/rhiza-task/)
 
-The rhiza developer tasks as a **pinned CLI** rather than a synced make layer.
+The rhiza developer tasks as a **pinned CLI** rather than a synced make layer — **one set
+of task names across Python, Rust and Go**.
 
 ```bash
 uvx rhiza-task@1.0.0 test
 ```
+
+📖 **[Documentation](https://jebel-quant.github.io/rhiza-task/)** — the task catalogue,
+the six configuration layers, and how to add a task of your own.
 
 Sibling to [`pytest-rhiza`](https://github.com/jebel-quant/pytest-rhiza), which did the
 same thing for `.rhiza/tests`.
@@ -233,6 +238,31 @@ repo, which is the problem being deleted.
   the most.
 - **Nested uv cost.** `uvx rhiza-task test` then internally `uv run --with pytest ...`.
   Cached this should be milliseconds; measure before rolling out widely.
+
+## Documentation
+
+The [book](https://jebel-quant.github.io/rhiza-task/) expands this README rather than
+repeating it:
+
+| page | what is there that is not here |
+|---|---|
+| [Getting Started](https://jebel-quant.github.io/rhiza-task/getting_started/) | exit-code semantics, the `Makefile` shim, when `--strict` is the right setting |
+| [Tasks](https://jebel-quant.github.io/rhiza-task/tasks/) | every task in all three layers, what each guards on, and why two sit outside `all` |
+| [Configuration](https://jebel-quant.github.io/rhiza-task/configuration/) | all six layers, and every setting with its default |
+| [Language Layers](https://jebel-quant.github.io/rhiza-task/layers/) | polyglot repos, `rust:test`, and the three contracts every layer must honour |
+| [Adding a Task](https://jebel-quant.github.io/rhiza-task/adding_a_task/) | guards, outcomes, and which of the four provisioning forms to reach for |
+| [Migrating from make](https://jebel-quant.github.io/rhiza-task/migration/) | the three steps, and the fragment-relocation trap that silently drops targets |
+| [FAQ](https://jebel-quant.github.io/rhiza-task/faq/) | the failure modes, and what each one actually means |
+| [API Reference](https://jebel-quant.github.io/rhiza-task/api/) | the modules, generated from the docstrings that carry the reasoning |
+
+It is built by the `book` task itself — `mkdocs.yml` at the root is what turns that task
+from a skip into a build — and published by `.github/workflows/rhiza_book.yml` on every
+push, to Pages from `main` only.
+
+```bash
+uv run rhiza-task book     # build into _book/
+uv run rhiza-task serve    # build, then serve on http://localhost:8000
+```
 
 ## Development
 
