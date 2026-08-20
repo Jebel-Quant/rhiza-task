@@ -133,6 +133,18 @@ python-dotenv = "dotenv"
 [tool.rhiza-task]
 coverage_fail_under = 100
 
+# `ty` is already the shipped default (`typechecker` in config.py), so this line changes
+# nothing today. It is here because *this* package owns that default: a future release
+# that flipped it to `mypy` or `both` would change how this repository is typechecked
+# without a commit touching this repository, and the dogfood `all` in CI is where that
+# would land first and read as unrelated. Pinning it makes the choice this repo's own.
+#
+# The choice itself is `ty` alone rather than `both`: it is Astral's, like `uv` and `ruff`
+# which every gate here already provisions, and `src/` is fully annotated and passes it
+# clean. Adding `mypy --strict` is the reasonable other answer, and `both` is a one-word
+# edit to this line if the extra signal turns out to be worth the second resolve.
+typechecker = "ty"
+
 # The suite is organised by *behaviour*, not as a 1:1 mirror of `src/`: `test_tasks.py`,
 # `test_bundle_tasks.py`, `test_dev_tasks.py` and `test_language_layers.py` cover the
 # twelve task modules as groups, because what is worth asserting about them is the shape
