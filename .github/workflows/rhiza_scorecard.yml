@@ -36,7 +36,13 @@ permissions: read-all
 
 jobs:
   scorecard:
-    uses: jebel-quant/rhiza/.github/workflows/rhiza_scorecard.yml@v1.4.2
+    # SHA-pinned, like every `uses:` in this repository. A tag is mutable -- it can be
+    # force-moved to a different commit without this line changing -- and a reusable
+    # workflow runs with the same access as one written here, so the argument for pinning
+    # actions applies to it unchanged. Being first-party is not the property that makes a
+    # ref trustworthy. dependabot's github-actions ecosystem moves reusable-workflow SHAs,
+    # so this needs no entry in the manual-pin note at the foot of dependabot.yml.
+    uses: jebel-quant/rhiza/.github/workflows/rhiza_scorecard.yml@31e1a11237419f746770c5339f8aa468fd1c0deb # v1.4.2
     secrets: inherit
     permissions:
       security-events: write   # Upload the SARIF results to code scanning

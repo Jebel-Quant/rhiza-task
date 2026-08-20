@@ -108,8 +108,10 @@ required `reason` argues that per-module coverage is guaranteed by the floor ins
 
 **So lowering the floor invalidates the opt-out.** The two move together, or neither moves.
 
-Four lines are excluded by `# pragma: no cover`, each carrying its reason. Two are
-structural; two are testable and retiring them would be a real improvement.
+Two lines are excluded by `# pragma: no cover`, each carrying its reason, and both are
+structural: the `TYPE_CHECKING` guard in `spec.py` and the `__main__` delegation. Neither
+is reachable under test by construction, so there is no exclusion left that a test could
+retire — a new `# pragma: no cover` should be argued for rather than added.
 
 ## Where the gates run
 
@@ -138,6 +140,14 @@ The rule they follow: **say why, especially when the code looks wrong.** A flat
 version pinned one patch above upstream — each carries the bug it prevents or the decision
 it records. Four blocks rank C on cyclomatic complexity and each states why the flat form
 is preferred over a decomposition that would satisfy the metric.
+
+One rule those four are held to: **if the branch count grows, the comment states a
+ceiling.** Three of them are bounded by closed sets — `_run_one` by the size of `Status`,
+`Guard` and `Guard.check` by the number of guard kinds — so their figures cannot drift far
+and "deliberate" is a complete answer. `Config.__post_init__` is one branch per validated
+setting, which is open-ended, so it names C (15) as the point where per-group helpers win.
+A growth rule without a limit is an open licence rather than a decision; `uvx radon cc src
+-a -s` is how you check, and nothing gates it.
 
 When changing such code, update the comment with it. A stale comment is worse than none:
 `ci.yml` once asserted that `rhiza-task fmt` skipped for want of a pre-commit config, for

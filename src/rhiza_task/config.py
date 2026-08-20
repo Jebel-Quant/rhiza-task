@@ -232,6 +232,18 @@ class Config:
     # defaulting, typechecker, coverage_fail_under. It is a flat sequence, one field per
     # step, with no interaction between the steps; the count grows with the number of
     # validated settings and not with the depth of anything. Deliberate.
+    #
+    # Unlike the other three C blocks here, that growth rule needs a stated ceiling, and
+    # the ceiling is **C (15)**. `_run_one` is bounded by the size of `Status` and
+    # `Guard.check` by the number of guard kinds -- closed sets, so their figures cannot
+    # drift far. "One branch per validated setting" is not a closed set: every future
+    # setting adds one, and a justification with no limit is an open licence rather than a
+    # decision. At 15 -- roughly three more settings -- the flat form stops paying for
+    # itself, and the answer is per-group helpers (`_validate_layers`,
+    # `_validate_typechecker`, `_validate_coverage`) called in sequence from here, which
+    # keeps the readable one-field-per-step order while bounding each block.
+    #
+    # `uvx radon cc src -a -s` is the check; nothing gates it, so this is discipline.
     def __post_init__(self) -> None:
         """Normalise the list fields, then validate the enumerated and numeric ones.
 
@@ -324,7 +336,13 @@ class Config:
         Returns:
             The absolute path.
         """
-        return self.root / getattr(self, folder_field)
+        # The annotation is load-bearing under `mypy --strict`: `getattr` is typed to return
+        # `Any`, `Path / Any` is `Any` too, and returning that from a `-> Path` function is
+        # what `no-any-return` reports. Naming the type here is also the honest spelling --
+        # every field this reaches ends in `_folder` and holds a `str`, which is the same
+        # assumption `folders` above encodes in its `dict[str, str]`.
+        value: str = getattr(self, folder_field)
+        return self.root / value
 
     @staticmethod
     def field_for(name: str) -> str:

@@ -126,10 +126,10 @@ python-dotenv = "dotenv"
 # what makes it a gate rather than a note.
 #
 # What 100 does *not* claim is that every line is meaningfully asserted -- only that none
-# is unvisited. Four lines stay excluded by `# pragma: no cover`, each carrying its reason:
-# the TYPE_CHECKING guard in spec.py, the `__main__` delegation, and two defensive `except`
-# branches (go.py's malformed total line, quality.py's unreadable file). The first two are
-# structural; the last two are testable and would be the change that retires the pragmas.
+# is unvisited. Two lines stay excluded by `# pragma: no cover`, each carrying its reason:
+# the TYPE_CHECKING guard in spec.py and the `__main__` delegation. Both are structural --
+# unreachable under test by construction rather than merely awkward to reach -- so every
+# exclusion left is one no test could retire, and a third would need that argument made.
 [tool.rhiza-task]
 coverage_fail_under = 100
 
@@ -139,11 +139,21 @@ coverage_fail_under = 100
 # without a commit touching this repository, and the dogfood `all` in CI is where that
 # would land first and read as unrelated. Pinning it makes the choice this repo's own.
 #
-# The choice itself is `ty` alone rather than `both`: it is Astral's, like `uv` and `ruff`
-# which every gate here already provisions, and `src/` is fully annotated and passes it
-# clean. Adding `mypy --strict` is the reasonable other answer, and `both` is a one-word
-# edit to this line if the extra signal turns out to be worth the second resolve.
-typechecker = "ty"
+# The value is `both` because the second resolve paid for itself. `ty` alone was the
+# setting here first -- it is Astral's, like `uv` and `ruff` which every gate already
+# provisions -- and the note in its place said adding `mypy --strict` was the reasonable
+# other answer whenever the extra signal proved worth it. It was: run against the project's
+# own environment, `mypy --strict` found `Config.path` returning `Any` from a function
+# declared `-> Path`, because `getattr` is typed `Any` and `ty` does not report the widening.
+# One real finding in twenty modules is a low yield and exactly the kind `ty` is still young
+# enough to miss, so the pair stays until `ty` grows the check.
+#
+# Worth knowing before reading a failure here: run `mypy --strict src` through `uvx`, with
+# no project environment, and it reports ten errors rather than none -- four unresolvable
+# imports and five untyped Typer decorators that follow from them. Those are artefacts of
+# the invocation, not of the source. The task runs it under `uv run`, where the
+# dependencies are present and the count is zero.
+typechecker = "both"
 
 # The suite is organised by *behaviour*, not as a 1:1 mirror of `src/`: `test_tasks.py`,
 # `test_bundle_tasks.py`, `test_dev_tasks.py` and `test_language_layers.py` cover the
@@ -159,10 +169,12 @@ typechecker = "ty"
 # test file could leave unexercised, because an unexercised module would put the total
 # below the floor.
 #
-# The reason says "95" and not "95%" on purpose: radon reads *every* `[tool.*]` table
+# The reason spells that floor "100" and never "100%": radon reads *every* `[tool.*]` table
 # through configparser, which treats `%` as interpolation syntax and dies on any value
-# containing one -- so a percent sign here breaks `radon cc src`, the command the
-# complexity notes in spec.py, runner.py and config.py are there to answer.
+# containing one -- so a percent sign anywhere in this string breaks `radon cc src`, the
+# command the complexity notes in spec.py, runner.py and config.py are there to answer.
+# The constraint outlives the number, so it is stated as a rule rather than about one
+# value: whatever the floor becomes, write it bare in here.
 [tool.check_test_layout]
 enforce = false
 reason = "Tests are grouped by behaviour, not mirrored 1:1 -- the twelve task modules share one shape and are covered as groups. Per-module coverage is guaranteed instead by the coverage_fail_under floor of 100 in [tool.rhiza-task]: at that floor no module a missing test file would have covered can go unexercised."

@@ -341,7 +341,10 @@ def _total_coverage(cfg: Config) -> float | None:
         if line.startswith("total:"):
             try:
                 return float(line.split()[-1].rstrip("%"))
-            except ValueError:  # pragma: no cover - a malformed total line
+            except ValueError:
+                # A total line whose last field is not a number reads the same as no total
+                # line at all: None, and the caller warns that the floor went unenforced.
+                # Guessing a number here would be worse than admitting the miss.
                 return None
     return None
 

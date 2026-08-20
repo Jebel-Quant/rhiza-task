@@ -4,6 +4,19 @@ icon: material/drawing-box
 
 # Design
 
+## Where the evidence comes from
+
+Comments through `src/` cite **[jointview](https://github.com/Jebel-Quant/jointview)** by
+name when they explain why something is shaped the way it is. It is a small public
+consumer of the rhiza template in the same organisation, and it is named rather than
+generalised on purpose: it is the repository whose `.rhiza/.env`, `RHIZA_CHECKS` list and
+60-line Makefile override supplied the requirements this package had to meet.
+
+So a comment saying "jointview sets `ty` in `.rhiza/.env` for that reason" is reporting a
+setting that exists in a repository you can go and read, not sketching a hypothetical
+consumer. Where a design decision here looks arbitrary, that is usually where to look for
+the reason.
+
 ## The observation the package rests on
 
 Reading all ten make fragments back to back, **every recipe has the same three parts**:
