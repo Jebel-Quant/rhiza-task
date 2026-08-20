@@ -50,13 +50,14 @@ jobs:
       - name: Run tests
         run: uv run --group test --python ${{ matrix.python-version }} pytest -ra
 
-  # ruff.toml is 9 KB of deliberate rule selection, and until this job existed nothing
-  # ran it: `rhiza-task fmt` skips here (see the `gates` job below), no other workflow
-  # mentioned ruff, and no task in the registry invokes it. The repo was clean by
-  # discipline, with nothing holding it there.
+  # ruff.toml is 9 KB of deliberate rule selection, and this job is not the only thing
+  # enforcing it: `.pre-commit-config.yaml` carries the same ruff hooks, so `rhiza-task
+  # fmt` -- and the dogfood `all` in the `gates` job below -- runs them too. It was the
+  # only thing before that config existed, which is why the job was split out.
   #
-  # A separate job rather than two more steps in `gates`: a red check named `ruff` says
-  # what broke without opening a log, and this needs no venv, no sync and no matrix.
+  # Kept anyway, now for one reason rather than two: a red check named `ruff` says what
+  # broke without opening a log, and this needs no venv, no sync and no matrix. The
+  # duplicated work is the price of that, and it is cheap.
   #
   # `ruff@0.16.3` is pinned for the reason the uv pin below is -- a floating ruff means a
   # new release's new rules can turn a green PR red without a commit touching this repo.
@@ -103,16 +104,16 @@ jobs:
       #     that job is not lifted either: `rhiza-task semgrep` skips without
       #     .rhiza/semgrep.yml, and this repository ships none, exactly as pytest-rhiza
       #     does not. So there is nothing for CI to invoke until a rule file exists.
-      #   * `fmt` is a prerequisite, and skips: no .pre-commit-config.yaml here, for the
-      #     same "not rhiza-managed" reason. That skip is why ruff gets its own job above
-      #     rather than riding along in a pre-commit config -- adding one to satisfy ruff
-      #     would make this repo the managed thing it is not, and would quietly change what
-      #     `fmt` means in the dogfood run. ruff.toml is enforced there, not here.
+      #   * `fmt` is a prerequisite and *runs*, over the `.pre-commit-config.yaml` this
+      #     repository now ships. It used to skip for want of that file, and this note used
+      #     to say so; the file arrived in 00aaa44, so the dogfood run covers one more gate
+      #     than it did. Its ruff hooks pin the same 0.16.3 the `lint` job above does,
+      #     deliberately, so the two cannot report different findings.
       #
-      # Which is also why this runs deliberately without --strict: --strict turns a skip
-      # into a failure, and it is the right setting in a *consumer* repository, where a
-      # skip means a gate lost its subject. Asserting it here would only assert that this
-      # repo is something it is not.
+      # `semgrep` is why this still runs without --strict: --strict turns a skip into a
+      # failure, and it is the right setting in a *consumer* repository, where a skip means
+      # a gate lost its subject. Here one gate has no subject on purpose, so asserting it
+      # would only assert that this repo is something it is not.
       - name: rhiza-task all
         run: uv run rhiza-task all
 
