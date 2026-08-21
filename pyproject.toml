@@ -107,6 +107,19 @@ version = "{current_version}\""""
 replace = """name = "rhiza-task"
 version = "{new_version}\""""
 
+# `relative_files` makes coverage record paths relative to the project rather than absolute.
+# Without it every artefact carries the build machine's layout: `coverage.xml`'s Cobertura
+# `<source>` element held `/Users/<someone>/repos/.../src`, and `rhiza-task book` publishes
+# that file to GitHub Pages. It also matters off the book -- a Codecov upload and genbadge
+# both read this file, and an absolute source root is what makes a report from one machine
+# disagree with the same report from another.
+#
+# There is no CLI flag for it, deliberately on coverage's side: it changes how data is
+# *stored*, so it has to be set before measurement rather than at report time. That is why
+# this is repo config and not something `coverage_args` in tasks/python.py could pass.
+[tool.coverage.run]
+relative_files = true
+
 [tool.deptry.package_module_name_map]
 # python-dotenv installs a module called `dotenv`. deptry runs isolated via `uvx`, so the
 # package is not importable and it cannot discover the mapping itself -- it guesses
