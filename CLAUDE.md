@@ -143,10 +143,17 @@ explains them:
 
 ## Tests assert argument vectors, and never run uv
 
-**No test in this suite runs `uv`, or any other tool.** Every test patches
-`rhiza_task.uv`'s entry points — `uv`, `uvx`, `uv_run`, `tool` — through the `Recorder`
-fixture in `tests/conftest.py`, and asserts on the argument vector that *would* have been
-executed.
+**No test in this suite runs `uv`, or any other tool.** Every test patches all **five** of
+`rhiza_task.uv`'s entry points — `uv`, `uvx`, `uv_run`, `tool`, `capture` — through the
+`Recorder` fixture in `tests/conftest.py`, and asserts on the argument vector that *would*
+have been executed.
+
+Five, and it was four until #116. `capture` was left out of the fixture while the other four
+were patched, so each test that needed it patched it by hand; all of them did, so nothing
+ever leaked, but the guarantee this paragraph makes was four fifths true and failed *open* —
+a forgotten patch ran `gh` for real rather than erroring. `tests/test_uv.py` now asserts that
+no task module holds a real entry point once the fixture has run, so the sentence above is
+checked by a test rather than by this file being kept up to date.
 
 This is the point of the package rather than a shortcut: the make recipes expressed their
 contract as shell, and the vectors are that contract made assertable without provisioning a
