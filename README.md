@@ -115,7 +115,7 @@ race, never on 1/2/4), `mutation` (run/html/move/results, reporting the *first* 
 |---|---|
 | `spec.py` | `Task`, `Guard`, `Skip`/`Failed`, the `@task` registry, layer resolution |
 | `config.py` | six-layer resolution, replacing `?=` and `+=` |
-| `uv.py` | the four ways rhiza reaches a tool: `uv`, `uvx`, `uv run --with`, and `tool` for a cargo/go binary already on PATH |
+| `uv.py` | the ways rhiza reaches a tool: `uv`, `uvx`, `uv run --with`, `tool` for a cargo/go binary already on PATH, and `capture` for the one recipe that needs stdout back |
 | `runner.py` | prerequisite dedup, guards, outcome bookkeeping |
 | `cli.py` | Typer app, generated from the registry |
 | `tasks/*.py` | the gates themselves, loaded by entry point |

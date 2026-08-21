@@ -11,7 +11,7 @@ the reasoning for each design decision lives.
 | module | reach for it when |
 |---|---|
 | [`spec`](#spec) | writing a task: `@task`, `Guard`, `Skip`, `Failed` |
-| [`uv`](#uv) | writing a task body: the four ways to reach a tool |
+| [`uv`](#uv) | writing a task body: the ways to reach a tool |
 | [`config`](#config) | reading a resolved setting, or adding one |
 | [`runner`](#runner) | understanding prerequisite order and outcomes |
 | [`cli`](#cli) | understanding how the registry becomes commands |

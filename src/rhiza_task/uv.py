@@ -11,11 +11,20 @@ Every recipe in the retired *Python* make layer used one of exactly three forms:
 The second and third are a real distinction that the make layer already gets right, so it
 is preserved here rather than unified.
 
-rust.mk and go.mk add a fourth, and only a fourth: ``$(CARGO) nextest run``, ``$(GO) test``
--- a toolchain binary that is already on PATH, because uv does not provision cargo or go
-and nothing here pretends otherwise. :func:`tool` is that form. It shares this module's
-environment handling and echoing rather than being a bare ``subprocess.call`` in each
-language module, so ``$ cargo clippy`` is printed the same way ``$ uvx bandit`` is.
+rust.mk and go.mk add a fourth: ``$(CARGO) nextest run``, ``$(GO) test`` -- a toolchain
+binary that is already on PATH, because uv does not provision cargo or go and nothing here
+pretends otherwise. :func:`tool` is that form. It shares this module's environment handling
+and echoing rather than being a bare ``subprocess.call`` in each language module, so
+``$ cargo clippy`` is printed the same way ``$ uvx bandit`` is.
+
+go.mk contributes one more, and it is the one that gets missed when these are counted:
+:func:`capture`, which returns *stdout* rather than an exit status, for the recipe that
+needs a value back rather than a verdict -- the licence gate, which has to interpolate
+``go list -m`` into its own arguments. It is easy to overlook precisely because it is the
+only form whose caller reads the result instead of just its status, and #131 is what that
+cost: every prose total for this module disagreed with the code, and with the others. So no
+sentence here gives one -- the public functions below are the authority, and a total in
+prose goes stale the moment a form is added.
 
 Two things disappear:
 
