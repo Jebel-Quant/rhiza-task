@@ -186,8 +186,9 @@ this repo's name.
 ### The prose examples are gated too, and by a task rather than a test
 
 The same argument applied twice over to `docs/`. `README.md`'s fences are covered by
-pytest-rhiza's `test_readme_validation` under `rhiza-test`; the docs tree — 62 fences over 11
-files, 12 of them in `getting_started.md` — was covered by markdownlint asking whether the
+pytest-rhiza's `test_readme_validation` under `rhiza-test`; the docs tree — sixty-odd fences
+across eleven files, the largest share of them in `getting_started.md` — was covered by
+markdownlint asking whether the
 *markdown* parses, and by nothing asking whether the commands did. `rhiza-task docs-examples`
 is that gate, named by `ci.yml`'s `gates` job because, like `complexity`, it is deliberately
 not an `all` prerequisite.
@@ -218,13 +219,16 @@ rather than quietly outdating — and the prelude is every earlier `python` fenc
 file, because `adding_a_task.md`'s pair needs the first fence's `@task` before the second's
 `lookup`. There are **two** such blocks — that pair, and `layers.md`'s shadowing example,
 whose answers used to sit in trailing `# 'python:test'` comments until they were made a
-`result` block — so the gate's summary line reads `2 diffed`. That is every python fence in
-the tree that *produces output*; the remaining **six** define a task, bind a name or quote a
-`Guard` fragment, and print nothing — so a `result` block on them would be ceremony rather
-than a check. Count them with `grep -rcE '^\s*```(python|py)\s*$' docs/*.md`, and note the
-leading `\s*`: two of the eight are **indented** inside a tabbed admonition
-(`adding_a_task.md:77` and `:86`), so a grep anchored at the line start misses them in
-silence. The gate's own `8 python` is the number to reconcile against. One of the six is
+`result` block — and between them that is **every python fence in the tree which produces
+output**. The rest define a task, bind a name or quote a `Guard` fragment, and print nothing,
+so a `result` block on them would be ceremony rather than a check. That invariant is the
+thing to preserve, and it is checkable rather than remembered: the fences which print are
+exactly the fences which are diffed.
+
+Count them with `grep -rcE '^\s*```(python|py)\s*$' docs/*.md`, and note the leading
+`\s*` — some fences are **indented** inside a tabbed admonition (`adding_a_task.md:77` and
+`:86`), so a grep anchored at the line start misses them in silence. The `N python` on the
+gate's own summary line is the figure to reconcile against. One of the undiffed fences is
 also why a diffed block is not free: `adding_a_task.md`'s later fences sit *after* its
 `result` block, and moving one above would put a printing fence in the prelude — the
 assumption `_result_violations` documents and deliberately does not loosen.
@@ -233,9 +237,9 @@ And fences in a language it cannot check (`mermaid`,
 than passed over in silence, because a green line with no numbers reads as full coverage.
 
 `toml` and `yaml` used to be in that uncheckable list and are now parsed, which is worth
-knowing for two reasons beyond the count moving from 31 to 18. The `toml` half is
+knowing for two reasons beyond the drop in the uncheckable count. The `toml` half is
 in-process `tomllib` — stdlib at this package's `>=3.11` floor, so it is checked on every
-machine that can run the gate — and it covers the eleven fences quoting this repo's *own*
+machine that can run the gate — and it covers every fence quoting this repo's *own*
 `[tool.rhiza-task]` and `[tool.bumpversion]` settings, which is the class that goes stale
 when a setting is renamed. The `yaml` half is a **provisioned subprocess**
 (`uv run --no-project --with pyyaml`), deliberately not a dependency: `rhiza-task` is a
@@ -334,8 +338,9 @@ being *honoured* rather than restated — which is the outcome this rule is for.
 
 `Guard` and `Guard.check`, at C (14) and C (13): at one branch of headroom the comment
 stopped claiming "deliberate", named a tuple of `(predicate, message)` as the
-decomposition to reach for, and that decomposition is now `_clauses` — with the class at
-A (5). The lesson kept from it is about the *generator*: the property the flat form was
+decomposition to reach for, and that decomposition is now `_clauses` — which brought the
+class back into A. The lesson kept from it is about the *generator*: the property the flat
+form was
 really protecting was evaluation order — tool before file before folder before glob, each
 only reached if the last was satisfied — which a lazily-consumed `yield` keeps and an
 eagerly-built tuple of pairs would have lost. That, and needing no `self`, is why the
@@ -344,7 +349,8 @@ helper is module-level.
 `Config.__post_init__`, at C (13): one branch per validated setting, which is *open-ended*
 — every future setting adds one — so its comment named C (15), roughly two more settings,
 as the point where per-group helpers win. #124 took it there at two branches of headroom
-rather than waiting for the gate, and it is now A (1): a flat sequence of calls to
+rather than waiting for the gate, and it now has no branches of its own: a flat sequence of
+calls to
 `_coerce_sequence_fields`, `_validate_layers`, `_validate_typechecker`,
 `_validate_coverage` and `_validate_complexity_max`. The readable one-field-per-step order
 survived; each step is just bounded. **A new validated setting now adds a call here and its
@@ -357,8 +363,8 @@ class as the sum of its methods*, so a second method would relocate the figure a
 nothing. **That is wrong.** radon scores a class as the **mean** of its methods, so a small
 method *lowers* the class score. The check is a two-method probe under `uvx radon cc -s`: a
 lone method of 5 scores its class 6, and adding a second of 1 scores it **4**, not 6. So
-`Config`'s five new helpers are *methods* — they need `self` — and the class went B (6) →
-A (4) rather than up. Prefer a module-level function when it needs no `self` or when
+`Config`'s five new helpers are *methods* — they need `self` — and the class score went
+*down* rather than up. Prefer a module-level function when it needs no `self` or when
 laziness matters, as `_clauses` does; not to dodge a class score that works the other way.
 
 Unlike the layering invariant above, this one **is** gated: `rhiza-task complexity` fails on
@@ -366,19 +372,43 @@ any block above `complexity_max`, which `pyproject.toml` leaves at the shipped 1
 `ci.yml`'s `gates` job names it. So a ceiling a comment commits to is read back by a build
 rather than by a reader who remembers to — which is the whole reason
 `Config.__post_init__`'s note could say "roughly two more settings" and be held to it.
-`uvx radon cc src -a -s` remains how you read the figure by hand, and the gate reports the
-worst *block*, classes included — so the number to watch is now `_run_one`'s **12**, with
-`_report`'s B (10) in `tasks/fences.py` behind it, no other C block anywhere, and no class
-above `Guard`'s A (5). The tree average is A (3.23).
+`uvx radon cc src -a -s` remains how you read the figures by hand, and the gate reports the
+worst *block*, classes included. **`_run_one` is the block to watch** — it is the only one
+still ranking C, and the one whose comment claims a closed set rather than a ceiling. No
+class ranks worse than A. Both of those are claims a refactor either preserves or visibly
+breaks; the integers behind them are not restated here, because that is what the command
+above is for.
 
-**Every figure in this section is transcribed by hand and read back by nothing**, which is
-the one place this repository's "documentation should be falsifiable" argument does not
-hold: `docs-examples` diffs a `result` block and `test_doctests.py` evaluates a `>>>`, but a
-block score quoted in this file is discipline alone. It has already failed once — the edit
-that corrected the sum-vs-mean claim above simultaneously introduced three wrong figures
-here, all of them green on every gate. So re-run `uvx radon cc src -a -s` and reconcile
-before editing these numbers, and treat a disagreement between two statements in this file
-as the stronger signal: the `Guard` figure was wrong here while correct thirty lines above.
+### Which figures this file is allowed to quote
+
+That last paragraph used to restate four measured numbers, and it is the reason this section
+now has a rule. A measured figure in prose is **read back by nothing**: `docs-examples` diffs
+a `result` block, `test_doctests.py` evaluates a `>>>`, and `complexity` reads its ceiling
+back from a build — but a block score written into a sentence is discipline alone, and the
+discipline failed three times in three consecutive reviews. Twice the wrong number was
+introduced *by the edit that was correcting a different wrong number*, and once the file
+contradicted itself, with the newer statement being the wrong one. Every gate was green
+throughout, because no gate was looking.
+
+So the rule, and it is about *which* figures rather than about being careful:
+
+> **Quote a figure only when it cannot drift.** Historical figures — what a block scored
+> *before* a decomposition — record a decision and are immutable. Configured figures — the
+> `complexity_max` of 15, the coverage floor of 100 — live in `pyproject.toml`, and a gate
+> fails when the code disagrees with them. **Current measured state gets a claim, not an
+> integer:** "the only block still ranking C", "no class worse than A", "the fences which
+> print are the fences which are diffed". Name the command that reads the live value and
+> stop there.
+
+The three figures left in this section are all of the first two kinds. A claim of the third
+kind is worth more than the integer it replaces, because it says what the number was *for* —
+and a refactor either preserves it or visibly breaks it, which an integer transcribed into a
+sentence does neither.
+
+Gating the prose instead was considered and not done: it means a bespoke parser for one
+file's sentences, plus a public task name on a published CLI, to police figures that mostly
+did not need to be there. Deleting them was cheaper and removes the failure surface rather
+than watching it.
 
 When changing such code, update the comment with it. A stale comment is worse than none:
 `ci.yml` once asserted that `rhiza-task fmt` skipped for want of a pre-commit config, for
