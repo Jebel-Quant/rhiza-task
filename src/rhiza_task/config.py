@@ -148,6 +148,12 @@ class Config:
 
     source_folder: str = "src"
     tests_folder: str = "tests"
+    # The prose documentation tree, which ``docs-examples`` checks the fenced examples in.
+    # A setting rather than a literal ``docs`` for the reason every other folder here is
+    # one: ``marimo_folder`` and ``paper_folder`` already default to paths *inside* it, so a
+    # repo that keeps its documentation somewhere else would otherwise have to move two
+    # settings and hardcode the third.
+    docs_folder: str = "docs"
     marimo_folder: str = "docs/notebooks"
     book_output: str = "_book"
     python_version: str = "3.13"

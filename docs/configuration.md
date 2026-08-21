@@ -115,6 +115,7 @@ exports one for every caller and deliberately leaves it empty for consumers, who
 |---|---|---|
 | `source_folder` | `src` | the package tree the gates measure |
 | `tests_folder` | `tests` | the test tree |
+| `docs_folder` | `docs` | the prose docs tree, whose examples `docs-examples` checks |
 | `marimo_folder` | `docs/notebooks` | Marimo notebooks, exported into the book |
 | `book_output` | `_book` | where `book` writes the built site |
 | `python_version` | `3.13` | the interpreter tasks provision |

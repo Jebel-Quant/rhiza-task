@@ -21,10 +21,13 @@ import shutil
 # reads everything after that marker as a comma-separated list of test IDs, so a trailing
 # explanation becomes one `Test in comment:` warning per word.
 import subprocess  # nosec B404
+import textwrap
+from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..config import Config
-from ..spec import Guard, Skip, task
+from ..spec import Failed, Guard, Skip, task
 from ..uv import uv_run, uvx
 
 TODO_PATTERN = re.compile(r"\b(TODO|FIXME|HACK):")
@@ -47,6 +50,43 @@ TODO_SKIP_DIRS = frozenset(
 )
 
 CLEAN_ARTIFACTS = ("dist", "build", ".coverage", ".pytest_cache", ".benchmarks", "_tests", "_book")
+
+# Deliberately permissive about what follows the language: mkdocs-material accepts
+# ```python title="x", and an opening fence this pattern failed to match would have its
+# *closing* fence read as the next opening one, cascading the misparse through the rest of
+# the file. Matching any fence line and keeping only the first word cannot do that.
+DOC_FENCE_OPEN = re.compile(r"^(?P<indent>[ \t]*)```(?P<language>[^`\s]*)")
+# A closing fence carries nothing but backticks. A bare ``` therefore matches both patterns,
+# which is why :func:`_fences` tracks state instead of classifying lines independently.
+DOC_FENCE_CLOSE = re.compile(r"^[ \t]*```[ \t]*$")
+# `bash` and `sh` only. `console` and `shell-session` are excluded on purpose: their content
+# is a transcript -- prompts, output and all -- so `bash -n` would reject the very thing that
+# makes them correct. A language this set does not name is counted as unchecked and reported
+# rather than guessed at.
+SHELL_FENCE_LANGUAGES = frozenset({"bash", "sh"})
+PYTHON_FENCE_LANGUAGE = "python"
+# The convention README.md already uses and pytest-rhiza's `test_readme_validation` already
+# checks *there*: a ```result``` block holds the expected stdout of the python fence above it.
+RESULT_FENCE_LANGUAGE = "result"
+CHECKED_FENCE_LANGUAGES = SHELL_FENCE_LANGUAGES | {PYTHON_FENCE_LANGUAGE, RESULT_FENCE_LANGUAGE}
+
+
+@dataclass(frozen=True)
+class Fence:
+    """One fenced code block, located and dedented.
+
+    Attributes:
+        path: Repository-relative path, posix-separated, because this reaches report output
+            a reader pastes into an editor.
+        line: 1-based line number of the opening fence.
+        language: The info string's first word, lowercased; empty when the fence carries none.
+        code: The block's content, dedented.
+    """
+
+    path: str
+    line: int
+    language: str
+    code: str
 
 
 @task("fmt", "run the pre-commit hooks over all files", section="Quality")
@@ -191,6 +231,78 @@ def todos(cfg: Config) -> None:
     print(f"\n[INFO] {hits} item(s) found.")
 
 
+@task(
+    "docs-examples",
+    "check the fenced examples in the docs tree",
+    section="Quality",
+    needs=("install",),
+    guards=(Guard("docs_folder"),),
+)
+def docs_examples(cfg: Config) -> None:
+    """Parse every checkable fence under the docs folder, and diff the executed ones.
+
+    The gap this closes: ``docs-coverage`` asks whether a docstring *exists* and
+    markdownlint asks whether the markdown is *well-formed*. Neither asks whether what the
+    documentation **claims** is still true, and a stale command keeps rendering perfectly --
+    so the reader who finds out is a newcomer, at the worst moment. ``README.md`` was already
+    covered, by pytest-rhiza's ``test_readme_validation`` under :func:`rhiza_test`; the docs
+    tree had nothing, and it is the larger half.
+
+    Not a second check of ``README.md``, deliberately: that file is pytest-rhiza's subject,
+    and counting one verdict twice would make two gates report one fact.
+
+    Three kinds of fence are checked and the rest are counted:
+
+    * ``python`` -- :func:`compile`, so a fence that is a *fragment* still passes. Names need
+      not resolve; only the syntax is asserted.
+    * ``bash``/``sh`` -- ``bash -n``, which parses without executing. Never executed, because
+      a README's shell is routinely ``rm -rf`` and ``git push``, and an unparseable fence is a
+      documentation bug without running it.
+    * ``result`` -- executed and diffed against the python fences above it.
+
+    Anything else -- ``toml``, ``mermaid``, ``makefile``, ``yaml``, and fences carrying no
+    language at all -- is reported as unchecked. Naming the count is the point: silence there
+    would read as "everything was checked".
+
+    ``install`` is a prerequisite because the executed half imports the project's own
+    packages, exactly as :func:`rhiza_test`'s docstring check does.
+
+    Args:
+        cfg: The resolved config.
+
+    Raises:
+        Skip: When the tree holds no checkable fence, so nothing was measured. A docs tree
+            documenting nothing runnable would otherwise score a silent pass, which is the
+            failure this gate exists to make visible.
+        Failed: When at least one example is broken or stale.
+    """
+    scratch = cfg.root / "_tests" / "docs-examples"
+    scratch.mkdir(parents=True, exist_ok=True)
+    # Resolved once: `bash` is absent on a stock Windows runner, and its absence must leave
+    # the shell fences *unchecked and counted* rather than failing the gate for a fact about
+    # the machine. Same reasoning as `Guard(tool=...)` raising Skip rather than Failed.
+    bash = shutil.which("bash")
+
+    per_file = [
+        _fences(md.relative_to(cfg.root).as_posix(), md.read_text(errors="replace"))
+        for md in sorted(cfg.path("docs_folder").rglob("*.md"))
+    ]
+    fences = [fence for one_file in per_file for fence in one_file]
+
+    broken = [
+        *_syntax_violations(fences),
+        *(_shell_violations(fences, bash, scratch) if bash else []),
+        *_result_violations(per_file, cfg, scratch),
+    ]
+    for violation in broken:
+        print(violation)
+
+    if not _report(fences, bash, len(per_file)):
+        raise Skip(f"no checkable fence under {cfg.docs_folder}")
+    if broken:
+        raise Failed(1, f"{len(broken)} broken example(s) under {cfg.docs_folder}")
+
+
 @task("clean", "remove build artifacts and stale local branches", section="Dev")
 def clean(cfg: Config) -> None:
     """Remove ignored files, build artifacts, and local branches whose remote is gone.
@@ -244,6 +356,260 @@ def _walk(root: Path) -> list[Path]:
             elif entry.suffix in TODO_SUFFIXES:
                 found.append(entry)
     return found
+
+
+def _fences(path: str, text: str) -> list[Fence]:
+    """Return every fenced code block in one markdown file, in document order.
+
+    Indentation is why this is a state machine rather than a regex over the whole file:
+    mkdocs admonitions and content tabs indent their fences by four spaces, and ``faq.md``
+    indents one by three inside a numbered list. ``textwrap.dedent`` on the collected body is
+    what makes those compile -- without it every fence inside an admonition is an
+    ``IndentationError``, which would be a finding against this checker rather than the docs.
+
+    Nested fences are not handled, and cannot be: distinguishing them needs the four-backtick
+    form, which no file in this repository uses. If one appears, its inner fence closes the
+    outer block early and the languages reported go wrong -- visible in the inventory line
+    rather than silent, which is the reason that line prints a per-language count.
+
+    Args:
+        path: Repository-relative path, stored on each returned fence.
+        text: The file's content.
+
+    Returns:
+        The fences found, dedented.
+    """
+    fences: list[Fence] = []
+    language: str | None = None
+    start = 0
+    body: list[str] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        if language is None:
+            opening = DOC_FENCE_OPEN.match(line)
+            if opening:
+                language, start, body = opening.group("language").lower(), number, []
+            continue
+        if DOC_FENCE_CLOSE.match(line):
+            fences.append(Fence(path, start, language, textwrap.dedent("\n".join(body))))
+            language = None
+            continue
+        body.append(line)
+    return fences
+
+
+def _syntax_violations(fences: list[Fence]) -> list[str]:
+    """Return one message per python fence that does not parse.
+
+    :func:`compile` rather than execution, so a fence holding a *fragment* -- ``guards =
+    (Guard("source_folder"),)`` in ``adding_a_task.md``, with ``Guard`` never imported --
+    passes. Undefined names are not the question; syntax is.
+
+    Args:
+        fences: Every fence in the tree.
+
+    Returns:
+        Violation messages, one per broken fence.
+    """
+    broken: list[str] = []
+    for fence in fences:
+        if fence.language != PYTHON_FENCE_LANGUAGE:
+            continue
+        try:
+            compile(fence.code, f"{fence.path}:{fence.line}", "exec")
+        except SyntaxError as exc:
+            # The *offending* line, not the fence's: `getting_started.md` holds 24 fences, and
+            # "somewhere in this file" is the part of a report a reader has to redo by hand.
+            # `fence.line` is the opening backticks, so body line 1 sits one below it, which is
+            # what makes this sum the absolute line rather than one short of it.
+            broken.append(f"{fence.path}:{fence.line + (exc.lineno or 0)}: python fence does not parse: {exc.msg}")
+    return broken
+
+
+def _shell_violations(fences: list[Fence], bash: str, scratch: Path) -> list[str]:
+    """Return one message per shell fence that does not parse.
+
+    ``-n`` is the whole point: bash reads and parses the script and exits without running a
+    command of it. So this validates ``rm -rf`` and ``git push`` fences without their
+    consequences.
+
+    Captured rather than streamed through :func:`~rhiza_task.uv.tool`, which every other
+    binary in this package goes through, for two reasons that both come from this being a
+    checker rather than a gate over one command: the message is wanted *per fence* and lives
+    on stderr, and echoing ``$ bash -n ...`` once per fence would bury the report it exists to
+    produce under twenty invocation lines. ``_git`` above captures for the same reason.
+
+    Args:
+        fences: Every fence in the tree.
+        bash: Absolute path to bash, already resolved by the caller.
+        scratch: Directory for the throwaway script.
+
+    Returns:
+        Violation messages, one per broken fence.
+    """
+    broken: list[str] = []
+    script = scratch / "fence.sh"
+    for fence in fences:
+        if fence.language not in SHELL_FENCE_LANGUAGES:
+            continue
+        script.write_text(fence.code)
+        checked = subprocess.run(  # noqa: S603  # nosec B603
+            [bash, "-n", str(script)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if checked.returncode:
+            # bash reports against the throwaway path and its own line numbers, neither of
+            # which the reader can act on. The fence's own location is already the prefix, so
+            # the script path is stripped to leave the diagnosis.
+            detail = checked.stderr.strip().splitlines()
+            message = detail[-1].replace(str(script), "fence") if detail else f"exit {checked.returncode}"
+            broken.append(f"{fence.path}:{fence.line}: shell fence does not parse: {message}")
+    return broken
+
+
+def _result_violations(per_file: list[list[Fence]], cfg: Config, scratch: Path) -> list[str]:
+    """Return one message per ``result`` block that no longer matches what its python prints.
+
+    This is the half that catches an example gone *stale* rather than malformed, which is the
+    failure with the longest half-life: the fence still parses, still renders, and is wrong.
+
+    The prelude is every python fence earlier in the same file, concatenated, because that is
+    what ``README.md``'s pair needs -- the first fence defines the ``audit`` task with
+    ``@task`` and the second calls ``lookup("audit")``, so running the second alone raises.
+    The whole captured stdout is then compared against the block.
+
+    That comparison is exact but for surrounding whitespace, and it carries one assumption
+    worth stating: a prelude fence that *prints* would have its output counted as part of the
+    result. No file here has one. If that changes, the fix is to fence off the prelude's
+    output rather than to loosen the diff, because a loosened diff is how a stale example
+    starts passing again.
+
+    Args:
+        per_file: Fences grouped by file, so a prelude cannot reach across files.
+        cfg: The resolved config.
+        scratch: Directory for the throwaway script and its captured stdout.
+
+    Returns:
+        Violation messages, one per stale or unrunnable block.
+    """
+    broken: list[str] = []
+    for one_file in per_file:
+        for index, fence in enumerate(one_file):
+            if fence.language != RESULT_FENCE_LANGUAGE:
+                continue
+            prelude = [f.code for f in one_file[:index] if f.language == PYTHON_FENCE_LANGUAGE]
+            if not prelude:
+                broken.append(f"{fence.path}:{fence.line}: result block with no python fence above it")
+                continue
+            printed = _run_fences(cfg, scratch, prelude)
+            if printed is None:
+                broken.append(f"{fence.path}:{fence.line}: the python above this block exited non-zero")
+            elif printed.strip() != fence.code.strip():
+                broken.append(
+                    f"{fence.path}:{fence.line}: result block is stale\n"
+                    f"           expected: {fence.code.strip()!r}\n"
+                    f"           actual:   {printed.strip()!r}"
+                )
+    return broken
+
+
+def _run_fences(cfg: Config, scratch: Path, codes: list[str]) -> str | None:
+    """Run python fences in the project environment and return their stdout.
+
+    A subprocess, and not :func:`exec` in this process, which would be shorter: the fences in
+    ``adding_a_task.md`` call ``@task``, and ``@task`` registers into the live
+    :data:`~rhiza_task.spec.REGISTRY`. Running them here would add an ``audit`` task to the
+    process running the gate, so a later ``list`` in the same ``rhiza-task all`` would print a
+    task that does not exist. Isolation is a requirement here, not caution.
+
+    stdout arrives through a file rather than a pipe for the reason ``complexity`` reads
+    radon's ``--output-file``: :func:`~rhiza_task.uv.uv_run` streams rather than captures, and
+    adding a capturing variant to ``uv.py`` for one caller would widen that module's surface
+    for it. The script redirects its own stdout, so the invocation stays a fixed argument
+    vector with no shell -- and the fences' tracebacks still reach the terminal on stderr,
+    which is where a reader wants them.
+
+    Args:
+        cfg: The resolved config.
+        scratch: Directory for the script and its captured stdout.
+        codes: The python fences to run, in document order.
+
+    Returns:
+        The captured stdout, or None when the script exited non-zero or wrote nothing.
+    """
+    printed = scratch / "stdout.txt"
+    # Stale output first, for the reason `complexity` unlinks its report: output left by an
+    # earlier run would be read as this run's, and a diff that passes against last run's
+    # stdout is worse than no diff.
+    printed.unlink(missing_ok=True)
+    script = scratch / "fences.py"
+    script.write_text(
+        f"import sys\nsys.stdout = open({str(printed)!r}, 'w', encoding='utf-8')\n"
+        + "\n".join(codes)
+        + "\nsys.stdout.flush()\n"
+    )
+    code = uv_run("python", script.relative_to(cfg.root).as_posix(), cwd=cfg.root, check=False)
+    if code or not printed.is_file():
+        return None
+    return printed.read_text(errors="replace")
+
+
+def _tally(fences: list[Fence]) -> tuple[int, int, int, list[tuple[str, int]]]:
+    """Count the fences by what can be done with them.
+
+    Split out of :func:`_report` rather than inlined there, which read more directly: the two
+    together score C on cyclomatic complexity, and a fifth C block in this package is a
+    fifth thing a reader has to accept an argument for. Counting and printing are genuinely
+    separate jobs, so this is the decomposition the metric asks for rather than a contortion
+    to satisfy it.
+
+    Args:
+        fences: Every fence in the tree.
+
+    Returns:
+        ``(python, shell, diffed, unchecked)``, where ``unchecked`` pairs each remaining
+        language with its count, commonest first and then alphabetically so the line is
+        diffable between runs. A fence with no language is counted under ``(none)``.
+    """
+    tally = Counter(fence.language or "(none)" for fence in fences)
+    unchecked = sorted(
+        ((language, count) for language, count in tally.items() if language not in CHECKED_FENCE_LANGUAGES),
+        key=lambda item: (-item[1], item[0]),
+    )
+    return (
+        tally[PYTHON_FENCE_LANGUAGE],
+        sum(tally[language] for language in SHELL_FENCE_LANGUAGES),
+        tally[RESULT_FENCE_LANGUAGE],
+        unchecked,
+    )
+
+
+def _report(fences: list[Fence], bash: str | None, files: int) -> bool:
+    """Print the inventory and report whether anything was checkable.
+
+    The unchecked count is printed rather than dropped because "0 examples" and "43 fences
+    nothing looks at" both pass every other gate in this repository while documenting nothing
+    verifiable. A reader seeing only a green line would take it for full coverage.
+
+    Args:
+        fences: Every fence in the tree.
+        bash: Path to bash, or None when it is absent.
+        files: How many markdown files were read.
+
+    Returns:
+        True when at least one fence was checked, so the caller can skip rather than pass.
+    """
+    python, shell, diffed, unchecked = _tally(fences)
+    checked = python + diffed + (shell if bash else 0)
+    print(f"\n[INFO] {files} file(s), {len(fences)} fence(s): {checked} checked")
+    print(f"[INFO] {python} python, {shell} shell, {diffed} diffed")
+    if bash is None and shell:
+        print(f"[INFO] bash not found: {shell} shell fence(s) went unchecked")
+    if unchecked:
+        listing = ", ".join(f"{count} {language}" for language, count in unchecked)
+        print(f"[INFO] {sum(count for _, count in unchecked)} fence(s) not checkable: {listing}")
+    return checked > 0
 
 
 def _git(git: str, args: list[str], cwd: Path, capture: bool = False) -> str:

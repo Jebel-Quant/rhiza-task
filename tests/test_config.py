@@ -357,6 +357,7 @@ def test_folders_and_path_resolve(tmp_path: Path) -> None:
     assert set(cfg.folders) == {
         "source_folder",
         "tests_folder",
+        "docs_folder",
         "marimo_folder",
         "docker_folder",
         "paper_folder",

@@ -47,11 +47,16 @@ audit - run the in-house audit
 ('install',) source_folder Quality
 ```
 
-!!! tip "That example is executed, in the README"
-    The same pair of blocks lives in the repository's `README.md`, where `rhiza-task
-    rhiza-test` **runs the fence and diffs it against the `result` block**. A change to
-    `lookup`, to `Task`, or to the decorator breaks the README rather than quietly
-    outdating it. This page is a copy for reading; the README is the copy that is checked.
+!!! tip "That example is executed — here as well as in the README"
+    The pair above is **run and diffed against its `result` block**, by `rhiza-task
+    docs-examples` for this page and by `rhiza-task rhiza-test` for the copy in the
+    repository's `README.md`. A change to `lookup`, to `Task`, or to the decorator breaks
+    both rather than quietly outdating either.
+
+    It used to be only the README: this page said so, and said it was "a copy for reading".
+    That is what `docs-examples` was added to fix — every `python` and `bash` fence under
+    `docs/` is now checked too, so a stale command here fails a build instead of waiting
+    for a newcomer to run it.
 
 ## `@task` parameters
 

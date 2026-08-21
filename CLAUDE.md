@@ -9,10 +9,9 @@ about working *on* it.
 
 ## This repository is not rhiza-managed
 
-There is no `.rhiza/` directory. Nothing here is synced from `jebel-quant/rhiza`, no file
-is template-owned, and **every file is locally owned and locally editable** — including
-`.github/workflows/`, `.pre-commit-config.yaml`, `ruff.toml` and `pytest.ini`, which in a
-managed repo would belong upstream.
+There is no `.rhiza/` directory, no file is template-owned, and **every file is locally
+owned and locally editable** — including `.github/workflows/`, `.pre-commit-config.yaml`,
+`ruff.toml` and `pytest.ini`, which in a managed repo would belong upstream.
 
 That is deliberate, and it is not an oversight to correct. This package is the thing that
 *replaces* the template's make layer: a repo that consumed the template would run its
@@ -27,6 +26,45 @@ is circular. Two visible consequences, both intended:
 
 `rhiza-test` and `test-pyproject` are *this repo's own* tasks running `pytest-rhiza`, and
 are unrelated to the absent template. Do not read them as evidence of a sync.
+
+### The two workflows that do reach upstream
+
+"Nothing is synced" is right; "nothing references `jebel-quant/rhiza`" would not be. Two
+workflow files are thin wrappers that `uses:` a reusable workflow from the template repo,
+and both still carry its `This file is part of the jebel-quant/rhiza repository` header:
+
+| file | delegates to | pin |
+|---|---|---|
+| `.github/workflows/rhiza_codeql.yml` | `rhiza/.github/workflows/rhiza_codeql.yml` | `31e1a11` (v1.4.2) |
+| `.github/workflows/rhiza_scorecard.yml` | `rhiza/.github/workflows/rhiza_scorecard.yml` | `31e1a11` (v1.4.2) |
+
+They are the odd ones out and it is worth knowing why they are tolerated. `rhiza_book.yml`,
+`rhiza_paper.yml` and `rhiza_release.yml` are *fully local* files with real jobs — the same
+name prefix, none of the delegation — so the pattern in this repo is to vendor, and these
+two have simply not been vendored.
+
+**This is not the circularity the section above forbids.** That one is specifically about
+*gates*: a repo whose gates run through a published copy of this package cannot test its
+own working tree. Neither delegated workflow invokes `rhiza-task`, `make` or `uv` at the
+pinned SHA — upstream's codeql is `codeql-action/init` plus `analyze` (its only `make`
+mention is inside a `build-mode == 'manual'` step that Python never takes, and which
+`exit 1`s if reached), and upstream's scorecard is `ossf/scorecard-action` plus
+`upload-sarif`. So no gate of this repository runs through a published `rhiza-task`.
+
+**What the SHA pin is holding back, though, is exactly that.** v1.4.2 is the template
+release that *retired the make layer*, which means upstream's gates now are `rhiza-task`.
+If a later release adds a `uvx rhiza-task` setup step to either workflow, a routine pin
+bump would make this repository gate itself with a published copy of itself, silently and
+for the first time. So the pin is load-bearing in a way a version pin usually is not:
+**before bumping either SHA, read the upstream workflow and check it still invokes no
+`rhiza-task`.** That is the review this table exists to prompt.
+
+Why not simply vendor them and be done: the delegation buys the *publish* half —
+`security-events: write`, `upload-sarif`, the Scorecard badge and API. Those are
+workflow-level `uses:` actions, so no task in this package can replace them, and a
+`rhiza-task codeql` or `rhiza-task scorecard` would complement these files rather than
+retire them. Vendoring remains the answer whenever the review above becomes tiresome; it
+is a copy of two short files, not a redesign.
 
 ## The layering invariant
 
@@ -95,6 +133,29 @@ where gating doctests is their call, and in `pytest.ini`'s `addopts` it would al
 `rhiza-test`'s `pytest --pyargs pytest_rhiza.checks.*` — gating a dependency's doctests in
 this repo's name.
 
+### The prose examples are gated too, and by a task rather than a test
+
+The same argument applied twice over to `docs/`. `README.md`'s fences were covered by
+pytest-rhiza's `test_readme_validation` under `rhiza-test`; the docs tree — 62 fences, 24 of
+them in `getting_started.md` — was covered by markdownlint asking whether the *markdown*
+parses, and by nothing asking whether the commands did. `rhiza-task docs-examples` is that
+gate, named by `ci.yml`'s `gates` job because, like `complexity`, it is deliberately not an
+`all` prerequisite.
+
+It is a **task and not a test**, and that placement is the rule in this repo rather than a
+preference: checking a shell fence means running `bash -n`, and no test here runs a tool. So
+the logic belongs in a task body, exactly as the note above about wanting a real subprocess
+in a test says. Its own tests then patch `bash` and `uv_run` and assert the vectors, like
+every other task's.
+
+Two things a change to `docs/` should know. A ```` ```result ```` block is **executed and
+diffed** against the `python` fences above it, so an example that goes stale fails a build
+rather than quietly outdating — and the prelude is every earlier `python` fence in that
+file, because `README.md`'s pair needs the first fence's `@task` before the second's
+`lookup`. And fences in a language it cannot check (`toml`, `mermaid`, `makefile`, `yaml`,
+and those carrying no language) are **reported with a count** rather than passed over in
+silence, because a green line with no numbers reads as full coverage.
+
 ## The coverage floor is 100, and it is load-bearing
 
 `[tool.rhiza-task] coverage_fail_under = 100` in `pyproject.toml`. `rhiza-task test` and
@@ -115,11 +176,20 @@ retire — a new `# pragma: no cover` should be argued for rather than added.
 
 ## Where the gates run
 
-`ci.yml` has four jobs, and its comments explain each in detail. In short: a 12-cell
-`pytest` matrix (3 OS × Python 3.11–3.14 — **Windows is deliberate**, as the assertion that
-the shell dependency is gone), a `ruff` job, a `gates` job running the dogfood `uv run
-rhiza-task all`, and a `lowest-deps` job that resolves `--resolution lowest-direct` to prove
-the manifest's floors are real.
+`ci.yml` has six jobs, and its comments explain each in detail. In short:
+
+- **`test`** — a 12-cell `pytest` matrix (3 OS × Python 3.11–3.14). **Windows is
+  deliberate**, as the assertion that the shell dependency is gone, and the job carries a
+  CLI smoke step because the suite stubs every subprocess and so never starts the CLI.
+- **`lint`** — `ruff check` and `ruff format --check`, both halves always running.
+- **`gates`** — the dogfood `uv run rhiza-task all`, plus the two gates deliberately outside
+  `all`: `complexity` and `docs-examples`.
+- **`go-layer`** and **`rust-layer`** — the Rust and Go vectors against a *real* toolchain,
+  on a throwaway module built in `$RUNNER_TEMP`. These exist because those layers' coverage
+  is entirely argument-vector assertions, so a vector that is well-formed and *wrong* passes
+  every other gate here and breaks in the first consumer that has cargo or go installed.
+- **`lowest-deps`** — resolves `--resolution lowest-direct` to prove the manifest's floors
+  are real.
 
 Two things follow for a change to `pyproject.toml`:
 
