@@ -46,7 +46,7 @@ naming them so the exception stays bounded:
 |---|---|
 | `spec.py` | `Task`, `Guard`, `Skip`/`Failed`, the `@task` registry, layer resolution |
 | `config.py` | six-layer resolution, replacing `?=` and `+=` |
-| `uv.py` | the three ways rhiza reaches a tool |
+| `uv.py` | the ways rhiza reaches a tool |
 | `runner.py` | prerequisite dedup, guards, outcome bookkeeping |
 | `cli.py` | Typer app, generated from the registry |
 | `tasks/*.py` | the gates themselves, loaded by entry point |
@@ -59,7 +59,7 @@ flowchart TD
     REG --> RUN["runner.py<br/><small>dedup · guards · outcomes</small>"]
     CLI --> RUN
     RUN --> UV["uv.py"]
-    UV --> A["uv · uvx · uv run --with · tool"]
+    UV --> A["uv · uvx · uv run --with · tool · capture"]
 ```
 
 ## How a tool gets reached
@@ -73,10 +73,17 @@ distinction is preserved rather than unified, because the make layer already got
 | `uvx <tool>` | an isolated one-shot tool run | prek, deptry, bandit, semgrep, zensical, genbadge |
 | `uv run --with a --with b <tool>` | a tool run **against the project environment**, because it imports the project's own code | pytest, interrogate, mutmut, `ty`, mypy |
 
-Rust and Go add a fourth, and only a fourth: a toolchain binary already on `PATH`, because
-uv provisions neither `cargo` nor `go` and nothing here pretends otherwise. It shares the
-module's environment handling and echoing rather than being a bare `subprocess.call` in
-each language module — so `$ cargo clippy` is printed the same way `$ uvx bandit` is.
+Rust and Go add a fourth: a toolchain binary already on `PATH`, because uv provisions
+neither `cargo` nor `go` and nothing here pretends otherwise. It shares the module's
+environment handling and echoing rather than being a bare `subprocess.call` in each
+language module — so `$ cargo clippy` is printed the same way `$ uvx bandit` is.
+
+Go contributes one more — `capture`, which returns **stdout** rather than an exit status,
+for the one recipe that needs a value back rather than a verdict: the licence gate, which
+interpolates `go list -m` into its own arguments. It is the form that gets missed when
+these are counted, being the only one whose caller reads the result and not just the
+status. That is why neither this page nor the module docstring states a total any more;
+`uv.py`'s public functions are the authority. See #131.
 
 !!! note "No shell, anywhere"
     Commands are argument vectors, never shell strings. `rhiza.mk` carried a 40-line probe
