@@ -70,8 +70,10 @@ def test_the_installed_version_matches_pyproject() -> None:
     in which the question is not askable rather than one in which the answer is wrong: a
     dynamic version has no static value to compare, and a ``uv`` *virtual* project (no
     ``[build-system]``) installs no distribution metadata at all. This repository is neither
-    -- it declares ``version = "1.0.0"`` statically and builds a real wheel -- so here the
-    assert is reached and the skips are the inherited generality, not slack.
+    -- it declares its version statically and builds a real wheel -- so here the assert is
+    reached and the skips are the inherited generality, not slack. Deliberately not naming the
+    version: the point is that it is static, and a figure quoted here is one more thing a
+    release has to remember to move.
     """
     project = _project_table()
 

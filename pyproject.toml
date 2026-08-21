@@ -94,6 +94,48 @@ filename = "README.md"
 search = "rhiza-task@{current_version}"
 replace = "rhiza-task@{new_version}"
 
+# The same argument, and it was left unmade for a release: `docs/` carries thirty-one of the
+# same pins across six files -- getting_started.md alone has thirteen -- and the entry above
+# covered only README.md. Cutting v1.1.0 was what surfaced it, one step after the bump and one
+# before the tag, which is late.
+#
+# Nothing catches this. `docs-examples` parses those fences as shell and they parse fine at any
+# version; lychee resolves links, not arguments; and a stale pin is a *working* command that
+# installs the wrong release, so it does not fail for the reader either -- it just silently
+# gives them the version before the one they are reading about.
+#
+# `glob`, not one entry per file: six filenames would be a list to forget to extend the next
+# time a page is added, which is the failure being fixed rather than a different one. Every
+# occurrence in every matched file is rewritten, so a new page needs no config change at all.
+#
+# `ignore_missing_version` is what makes the glob usable, and it is not optional here: the glob
+# matches all eleven pages while only six carry a pin, and without this bump-my-version treats
+# the first pin-less page as an error -- `Did not find 'rhiza-task@1.0.0' in file:
+# 'docs/api.md'`. Worse, it fails *partway*: the first attempt at v1.1.0 had already rewritten
+# README.md and __init__.py before it reached api.md and stopped, leaving a half-bumped tree
+# that looked like a successful run to anything not reading the exit status. That is the reason
+# the release flow shows `git diff --stat` after this command rather than trusting it.
+#
+# The cost is real and accepted: a page that *should* carry a pin and does not is now silently
+# fine. That trade only works because the glob is over a whole directory rather than a list --
+# the failure it removes (a seventh page nobody adds to a list) is the likelier one.
+[[tool.bumpversion.files]]
+glob = "docs/*.md"
+ignore_missing_version = true
+search = "rhiza-task@{current_version}"
+replace = "rhiza-task@{new_version}"
+
+# The paper is the last pin, and it needs its own entry twice over: it is `.tex` rather than
+# `.md`, and it sits one directory down, which `docs/*.md` does not reach on either count. It
+# was the one occurrence the glob above still left at the old version, found by grepping for
+# the old pin after the bump rather than by trusting the config -- worth doing, because the
+# next such file will be missed the same way. `docs/` is otherwise flat, so there is nothing
+# else a recursive glob would pick up today.
+[[tool.bumpversion.files]]
+filename = "docs/paper/paper.tex"
+search = "rhiza-task@{current_version}"
+replace = "rhiza-task@{new_version}"
+
 # The lockfile records this package's own version, and `uv lock --check` is the first
 # command `install` runs -- so a bump that leaves uv.lock behind fails every gate that
 # names `install` as a prerequisite, which is all of them. v1.0.0 shipped that way: the
