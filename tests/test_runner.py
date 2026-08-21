@@ -232,6 +232,47 @@ def test_skip_is_green_by_default_and_red_under_strict(repo: Config) -> None:
     assert strict.exit_code() == 1
 
 
+def test_a_skipped_prerequisite_does_not_block_its_dependent(repo: Config) -> None:
+    """A prerequisite with nothing to measure lets the dependent run; a failed one does not.
+
+    The distinction `book` rests on. It names five prerequisites, three of which guard on
+    folders most repositories do not have -- benchmarks, stress tests, a paper -- so if a
+    skip blocked a dependent, `book` would be unbuildable almost everywhere. Only FAILED and
+    BLOCKED propagate.
+
+    Under ``--strict`` the skip becomes a failure and *does* block, which is the same test
+    read the other way and is asserted here so the interaction cannot regress silently.
+
+    Args:
+        repo: The throwaway repository root.
+    """
+
+    @task("t-absent", "nothing to measure", section="Test", guards=(Guard("marimo_folder"),))
+    def absent(cfg: Config) -> None:
+        """Do nothing; the guard skips first.
+
+        Args:
+            cfg: Unused.
+        """
+
+    @task("t-dependent", "needs the skipper", section="Test", needs=("t-absent",))
+    def dependent(cfg: Config) -> None:
+        """Run, despite the prerequisite having skipped.
+
+        Args:
+            cfg: Unused.
+        """
+
+    lenient = run(["t-dependent"], Config.load(root=repo))
+    assert lenient.status_of("t-absent") == Status.SKIPPED
+    assert lenient.status_of("t-dependent") == Status.OK
+    assert lenient.exit_code() == 0
+
+    strict = run(["t-dependent"], Config.load(root=repo, strict=True))
+    assert strict.status_of("t-absent") == Status.FAILED
+    assert strict.status_of("t-dependent") == Status.BLOCKED
+
+
 def test_a_task_body_may_skip_itself(cfg: Config) -> None:
     """:class:`Skip` raised from the body is the same outcome as a failed guard.
 

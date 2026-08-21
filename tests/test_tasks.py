@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from rhiza_task.config import Config
-from rhiza_task.spec import Failed, Skip
+from rhiza_task.spec import Failed, Skip, lookup
 from rhiza_task.tasks import book as book_tasks
 from rhiza_task.tasks import extras, python, quality
 from rhiza_task.tasks.doctor import at_least, parse_version
@@ -550,6 +550,87 @@ class TestHypothesis:
 
 class TestBook:
     """book.mk's ``book``."""
+
+    def test_names_the_paper_as_a_prerequisite(self) -> None:
+        """The book publishes the paper's PDF, so building the book must compile it.
+
+        Asserted on the registry rather than on a vector, because there is no vector: the
+        PDF needs no copy step. latexmk writes it beside its source and ``paper_folder`` is
+        inside ``docs_dir``, so the only two moving parts are this prerequisite and the
+        ``nav`` entry in ``mkdocs.yml`` -- and this is the half a test can hold.
+        """
+        spec = lookup("book")
+        assert spec is not None
+        assert "paper" in spec.needs
+
+    def test_prunes_latex_artifacts_but_keeps_the_pdf(self, cfg: Config, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The published site carries the paper's PDF and source, not latexmk's scratch files.
+
+        ``paper.log`` is the one that matters: it records absolute paths from the machine
+        that built it, and publishing it to Pages is a leak of build environment rather than
+        a cosmetic wart. zensical cannot exclude it, so the prune happens after the build.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+        """
+        (cfg.root / "mkdocs.yml").write_text("site_name: demo\n")
+        published = cfg.path("book_output") / "paper"
+
+        # The fake site has to be written by the stand-in for zensical, not before the call:
+        # `book` rmtree's the output first, so anything staged earlier is gone by then.
+        def fake_uvx(tool: str, *args: str, **kwargs: object) -> int:
+            """Write the paper folder the real build would have copied out of docs_dir.
+
+            Args:
+                tool: The tool name, unused.
+                *args: Its arguments, unused.
+                **kwargs: Ignored.
+
+            Returns:
+                0, as a successful build does.
+            """
+            published.mkdir(parents=True, exist_ok=True)
+            for name in ("paper.pdf", "paper.tex", "paper.aux", "paper.log", "paper.out", "paper.synctex.gz"):
+                (published / name).write_text("x")
+            return 0
+
+        monkeypatch.setattr(book_tasks, "uvx", fake_uvx)
+        book_tasks.book(cfg)
+
+        assert sorted(p.name for p in published.iterdir()) == ["paper.pdf", "paper.tex"]
+
+    def test_leaves_a_paper_folder_outside_the_docs_tree_alone(self, cfg: Config, recorder: Recorder) -> None:
+        """A paper outside ``docs/`` was never copied into the site, so there is nothing to prune.
+
+        The guard matters because the prune is scoped by a relative path: without the check,
+        ``relative_to`` would raise on a ``paper_folder`` the build never published.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        (cfg.root / "mkdocs.yml").write_text("site_name: demo\n")
+        outside = replace(cfg, paper_folder="writing/paper")
+        (cfg.root / "writing" / "paper").mkdir(parents=True)
+
+        book_tasks.book(outside)
+
+        assert (cfg.path("book_output") / ".nojekyll").is_file()
+
+    def test_tolerates_a_site_with_no_published_paper_folder(self, cfg: Config, recorder: Recorder) -> None:
+        """``paper`` skipped, so the build copied no paper folder and the prune is a no-op.
+
+        The common case in a repository with no ``.tex`` at all, and the one that must not
+        raise on a missing directory.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        (cfg.root / "mkdocs.yml").write_text("site_name: demo\n")
+        book_tasks.book(cfg)
+        assert not (cfg.path("book_output") / "paper").exists()
 
     def test_skips_without_a_mkdocs_config(self, cfg: Config, recorder: Recorder) -> None:
         """No ``mkdocs.yml``, nothing to build.
