@@ -126,6 +126,43 @@ jobs:
         if: ${{ !cancelled() }}
         run: uvx ruff@0.16.3 format --check --diff .
 
+  # The gateable half of link checking. weekly.yml runs lychee over the network; this runs
+  # it with `--offline`, which resolves only *local* targets -- relative links between the
+  # eleven docs/ pages, and README's links into them.
+  #
+  # The split is about determinism, not thoroughness. An external 404 is somebody else's
+  # deploy, so gating a pull request on it fails builds the author cannot fix, and a gate
+  # that fails for unfixable reasons is one people learn to ignore. Offline checking cannot
+  # do that: a relative link either resolves in the tree or does not, and if it does not,
+  # the person who broke it is the person reading the failure.
+  #
+  # It is also the only thing checking docs/ cross-links at all. `rhiza-task docs-examples`
+  # asks whether the *fences* parse and markdownlint asks whether the markdown is
+  # well-formed; neither follows a link. Eleven files of prose linking to each other had
+  # nothing asking whether the targets exist.
+  links:
+    name: local links in README and docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check local links
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: >-
+            --offline
+            --verbose
+            --no-progress
+            README.md
+            CONTRIBUTING.md
+            'docs/**/*.md'
+          fail: true
+
   gates:
     name: the gates this package applies to others
     runs-on: ubuntu-latest
@@ -227,6 +264,65 @@ jobs:
   # subcommands; each would add minutes per run to assert one more vector. The failure mode
   # being guarded against is "the vector is not the command the tool accepts", and one real
   # invocation per tool catches it.
+  # The Python counterpart of the two layer jobs below, and it exists for exactly the
+  # argument their comment makes: this layer's coverage is argument-vector assertions, so a
+  # vector that is well-formed and *wrong* passes every other gate here and breaks in the
+  # first consumer that runs it. That argument was never Go- or Rust-specific -- the Python
+  # layer simply had the *appearance* of coverage, because `gates` runs `rhiza-task all`
+  # against this repository, which is one very unusual project: it is the package's own
+  # source tree, with a manifest tuned to it.
+  #
+  # So: a throwaway project, the way go-layer and rust-layer use one, for the same reason
+  # theirs lives in $RUNNER_TEMP rather than being committed here -- a second pyproject.toml
+  # inside this repository would change what `detect_layers` and every path setting resolve.
+  #
+  # `test` is the task chosen because it is the one with the most vector to get wrong: it
+  # pulls in `install` (so `uv lock --check` and `uv sync` both run for real) and then
+  # invokes pytest with the coverage flags assembled from config. The scratch project sets no
+  # folder settings, so what runs here is the *shipped defaults* -- which is precisely what a
+  # consumer gets, and what this repository's own manifest overrides.
+  python-layer:
+    name: python tasks against a real toolchain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.16"
+          enable-cache: true
+
+      # Deliberately minimal: a real manifest, one module, one passing test. Anything more
+      # would be testing the fixture. `coverage_fail_under = 0` because the subject is the
+      # vector, not the fixture's coverage -- leaving the shipped default would fail this job
+      # on a fixture detail and teach nothing about the vector.
+      - name: Build a throwaway Python project
+        run: |
+          mkdir -p "$RUNNER_TEMP/pyproj/src/demo" "$RUNNER_TEMP/pyproj/tests"
+          cd "$RUNNER_TEMP/pyproj"
+          cat > pyproject.toml <<'EOF'
+          [project]
+          name = "demo"
+          version = "0.1.0"
+          requires-python = ">=3.11"
+
+          [build-system]
+          requires = ["hatchling"]
+          build-backend = "hatchling.build"
+
+          [dependency-groups]
+          test = ["pytest", "pytest-cov"]
+
+          [tool.rhiza-task]
+          coverage_fail_under = 0
+          EOF
+          printf 'def add(a, b):\n    "Add two numbers."\n    return a + b\n' > src/demo/__init__.py
+          printf 'from demo import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n' > tests/test_demo.py
+
+      # `--root` addresses the scratch project, as the two layer jobs do. A vector that uv or
+      # pytest rejects fails here, which is the whole point: no stub can reject one.
+      - name: rhiza-task test
+        run: uv run rhiza-task test --root "$RUNNER_TEMP/pyproj"
+
   go-layer:
     name: go tasks against a real toolchain
     runs-on: ubuntu-latest

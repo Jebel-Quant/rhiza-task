@@ -91,7 +91,7 @@ A guard is the first of the three parts every recipe has. Two forms:
 
 When a guard fails the task reports:
 
-```
+```text
  skipped  audit  source_folder 'src' not found
 ```
 
@@ -156,7 +156,7 @@ consumer's CI reads.
 
 `load_tasks()` reports an import failure and moves on:
 
-```
+```text
 could not load task module acme: ModuleNotFoundError: No module named 'acme_internal'
 ```
 

@@ -313,6 +313,9 @@ No test in the suite runs uv. Every task test patches the four entry points in `
 executed, which is exactly what the make recipes expressed in `$$`-escaped shell and could
 not assert.
 
-`CLAUDE.md` carries the rest: the layering invariant the import graph holds by discipline,
-why the 100% coverage floor is load-bearing rather than decorative, and the house rule on
-comments. Read it before a first change.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) is the short version of all of this, and the place to
+start: how to run the gates without a `Makefile`, what the gates will hold you to, and the
+two invariants nothing checks. [`CLAUDE.md`](CLAUDE.md) carries the rest — the layering
+invariant the import graph holds by discipline, why the 100% coverage floor is load-bearing
+rather than decorative, and the house rule on comments. Read one of the two before a first
+change; read `CLAUDE.md` before a large one.

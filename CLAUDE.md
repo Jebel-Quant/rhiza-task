@@ -190,7 +190,7 @@ retire — a new `# pragma: no cover` should be argued for rather than added.
 
 ## Where the gates run
 
-`ci.yml` has six jobs, and its comments explain each in detail. In short:
+`ci.yml` has eight jobs, and its comments explain each in detail. In short:
 
 - **`test`** — a 12-cell `pytest` matrix (3 OS × Python 3.11–3.14). **Windows is
   deliberate**, as the assertion that the shell dependency is gone, and the job carries a
@@ -198,10 +198,20 @@ retire — a new `# pragma: no cover` should be argued for rather than added.
 - **`lint`** — `ruff check` and `ruff format --check`, both halves always running.
 - **`gates`** — the dogfood `uv run rhiza-task all`, plus the two gates deliberately outside
   `all`: `complexity` and `docs-examples`.
-- **`go-layer`** and **`rust-layer`** — the Rust and Go vectors against a *real* toolchain,
-  on a throwaway module built in `$RUNNER_TEMP`. These exist because those layers' coverage
-  is entirely argument-vector assertions, so a vector that is well-formed and *wrong* passes
-  every other gate here and breaks in the first consumer that has cargo or go installed.
+- **`links`** — lychee with `--offline` over `README.md` and `docs/`, so only *local*
+  targets are resolved. The network half stays in `weekly.yml`: an external 404 is somebody
+  else's deploy, and a gate that fails for reasons its author cannot fix is one people learn
+  to ignore. It is also the only thing checking docs cross-links at all — `docs-examples`
+  asks whether fences parse, markdownlint whether the markdown is well-formed, and neither
+  follows a link.
+- **`python-layer`**, **`go-layer`** and **`rust-layer`** — the three layers' vectors against
+  a *real* toolchain, on a throwaway project built in `$RUNNER_TEMP`. These exist because
+  those layers' coverage is entirely argument-vector assertions, so a vector that is
+  well-formed and *wrong* passes every other gate here and breaks in the first consumer that
+  runs it. The Python one was added last and is the least obvious: `gates` already runs
+  `rhiza-task all`, but against *this* repository — the package's own tree, with a manifest
+  tuned to it — so the shipped defaults a consumer actually gets were the part going
+  unexercised.
 - **`lowest-deps`** — resolves `--resolution lowest-direct` to prove the manifest's floors
   are real.
 

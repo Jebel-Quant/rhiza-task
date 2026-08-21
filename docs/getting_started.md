@@ -33,7 +33,7 @@ Start by asking what this repository has:
 uvx rhiza-task@1.0.0 list
 ```
 
-```
+```text
  task                section         needs                 does
  all                 Python          fmt deps test         run every gate, as
                                      docs-coverage         CI does
@@ -89,7 +89,7 @@ A task whose subject is absent **skips** rather than fails. `fmt` with no
 `.pre-commit-config.yaml`, `marimo-validate` with no notebooks, `paper` with no LaTeX
 folder — each reports `skipped` and a reason:
 
-```
+```text
  skipped  fmt  no .pre-commit-config.yaml
 ```
 
@@ -174,7 +174,7 @@ same configuration the tasks read:
 uvx rhiza-task@1.0.0 ci-os-matrix
 ```
 
-```
+```text
 ["ubuntu-latest"]
 ```
 

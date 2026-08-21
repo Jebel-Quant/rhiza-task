@@ -16,6 +16,7 @@ runner skips unregistered prerequisites, so all four stubs are gone.
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
@@ -307,3 +308,157 @@ def _export_notebooks(cfg: Config) -> None:
             cwd=folder,
             withs=("marimo",),
         )
+
+
+_NAV_KEY = re.compile(r"^nav:\s*(?:#.*)?$")
+"""The ``nav:`` mapping's own line: top-level, so no leading whitespace."""
+
+
+def _nav_targets(text: str) -> list[str]:
+    """Extract the file targets from a mkdocs ``nav:`` block.
+
+    Hand-parsed rather than loaded with a YAML library, for the reason
+    :func:`~rhiza_task.tasks.quality.docs_examples` hand-parses fences instead of pulling a
+    markdown parser: this package declares three runtime dependencies and adding a fourth to
+    read eleven lines of one file is the wrong trade. The subset relied on is the one mkdocs
+    documents -- ``- Title: path`` and ``- path``, nested under section keys -- and the
+    parser is deliberately shallow: it collects targets and does not reconstruct the tree,
+    because the tree is not what a missing file is about.
+
+    Two things are skipped rather than reported. A section header (``- Guides:``, no value)
+    names no file. An external target (anything carrying ``://``) is not this gate's to
+    check -- reaching the network would make a docs build fail on someone else's outage,
+    which is what ``weekly.yml``'s link checker is for.
+
+    Args:
+        text: The contents of ``mkdocs.yml``.
+
+    Returns:
+        Every in-repository nav target, in document order, with duplicates kept.
+    """
+    lines = text.splitlines()
+    start = next((i for i, line in enumerate(lines) if _NAV_KEY.match(line)), None)
+    if start is None:
+        return []
+
+    targets: list[str] = []
+    for line in lines[start + 1 :]:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        # A non-indented line is the next top-level key, which ends the nav block.
+        if not line[:1].isspace():
+            break
+        target = _nav_target(stripped)
+        if target:
+            targets.append(target)
+    return targets
+
+
+# Split out from the loop above rather than inlined, which is the opposite of the choice the
+# four C-ranked blocks elsewhere in this package defend -- and for the opposite reason. Those
+# keep a flat shape because decomposing them would cost the reader something real: the order
+# the guards fire in, or the one-branch-per-setting correspondence. Here there is no ordering
+# to protect. One line's grammar and the block's extent are genuinely separate questions, and
+# inlining both put the function at C (12) for no gain.
+def _nav_target(item: str) -> str | None:
+    """Return the file target a single nav list item names, if it names one.
+
+    Args:
+        item: One stripped line from inside the ``nav:`` block.
+
+    Returns:
+        The target, or None for a line that names no file -- a nested key with no ``- ``, a
+        section header carrying no value, or an external URL.
+    """
+    if not item.startswith("- "):
+        return None
+    value = item[2:].strip()
+    if "://" in value:
+        return None
+    target = value.rsplit(":", 1)[-1].strip() if ":" in value else value
+    return target or None
+
+
+def _built_candidates(target: str) -> tuple[str, ...]:
+    """Return the paths a nav target may legitimately have become in the built site.
+
+    A markdown page is not published under its own name: with mkdocs's default
+    ``use_directory_urls``, ``faq.md`` is written as ``faq/index.html``, and with it off as
+    ``faq.html``. Both are correct, and which one applies is a theme-and-config question this
+    function deliberately does not try to resolve -- accepting either is enough to answer
+    "was this page built at all?", which is the question. Anything that is not markdown is an
+    asset and is copied verbatim, so it has exactly one candidate.
+
+    Args:
+        target: A nav target as spelled in ``mkdocs.yml``.
+
+    Returns:
+        The candidate paths, relative to the built site, any one of which satisfies the nav
+        entry.
+    """
+    if not target.endswith(".md"):
+        return (target,)
+    stem = target[: -len(".md")]
+    return (f"{stem}.html", f"{stem}/index.html")
+
+
+@task(
+    "book-nav",
+    "check that every mkdocs nav entry resolves in the built book",
+    section="Book",
+    guards=(Guard(file="mkdocs.yml"),),
+)
+def book_nav(cfg: Config) -> None:
+    """Fail when ``mkdocs.yml`` names a nav target the built site does not contain.
+
+    The gap this closes, and it is a published one rather than a hypothetical: zensical
+    reports ``No issues found`` for a nav entry whose page does not exist *and* for one whose
+    asset does not exist. So `- Paper: paper/paper.pdf` survived a build in which
+    ``rhiza-task paper`` had skipped for want of latexmk, and the site deployed with a 404 in
+    its own navigation, green the whole way. Every other gate here asks about the source; this
+    is the only one that asks whether what was *published* holds together.
+
+    **Not a prerequisite of** :func:`book`, deliberately. Half the nav entries in a repository
+    like this one resolve only after the gates that produce them have run -- the two
+    ``reports/`` pages need a ``_tests/`` tree, the paper needs a LaTeX distribution -- and a
+    repository with no latexmk must keep building its book, which is exactly what a *skipped*
+    prerequisite buys. Making that a failure would break every consumer that documents a
+    paper it cannot compile locally. So this is a separate gate, named by ``rhiza_book.yml``
+    on the ref it deploys, where the entries are supposed to be complete and a dangling one is
+    a defect rather than a machine's shape.
+
+    Markdown targets are resolved through :func:`_built_candidates`; assets are matched
+    verbatim.
+
+    Args:
+        cfg: The resolved config.
+
+    Raises:
+        Skip: When the book has not been built, or ``mkdocs.yml`` declares no nav targets.
+            Both are "the question is not askable", not "the answer is wrong".
+        Failed: When at least one nav target is missing from the built site.
+    """
+    output = cfg.path("book_output")
+    if not output.is_dir():
+        raise Skip(f"no built book at '{cfg.book_output}'; run `rhiza-task book` first")
+
+    targets = _nav_targets((cfg.root / "mkdocs.yml").read_text(errors="replace"))
+    if not targets:
+        raise Skip("mkdocs.yml declares no nav targets")
+
+    missing = [
+        target
+        for target in targets
+        if not any((output / candidate).exists() for candidate in _built_candidates(target))
+    ]
+    for target in missing:
+        print(f"[ERROR] nav target not in the built book: {target}")
+
+    if missing:
+        raise Failed(
+            1,
+            f"{len(missing)} of {len(targets)} nav target(s) missing from '{cfg.book_output}' -- "
+            f"the site would publish a 404 in its own navigation",
+        )
+    print(f"[SUCCESS] all {len(targets)} nav target(s) resolve in {cfg.book_output}/")

@@ -107,6 +107,21 @@ jobs:
           uv run rhiza-task book
           echo "Docs build: $(($(date +%s) - START))s" >> "$GITHUB_STEP_SUMMARY"
 
+      # The gate on what was *published* rather than on what was built. zensical reports
+      # `No issues found` for a nav entry whose page is missing and for one whose asset is
+      # missing, so the TeX install above fixes one instance of the 404 and this catches the
+      # class: any nav target that did not make it into `_book/`.
+      #
+      # Same condition as the install above and as `deploy`, for a reason that is the whole
+      # design of the gate: several nav entries here resolve only once the gates that produce
+      # them have run -- the two `reports/` pages need a `_tests/` tree, the paper needs
+      # latexmk -- so on a branch a dangling entry is the machine's shape, and on the ref
+      # that publishes it is a defect. `book-nav` is deliberately not a prerequisite of
+      # `book` for the same reason; a test in tests/test_tasks.py holds that.
+      - name: Check every nav entry resolves (publishing refs only)
+        if: ${{ github.ref_name == github.event.repository.default_branch }}
+        run: uv run rhiza-task book-nav
+
       # Downloadable from the run page, so a reviewer can open the built book for a branch
       # that will never be published.
       - name: Upload the book as a workflow artifact

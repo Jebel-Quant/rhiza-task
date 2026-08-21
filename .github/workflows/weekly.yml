@@ -91,19 +91,34 @@ jobs:
           if-no-files-found: ignore
 
   # The README carries six badges and a dozen links -- to PyPI, to sibling repos, to the
-  # uv and Ruff endpoints. Nothing else notices when one of them rots.
+  # uv and Ruff endpoints -- and docs/ adds eleven files of prose linking outward again.
+  # Nothing else notices when one of them rots.
+  #
+  # This is the *network* half, and it stays weekly on purpose: an external link that 404s
+  # is somebody else's deploy, and gating a pull request on it would fail builds for a
+  # reason the author cannot fix. ci.yml's `links` job is the half that can be gated --
+  # `--offline`, so it is deterministic -- and between them every link is covered by one or
+  # the other. See that job's comment for the division.
+  #
+  # Note what this job could *not* have caught pre-merge: the README's link to
+  # jebel-quant.github.io resolves against the *published* site, which lags a pull request
+  # by definition, so a page added in a PR is legitimately 404 until deploy. That class is
+  # `rhiza-task book-nav`'s, in rhiza_book.yml, not a link checker's.
   link-check:
-    name: README links
+    name: README and docs links
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Check links in README.md
+      - name: Check links in README.md and docs/
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
           args: >-
             --verbose
             --no-progress
             --accept 200,206,429
+            --max-retries 3
             README.md
+            CONTRIBUTING.md
+            'docs/**/*.md'
           fail: true

@@ -61,7 +61,7 @@ Two likely causes:
 2. **Its module failed to import.** A plugin import error is reported and skipped rather
    than fatal, so look for this line earlier in the output:
 
-   ```
+   ```text
    could not load task module acme: ModuleNotFoundError: No module named 'acme_internal'
    ```
 
