@@ -45,9 +45,19 @@ so a crate with a Python binding package gets a single answer rather than an amb
 from rhiza_task.spec import lookup
 from rhiza_task.tasks import python, rust  # importing is what registers
 
-lookup("test", ["python", "rust"]).key  # 'python:test'
-lookup("test", ["rust", "python"]).key  # 'rust:test'
+print(lookup("test", ["python", "rust"]).key)
+print(lookup("test", ["rust", "python"]).key)
 ```
+
+```result
+python:test
+rust:test
+```
+
+Those two lines are **executed and diffed**, not annotated: the answers used to sit in
+trailing `# 'python:test'` comments, which is the shape that goes stale silently -- a change
+to layer precedence would have left them rendering perfectly and wrong. `rhiza-task
+docs-examples` now runs the fence and compares.
 
 `layer:name` addresses one layer explicitly, and is the **only** way to reach the layer
 that did not win:
