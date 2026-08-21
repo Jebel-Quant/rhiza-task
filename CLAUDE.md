@@ -328,3 +328,31 @@ must not spell the marker itself — bandit scans every comment for it, wherever
 
 Docstring coverage is enforced at **100% over `src/` *and* `tests/`** — test functions and
 fixtures need docstrings too, with an `Args:` section for every parameter.
+
+## Commit types are release evidence, not decoration
+
+`/rhiza:release` deliberately refuses to recommend a bump. It prints the `patch`/`minor`/
+`major` candidates with the commit counts behind each and stops, because whether a change is
+breaking is a judgement about API-stability intent that no log records. That design has a
+consequence for how commits are written here: **the log is the only evidence the human
+choosing the version gets.** A conventional type that understates a change silently biases
+that choice, and `uvx git-cliff --bumped-version` — which some other flow may reach for —
+would derive the understated answer outright.
+
+So one rule, and it is about gates specifically because this package *is* gates:
+
+> **A change that makes a gate reject input it previously accepted is `feat:`, and needs at
+> least a `minor`** — even when it reads like a fix, and even when it closes a bug.
+
+The failure it prevents: a consumer upgrades on what they were told was a patch, a gate they
+never touched goes red, and it reads as a regression rather than as the gate working. Three
+changes landed as `fix:`/`refactor:` before this was written down — `docs-examples` gaining
+`toml` and `yaml` (#107), then README's data fences (#112), then a crashed yaml checker
+failing instead of skipping (#111). All three are strictness increases; none says so in its
+subject line. See #115.
+
+**The next tag must therefore be at least `minor`, and its notes must say `docs-examples`
+checks more than it did at v1.0.0.** `git-cliff` will file those three under *Bug Fixes* and
+*Refactor*, which is exactly where a reader will not look for a behaviour change — so the
+note is manual, and this paragraph is what remembers it. Delete this paragraph once that
+release is out; the rule above stays.
