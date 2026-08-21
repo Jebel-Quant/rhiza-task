@@ -226,6 +226,59 @@ def _copy_reports(cfg: Config) -> None:
     destination = cfg.root / "docs" / "reports"
     destination.mkdir(parents=True, exist_ok=True)
     shutil.copytree(reports, destination, dirs_exist_ok=True)
+    _scrub_local_paths(cfg.root, destination)
+
+
+SCRUBBED_SUFFIXES = (".html", ".htm", ".xml", ".json", ".js", ".css", ".txt", ".svg")
+"""Which report files are rewritten. Text formats only, so no binary is touched."""
+
+
+def _scrub_local_paths(root: Path, destination: Path) -> None:
+    """Mask absolute build paths in the *published* copy of the reports.
+
+    A report is written for the machine that produced it and then published to the web,
+    which is a change of audience nothing in the toolchain notices. Two paths leak:
+
+    * the repository root, which pytest records as its ``rootdir``;
+    * the home directory, because pytest-xdist stamps every test with the worker banner
+      ``[gw0] darwin -- Python 3.11.15 <interpreter>``, and under ``uv run --with`` that
+      interpreter lives in the user's uv cache. In this repository that was 300-odd
+      occurrences in one ``report.html``.
+
+    Neither is fixable upstream from here. coverage's own ``relative_files`` handles the
+    coverage artefacts and is set in ``pyproject.toml``; the xdist banner has no setting,
+    and dropping ``-n auto`` to avoid it would slow every consumer's suite to protect a
+    report. So the copy is rewritten and ``_tests/`` is left exactly as produced, which is
+    what a developer reads locally and where absolute paths are the useful form.
+
+    Ordering matters: the root is replaced before the home directory, because on CI the
+    root lives *inside* it and masking the shorter prefix first would leave a half-path.
+
+    Known limit: matching is textual, so a Windows path embedded in JSON arrives
+    backslash-escaped and is not recognised. The gate that publishes a book runs on Linux,
+    so this is a real gap rather than a closed one.
+
+    Args:
+        root: The repository root, as the reports spell it.
+        destination: The published copy, under ``docs/``.
+    """
+    # `Path.home()` rather than $HOME: on Windows the variable is often unset, and the
+    # masking has to be harmless there rather than crash.
+    masks = ((str(root), "."), (str(Path.home()), "~"))
+    for path in sorted(destination.rglob("*")):
+        if not path.is_file() or not path.name.endswith(SCRUBBED_SUFFIXES):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            # A report file that cannot be read as text is one this function has no opinion
+            # about; skipping it must not cost the book its build.
+            continue
+        scrubbed = text
+        for absolute, mask in masks:
+            scrubbed = scrubbed.replace(absolute, mask)
+        if scrubbed != text:
+            path.write_text(scrubbed, encoding="utf-8")
 
 
 def _export_notebooks(cfg: Config) -> None:
