@@ -272,6 +272,18 @@ def test_invalid_coverage_threshold_fails_at_load(tmp_path: Path) -> None:
         Config.load(root=tmp_path, coverage_fail_under=900)
 
 
+@pytest.mark.parametrize("value", [0, -1])
+def test_invalid_complexity_ceiling_fails_at_load(tmp_path: Path, value: int) -> None:
+    """A complexity ceiling below 1 is rejected: no block can score less than 1.
+
+    Args:
+        tmp_path: The repository root.
+        value: A ceiling no block could ever satisfy.
+    """
+    with pytest.raises(ValueError, match="complexity_max must be at least 1"):
+        Config.load(root=tmp_path, complexity_max=value)
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

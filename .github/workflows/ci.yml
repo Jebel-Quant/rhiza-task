@@ -72,11 +72,26 @@ jobs:
       # `!cancelled()` for the reason the ruff job's two halves have it: a broken CLI and a
       # failing test are independent findings, and reporting one at a time costs a round
       # trip per fix.
+      #
+      # `todos` is the third command for a reason `list` and `doctor` cannot cover between
+      # them: both stop short of a task *body*. `list` walks the registry and `doctor`
+      # resolves binaries, but neither enters a `run` -- so the layer where `cfg.root` path
+      # handling, `Path.relative_to(...).as_posix()` and the guard evaluation compose into a
+      # real invocation was still ubuntu-only, because `rhiza-task all` in the `gates` job
+      # runs there and nowhere else.
+      #
+      # `todos` specifically because it provisions nothing: it reads the tree and prints.
+      # That keeps this a smoke step rather than the gate suite, which is the same reason
+      # the note above gives for not running the gates here -- most provision a toolchain
+      # and would triple the matrix for little signal. `as_posix` in the task is what makes
+      # its output identical on Windows, so a regression there shows up as a diff a reader
+      # can see rather than a crash.
       - name: CLI smoke (the layer the suite stubs)
         if: ${{ !cancelled() }}
         run: |
           uv run --python ${{ matrix.python-version }} rhiza-task list
           uv run --python ${{ matrix.python-version }} rhiza-task doctor
+          uv run --python ${{ matrix.python-version }} rhiza-task todos
 
   # ruff.toml is 9 KB of deliberate rule selection, and this job is not the only thing
   # enforcing it: `.pre-commit-config.yaml` carries the same ruff hooks, so `rhiza-task
@@ -146,6 +161,101 @@ jobs:
       # would only assert that this repo is something it is not.
       - name: rhiza-task all
         run: uv run rhiza-task all
+
+      # `complexity` is deliberately outside `all` -- tasks/python.py says why, in one line:
+      # `all` is what every consumer's CI invokes, so adding a prerequisite to it would fail
+      # builds in repositories that changed nothing. So this repository opts in by naming it
+      # here, which is the mechanism a consumer would use too.
+      #
+      # It is what turns the ceiling in config.py's `__post_init__` note from discipline into
+      # a gate. That note commits to a number -- C (15) -- and until this step nothing read
+      # it back; `uvx radon cc src -a -s` was a command a human had to remember to run. The
+      # figure is currently 13, so there is real headroom, which is exactly when a gate is
+      # worth adding rather than after it has been crossed.
+      #
+      # `!cancelled()` for the reason the ruff job's two halves have it: a complexity finding
+      # and a gate failure are independent, and reporting one at a time costs a round trip.
+      - name: rhiza-task complexity
+        if: ${{ !cancelled() }}
+        run: uv run rhiza-task complexity
+
+  # The Rust and Go layers are 165 statements at 100% coverage, and every one of those
+  # statements is covered by an *argument-vector assertion*: conftest.py patches uv.py's four
+  # entry points and the tests assert on what would have run. That is the point of the
+  # package and not a shortcut -- but it means a vector that is well-formed and *wrong*, a
+  # flag cargo rejects or a subcommand renamed upstream, passes every gate in this
+  # repository and breaks in the first consumer that has the toolchain installed.
+  #
+  # `rhiza-task all` in the `gates` job covers the Python eight end-to-end. These two jobs
+  # are the missing half, and they matter because "one set of task names across Python, Rust
+  # and Go" is the package's headline claim -- the half with no end-to-end assertion was the
+  # half being advertised.
+  #
+  # No toolchain action, deliberately: ubuntu-latest ships rustup, cargo, clippy and go
+  # already, and what is under test is whether the vector is a command the real binary
+  # accepts -- not whether it accepts it on one pinned version. A pin belongs here the day a
+  # vector turns out to be version-sensitive, and not before; adding one now would be a
+  # third place to bump for no signal.
+  #
+  # Scope is deliberately the tasks whose prerequisites provision nothing. `go:typecheck`
+  # wants five `go install`s and `rust:test` wants cargo-binstall plus four cargo
+  # subcommands; each would add minutes per run to assert one more vector. The failure mode
+  # being guarded against is "the vector is not the command the tool accepts", and one real
+  # invocation per tool catches it.
+  go-layer:
+    name: go tasks against a real toolchain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.16"
+          enable-cache: true
+
+      # A throwaway module rather than a fixture committed here: it must live outside this
+      # repository, because a go.mod inside it would make `detect_layers` report this
+      # repository as a Go project and change what every other gate resolves.
+      - name: Build a throwaway Go module
+        run: |
+          mkdir -p "$RUNNER_TEMP/gomod"
+          cd "$RUNNER_TEMP/gomod"
+          printf 'module example.com/demo\n\ngo 1.21\n' > go.mod
+          printf 'package demo\n\n// Add returns the sum of a and b.\nfunc Add(a, b int) int {\n\treturn a + b\n}\n' > demo.go
+          printf 'package demo\n\nimport "testing"\n\nfunc TestAdd(t *testing.T) {\n\tif Add(1, 2) != 3 {\n\t\tt.Fatal("Add is wrong")\n\t}\n}\n' > demo_test.go
+
+      # `go:test` addresses the layer explicitly, which is the only way to reach a layer
+      # `lookup` did not pick -- and here it also documents which of the three `test` tasks
+      # is under test. It pulls in `go:install`, so this one command exercises `go mod
+      # download`, the hook-install skip on a repo with no .pre-commit-config.yaml, and `go
+      # test ./... -race -shuffle=on`.
+      - name: rhiza-task go:test
+        run: uv run rhiza-task go:test --root "$RUNNER_TEMP/gomod"
+
+  rust-layer:
+    name: cargo tasks against a real toolchain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.16"
+          enable-cache: true
+
+      # `cargo new` rather than hand-written files, so the fixture is whatever the installed
+      # cargo considers a valid crate rather than whatever was true when this was written.
+      # Outside the repository for the reason the Go job gives about go.mod.
+      # Not `$RUNNER_TEMP/crate`: cargo takes the package name from the directory name and
+      # rejects `crate`, which is a Rust keyword. Caught by running this for real rather than
+      # by reading it.
+      - name: Build a throwaway crate
+        run: cargo new --lib "$RUNNER_TEMP/demo-crate"
+
+      # `rust:typecheck` pulls in `rust:install`, and the interesting vector there is not
+      # clippy: a fresh `cargo new` has no Cargo.lock, so `cargo fetch --locked` fails and
+      # the unlocked fallback runs. That fallback is rust.mk's `|| $(CARGO) fetch`, carried
+      # over rather than rediscovered, and this is the only place it executes for real.
+      - name: rhiza-task rust:typecheck
+        run: uv run rhiza-task rust:typecheck --root "$RUNNER_TEMP/demo-crate"
 
   # The floors in pyproject.toml -- typer>=0.15, rich>=13.0, python-dotenv>=1.0 -- are a
   # claim, and `--frozen` everywhere else means nothing tests it: the lockfile resolves

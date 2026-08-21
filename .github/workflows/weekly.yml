@@ -50,6 +50,46 @@ jobs:
       - name: Run the gates
         run: uv run rhiza-task test
 
+  # The complement of the 100 coverage floor, which pyproject.toml is careful to say does
+  # not claim what it looks like it claims: at 100 no statement is *unvisited*, and nothing
+  # asserts that any of them is meaningfully *asserted*. A floor that the suite already
+  # reaches cannot ratchet further, so mutation score is the only signal left on assertion
+  # quality -- and `mutation` was a registered, guarded, fully implemented gate that no
+  # workflow invoked.
+  #
+  # Weekly rather than per-PR, and non-blocking, for two reasons that pull the same way:
+  # mutmut re-runs the suite once per mutant, and a surviving mutant is a prompt to write an
+  # assertion rather than a reason to hold a PR. `mutation` is not a prerequisite of `all`
+  # either, so nothing else picks it up.
+  mutation:
+    name: mutation score
+    runs-on: ubuntu-latest
+    # Non-blocking on purpose: this reports, it does not gate. Remove this line to make a
+    # surviving mutant fail the run, and expect to write assertions before it is green.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.16"
+          enable-cache: true
+
+      # `uv run`, not `uvx rhiza-task@<pin>`, for the reason the job above gives: the CLI
+      # under test has to be the one in the tree.
+      - name: Run mutmut
+        run: uv run rhiza-task mutation
+
+      # The task moves mutmut's HTML report to _tests/mutation/html and reports the run's
+      # remembered status, so the report exists precisely when mutants survived -- which is
+      # when it is worth reading. `always()` because a red step is the interesting case.
+      - name: Upload the mutation report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutation-report
+          path: _tests/mutation
+          if-no-files-found: ignore
+
   # The README carries six badges and a dozen links -- to PyPI, to sibling repos, to the
   # uv and Ruff endpoints. Nothing else notices when one of them rots.
   link-check:

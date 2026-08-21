@@ -60,7 +60,7 @@ keep working owns that `Makefile` itself and forwards each target to `uvx rhiza-
 | Python | `install` `test` `coverage` `typecheck` `security` `deps` `license` `docs-coverage` `all` |
 | Rust | `install` `cargo-tools` `test` `coverage` `typecheck` `security` `deps` `license` `docs-coverage` `all` |
 | Go | `install` `go-tools` `test` `coverage` `typecheck` `security` `deps` `license` `docs-coverage` `all` |
-| Quality | `fmt` `semgrep` `rhiza-test` `test-pyproject` `todos` |
+| Quality | `fmt` `semgrep` `rhiza-test` `test-pyproject` `todos` `complexity` |
 | Testing extras | `benchmark` `hypothesis-test` `stress` `mutation` |
 | Book | `book` `serve` `marimo` `marimo-validate` |
 | Dev | `doctor` `clean` |

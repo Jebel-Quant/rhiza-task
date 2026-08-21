@@ -154,6 +154,17 @@ class Config:
 
     coverage_fail_under: int = 90
 
+    # The ceiling the ``complexity`` gate enforces, as radon's own cyclomatic-complexity
+    # number rather than its A-F rank. A number and not a rank because rank C spans 11-20,
+    # which is too coarse to hold a decision: this repository's four deliberate C blocks
+    # sit at 12-14, and a gate that accepted the whole of C would accept 20 without anyone
+    # choosing it. 15 is what src/rhiza_task/config.py's own note commits to.
+    #
+    # Above the default rather than at it is the normal case for a consumer: 15 is a
+    # ceiling for a codebase that already argues its C blocks in comments, and a repo that
+    # does not should either raise it or not run the gate.
+    complexity_max: int = 15
+
     # ty | mypy | both. python.mk documents that ``both`` masks ty's exit status behind
     # mypy's, and jointview sets ``ty`` in .rhiza/.env for that reason. The shell ``case``
     # whose fourth branch validated this is replaced by __post_init__, so a typo now fails
@@ -227,23 +238,27 @@ class Config:
 
     root: Path = field(default_factory=Path.cwd)
 
-    # radon scores this method C (12): one branch per field that needs normalising or
+    # radon scores this method C (13): one branch per field that needs normalising or
     # checking -- str and list coercion, layer defaulting and membership, rhiza_checks
-    # defaulting, typechecker, coverage_fail_under. It is a flat sequence, one field per
-    # step, with no interaction between the steps; the count grows with the number of
-    # validated settings and not with the depth of anything. Deliberate.
+    # defaulting, typechecker, coverage_fail_under, complexity_max. It is a flat sequence,
+    # one field per step, with no interaction between the steps; the count grows with the
+    # number of validated settings and not with the depth of anything. Deliberate.
     #
     # Unlike the other three C blocks here, that growth rule needs a stated ceiling, and
     # the ceiling is **C (15)**. `_run_one` is bounded by the size of `Status` and
     # `Guard.check` by the number of guard kinds -- closed sets, so their figures cannot
     # drift far. "One branch per validated setting" is not a closed set: every future
     # setting adds one, and a justification with no limit is an open licence rather than a
-    # decision. At 15 -- roughly three more settings -- the flat form stops paying for
+    # decision. At 15 -- roughly two more settings -- the flat form stops paying for
     # itself, and the answer is per-group helpers (`_validate_layers`,
     # `_validate_typechecker`, `_validate_coverage`) called in sequence from here, which
     # keeps the readable one-field-per-step order while bounding each block.
     #
-    # `uvx radon cc src -a -s` is the check; nothing gates it, so this is discipline.
+    # 12 became 13 when `complexity_max` arrived -- the setting that configures the gate
+    # now watching this number, which is the point rather than an irony: `rhiza-task
+    # complexity` is what turns the paragraph above from discipline into a gate, so the
+    # next setting to cross 15 fails a build instead of going unnoticed. `uvx radon cc src
+    # -a -s` remains the way to read the figure by hand.
     def __post_init__(self) -> None:
         """Normalise the list fields, then validate the enumerated and numeric ones.
 
@@ -262,8 +277,9 @@ class Config:
 
         Raises:
             ValueError: When ``typechecker`` is not one of ty, mypy, both,
-                ``coverage_fail_under`` is outside 0-100, ``layers`` names a layer that
-                does not exist, or a ``*_folder`` escapes :attr:`root`.
+                ``coverage_fail_under`` is outside 0-100, ``complexity_max`` is below 1,
+                ``layers`` names a layer that does not exist, or a ``*_folder`` escapes
+                :attr:`root`.
         """
         for f in fields(self):
             if str(f.type).replace(" ", "") != "tuple[str,...]":
@@ -288,6 +304,9 @@ class Config:
             raise ValueError(msg)
         if not 0 <= int(self.coverage_fail_under) <= 100:
             msg = f"coverage_fail_under must be a percentage (got {self.coverage_fail_under!r})"
+            raise ValueError(msg)
+        if int(self.complexity_max) < 1:
+            msg = f"complexity_max must be at least 1 (got {self.complexity_max!r})"
             raise ValueError(msg)
 
         self._validate_folders()
