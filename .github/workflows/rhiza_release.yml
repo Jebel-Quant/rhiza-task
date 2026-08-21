@@ -464,6 +464,23 @@ jobs:
           fi
           cat "$GITHUB_OUTPUT"
 
+      - name: Remove non-distribution files before publish
+        # The dist artifact also carries the SLSA provenance bundle, staged into dist/ by the
+        # build job so the draft release can ship it as a recognised signature asset. twine
+        # rejects it as an unknown distribution format, so strip it here before publishing.
+        #
+        # This step existed, was deleted by 2e0977d ("re-sync from rhiza v1.4.2, keeping the
+        # local trim"), and v1.1.0's release failed on exactly the failure its own comment
+        # described: `Checking dist/provenance.intoto.jsonl: InvalidDistribution`. Restored
+        # rather than redesigned, because it was right.
+        #
+        # Do not "simplify" this away by narrowing `packages-dir` to a glob: that input takes a
+        # directory, not a pattern. The durable alternative is to stop staging the provenance
+        # into dist/ at all and give it its own artifact -- worth doing, and a bigger change
+        # than a release that has already failed once should carry.
+        if: ${{ steps.check_dist.outputs.should_publish == 'true' }}
+        run: rm -f dist/*.intoto.jsonl
+
       # this should not take place, as "Private :: Do Not Upload" set in pyproject.toml
       # repository-url and password only used for custom feeds, not for PyPI with OIDC
       - name: Publish to PyPI
