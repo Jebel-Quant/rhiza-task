@@ -16,6 +16,31 @@ private, where they belong.
 What the gate is *for* stays on the task in ``quality.py``, because that is where a reader
 looking for a gate looks. What it *does* is here.
 
+**This module is the largest in ``src/`` -- roughly 780 lines, with a maintainability index
+in the low 30s at the time of writing -- and that is accepted.** Worth stating outright,
+because the index is *lower* than the 36.52 that got the checker extracted from
+``quality.py`` in the first place, so the numbers alone read as having made things worse.
+They did not, and the reason is the one #113 was actually about: ``quality.py`` was 904 lines
+doing **two** jobs with a docstring describing one of them, and this is one job. Radon's
+maintainability index falls with size and Halstead volume whether or not a module is
+coherent, so it cannot tell those apart -- which is why cohesion, not the index, was the
+argument then and is the argument now.
+
+The figures are written loosely and dated on purpose, following ``pyproject.toml``'s note on
+the coverage floor: they move with every commit, they are incidental to the argument, and a
+comment stating one exactly is a comment the next edit falsifies. This paragraph proved it --
+adding it grew the file and dropped the index, so the precise numbers it first carried were
+wrong by the time it was saved. ``uvx radon mi src -s`` prints the current figure. What does
+not move: nothing here exceeds B (10), the average across ``src/`` is A (3.27), and about a
+seventh of these lines are comments, which is this repository's house style rather than
+padding.
+
+The condition that changes the answer is **a second job arriving, not a line count**. If
+something lands here that is not fenced-example checking, split on that seam. Splitting on
+size alone is the move to resist: the obvious cut -- the parser (``Fence``, :func:`_fences`,
+the language constants) away from the five checkers -- would put a type in one module and
+its only five consumers in another, which is worse than a long file.
+
 Five kinds of fence are checked and the rest are counted:
 
 * ``python`` -- :func:`compile`, so a fence that is a *fragment* still passes. Names need not
