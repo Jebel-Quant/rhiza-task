@@ -27,6 +27,7 @@ import shutil
 # reads everything after that marker as a comma-separated list of test IDs, so a trailing
 # explanation becomes one `Test in comment:` warning per word.
 import subprocess  # nosec B404
+import tomllib
 from pathlib import Path
 
 from ..config import Config
@@ -52,6 +53,21 @@ TODO_SKIP_DIRS = frozenset(
         "__pycache__",
     }
 )
+
+TAG_VERSION_CHECK = "test_latest_tag_matches_pyproject_version"
+"""pytest-rhiza's assertion that the newest tag equals the declared version.
+
+Correct about a released tree and **false by construction during a release**, which is the
+window :func:`_release_pending` exists to detect. A repository cannot satisfy it between the
+version bump and the tag: the bump is what the release PR contains, and the tag is cut from
+that PR's merge commit, so for the length of the PR the declared version is ahead of every
+tag that exists.
+
+That mattered here because `the gates this package applies to others` is a **required** status
+check and runs ``rhiza-task all``, which runs this gate -- so a release PR could not go green,
+and v1.0.0's was merged with the job red. A required check that can never pass teaches people
+to merge red, which is a worse outcome than the check's own value. See #115.
+"""
 
 CLEAN_ARTIFACTS = ("dist", "build", ".coverage", ".pytest_cache", ".benchmarks", "_tests", "_book")
 
@@ -120,13 +136,35 @@ def rhiza_test(cfg: Config) -> None:
     was the ``!.env`` negation, that file is gitignored and a CI checkout never has one.
     ``quality.mk`` exported the variable from ``DOCSTRING_FOLDERS``; this is that export.
 
+    One check is dropped while a release is in flight. :data:`TAG_VERSION_CHECK` asserts that
+    the newest tag equals the declared version, which a repository cannot satisfy between its
+    version bump and its tag -- and because that assertion runs inside this gate, and this gate
+    runs inside ``all``, and ``all`` is a required status check, a release PR could not go
+    green. v1.0.0's was merged with the job red. :func:`_release_pending` detects the window
+    from the repository's own state, so nothing has to be passed in and the check returns by
+    itself once the tag exists.
+
     Args:
         cfg: The resolved config.
     """
+    # `-k`, not `--deselect`: a deselect needs the collected node id, and under `--pyargs` that
+    # is the *installed* package's file path inside the uv cache -- a string this task would
+    # have to reconstruct and that changes with the pin. Matching on the test's name needs
+    # neither.
+    #
+    # Announced on stdout rather than passed over silently. A relaxed gate that says nothing is
+    # how a real mismatch would hide behind this, and the whole argument for relaxing it is
+    # that a permanently-red required check is worse than a visibly narrower one.
+    selection: tuple[str, ...] = ()
+    if _release_pending(cfg):
+        print(f"[INFO] release in flight: the declared version leads every tag, so {TAG_VERSION_CHECK} is deselected")
+        selection = ("-k", f"not {TAG_VERSION_CHECK}")
+
     uv_run(
         "pytest",
         "--pyargs",
         *cfg.rhiza_checks,
+        *selection,
         cwd=cfg.root,
         withs=(cfg.pytest_rhiza,),
         env={"RHIZA_DOCTEST_FOLDERS": cfg.source_folder},
@@ -290,6 +328,70 @@ def _walk(root: Path) -> list[Path]:
             elif entry.suffix in TODO_SUFFIXES:
                 found.append(entry)
     return found
+
+
+def _semver(text: str) -> tuple[int, int, int] | None:
+    """Parse a ``vX.Y.Z`` or ``X.Y.Z`` string into a comparable tuple.
+
+    Tuples of ints rather than a real version type, because comparing releases is all this
+    needs and ``packaging`` is not a dependency of this package -- three runtime dependencies
+    is a deliberate ceiling, each one paid for by every consumer on every ``uvx`` invocation.
+    A pre-release or build suffix returns None rather than sorting oddly: this is used to
+    decide whether to relax a gate, so anything it cannot read confidently must leave the gate
+    alone.
+
+    Args:
+        text: A tag or version string, with or without the leading ``v``.
+
+    Returns:
+        ``(major, minor, patch)``, or None when the string is not exactly that shape.
+    """
+    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", text.strip())
+    if match is None:
+        return None
+    major, minor, patch = (int(part) for part in match.groups())
+    return major, minor, patch
+
+
+def _release_pending(cfg: Config) -> bool:
+    """Report whether the declared version is ahead of every tag in the repository.
+
+    That state is a release in flight: the version bump has been made and the tag has not been
+    cut yet, which is exactly what a release PR contains and what :data:`TAG_VERSION_CHECK`
+    cannot be satisfied during.
+
+    Every uncertain answer is False -- no manifest, an unreadable one, a version or tag shape
+    this cannot parse, no git, no tags at all. The gate is relaxed only on positive evidence
+    that a release is underway, because the failure modes are asymmetric: relaxing it wrongly
+    hides a real mismatch, while leaving it on wrongly costs one red job on a release PR, which
+    is the situation being fixed and is at least visible.
+
+    It also does not distinguish a release in flight from a bump nobody ever tagged. Nothing
+    local can: the two states are identical on disk. So the trade is stated rather than hidden
+    -- the *behind* direction stays gated, which is the one that shipped a wrong version before
+    (v1.0.0's release commit left uv.lock at the previous version), and the *ahead* direction
+    is announced on stdout by the caller rather than passed over.
+
+    Args:
+        cfg: The resolved config.
+
+    Returns:
+        True when a release looks to be in flight.
+    """
+    manifest = cfg.root / "pyproject.toml"
+    if not manifest.is_file():
+        return False
+    try:
+        parsed = tomllib.loads(manifest.read_text(errors="replace"))
+    except tomllib.TOMLDecodeError:
+        return False
+    declared = _semver(str(parsed.get("project", {}).get("version", "")))
+    git = shutil.which("git")
+    if declared is None or git is None:
+        return False
+    listing = _git(git, ["tag", "--list", "v*"], cfg.root, capture=True)
+    tags = [parsed_tag for parsed_tag in (_semver(line) for line in listing.split()) if parsed_tag]
+    return bool(tags) and declared > max(tags)
 
 
 def _git(git: str, args: list[str], cwd: Path, capture: bool = False) -> str:

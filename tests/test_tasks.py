@@ -401,6 +401,118 @@ class TestQuality:
         quality.rhiza_test(relocated)
         assert recorder.find("pytest").kwargs["env"] == {"RHIZA_DOCTEST_FOLDERS": "utils"}
 
+    @pytest.mark.parametrize(
+        ("declared", "tags", "pending"),
+        [
+            ("1.1.0", ("v1.0.0",), True),
+            ("1.0.0", ("v1.0.0",), False),
+            ("1.0.0", ("v1.1.0",), False),
+            ("1.10.0", ("v1.9.0",), True),
+            ("1.1.0", (), False),
+            ("1.1.0rc1", ("v1.0.0",), False),
+            ("1.1.0", ("nightly", "v1.0.0"), True),
+            ("", ("v1.0.0",), False),
+        ],
+    )
+    def test_detects_a_release_in_flight_from_the_version_and_the_tags(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch, declared: str, tags: tuple[str, ...], pending: bool
+    ) -> None:
+        """A declared version ahead of every tag is a release in flight; anything unclear is not.
+
+        ``1.10.0`` against ``v1.9.0`` is the case a string comparison gets wrong, which is why
+        the parse returns a tuple. ``1.1.0rc1`` and an empty version return False because a
+        shape this cannot read confidently must leave the gate alone, and a non-version tag is
+        ignored rather than poisoning the maximum.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+            declared: The version in ``[project]``.
+            tags: What the git probe reports.
+            pending: The expected verdict.
+        """
+        (cfg.root / "pyproject.toml").write_text(f'[project]\nname = "demo"\nversion = "{declared}"\n')
+        monkeypatch.setattr(quality.shutil, "which", lambda _name: "/usr/bin/git")
+        monkeypatch.setattr(quality, "_git", lambda *_a, **_k: "\n".join(tags))
+        assert quality._release_pending(cfg) is pending
+
+    @pytest.mark.parametrize(
+        ("manifest", "reason"),
+        [
+            (None, "no pyproject.toml at all"),
+            ("[project\nname = 'demo'", "a manifest that does not parse"),
+            ('[tool.other]\nkey = "value"', "a manifest with no [project] table"),
+        ],
+    )
+    def test_treats_an_unreadable_manifest_as_no_release_in_flight(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch, manifest: str | None, reason: str
+    ) -> None:
+        """Every uncertain answer leaves the gate alone, rather than relaxing it.
+
+        The asymmetry is the argument: relaxing the gate wrongly hides a real version mismatch,
+        while leaving it on wrongly costs one red job on a release PR -- visible, and the thing
+        being fixed.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+            manifest: Manifest content, or None to delete it.
+            reason: What this case represents, for the assertion message.
+        """
+        target = cfg.root / "pyproject.toml"
+        if manifest is None:
+            target.unlink()
+        else:
+            target.write_text(manifest)
+        monkeypatch.setattr(quality.shutil, "which", lambda _name: "/usr/bin/git")
+        assert quality._release_pending(cfg) is False, reason
+
+    def test_treats_a_missing_git_as_no_release_in_flight(self, cfg: Config, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Without git there are no tags to compare against, so the gate stays as it is.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+        """
+        (cfg.root / "pyproject.toml").write_text('[project]\nname = "demo"\nversion = "9.9.9"\n')
+        monkeypatch.setattr(quality.shutil, "which", lambda _name: None)
+        assert quality._release_pending(cfg) is False
+
+    def test_rhiza_test_deselects_the_tag_check_during_a_release(
+        self, cfg: Config, recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The vector gains ``-k not <check>`` while a release is in flight, and says so.
+
+        The reason this exists at all: that assertion runs inside `rhiza-test`, which runs inside
+        `all`, which is a required status check -- so without this a release PR could never go
+        green, and v1.0.0's was merged red.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        monkeypatch.setattr(quality, "_release_pending", lambda _cfg: True)
+        quality.rhiza_test(cfg)
+        flags = recorder.find("pytest").flags
+        assert flags[-2:] == ["-k", f"not {quality.TAG_VERSION_CHECK}"]
+        assert "release in flight" in capsys.readouterr().out
+
+    def test_rhiza_test_passes_no_selection_outside_a_release(
+        self, cfg: Config, recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A released tree runs every check, so the gate is not silently narrower.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+            monkeypatch: pytest's patcher.
+        """
+        monkeypatch.setattr(quality, "_release_pending", lambda _cfg: False)
+        quality.rhiza_test(cfg)
+        assert "-k" not in recorder.find("pytest").flags
+
     def test_fmt_skips_without_a_config(self, cfg: Config, recorder: Recorder) -> None:
         """No ``.pre-commit-config.yaml`` is a skip with a reason, not a failure.
 
