@@ -284,6 +284,36 @@ def test_invalid_complexity_ceiling_fails_at_load(tmp_path: Path, value: int) ->
         Config.load(root=tmp_path, complexity_max=value)
 
 
+def test_a_root_that_does_not_exist_fails_at_load(tmp_path: Path) -> None:
+    """A mistyped ``--root`` is a usage error, not a traceback from inside a task.
+
+    Without this the path reached a task body and surfaced as whatever the first tool did
+    with a missing working directory -- ``FileNotFoundError`` from ``subprocess`` for a gate
+    that shells out, ``NotADirectoryError`` from ``Path._scandir`` for one that walks.
+
+    Args:
+        tmp_path: A directory to hang a non-existent child off, so the path is absolute and
+            the test cannot collide with anything real.
+    """
+    with pytest.raises(ValueError, match="does not exist"):
+        Config.load(root=tmp_path / "nope")
+
+
+def test_a_root_that_is_a_file_fails_at_load(tmp_path: Path) -> None:
+    """A root that exists but is a file is a different mistake, and says so.
+
+    Usually a missing ``dirname``, where "does not exist" would be actively misleading --
+    the path is right there.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    manifest = tmp_path / "pyproject.toml"
+    manifest.write_text('[project]\nname = "d"\nversion = "0"\n')
+    with pytest.raises(ValueError, match="is not a directory"):
+        Config.load(root=manifest)
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

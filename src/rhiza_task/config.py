@@ -278,8 +278,8 @@ class Config:
         Raises:
             ValueError: When ``typechecker`` is not one of ty, mypy, both,
                 ``coverage_fail_under`` is outside 0-100, ``complexity_max`` is below 1,
-                ``layers`` names a layer that does not exist, or a ``*_folder`` escapes
-                :attr:`root`.
+                ``layers`` names a layer that does not exist, :attr:`root` is not an
+                existing directory, or a ``*_folder`` escapes it.
         """
         for f in fields(self):
             if str(f.type).replace(" ", "") != "tuple[str,...]":
@@ -309,7 +309,37 @@ class Config:
             msg = f"complexity_max must be at least 1 (got {self.complexity_max!r})"
             raise ValueError(msg)
 
+        # Two calls rather than two more `if`s, and not only for tidiness: this method is
+        # the one whose branch count has a stated ceiling, so validation that needs its own
+        # branches goes in a helper where it costs nothing here. A call is not a decision
+        # point, so `__post_init__` stays at C (13) with both of these in front of it.
+        self._validate_root()
         self._validate_folders()
+
+    def _validate_root(self) -> None:
+        """Reject a :attr:`root` that is not an existing directory.
+
+        Every other setting is validated here and this one was not, so a mistyped ``--root``
+        travelled all the way into a task body and surfaced as whatever the first tool did
+        with a working directory that is not there: ``FileNotFoundError`` from
+        ``subprocess._execute_child`` for a gate that shells out, ``NotADirectoryError`` from
+        ``Path._scandir`` for one that walks the tree. Both are tracebacks through a private
+        stdlib frame, and neither names the flag the user got wrong.
+
+        The two cases are separated because they are different mistakes: a path that is not
+        there is usually a typo, and a path that is a file is usually a missing ``dirname``.
+
+        Deliberately not folded into :meth:`_validate_folders`. That method asks whether a
+        *setting* escapes the root, which presupposes there is a root to escape -- so this
+        has to run first, and merging them would make one message answer two questions.
+
+        Raises:
+            ValueError: When ``root`` does not exist, or exists and is not a directory.
+        """
+        if not self.root.is_dir():
+            reason = "is not a directory" if self.root.exists() else "does not exist"
+            msg = f"root {str(self.root)!r} {reason}"
+            raise ValueError(msg)
 
     def _validate_folders(self) -> None:
         """Reject a ``*_folder`` setting that resolves outside :attr:`root`.
