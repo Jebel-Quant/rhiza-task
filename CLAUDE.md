@@ -99,7 +99,17 @@ Four rules follow. All four currently hold, and each has been broken at least on
    elsewhere, promote it and document why it is public — do not import it as-is.
 
 Within `tasks/`, siblings may share: `python.py`, `rust.py` and `go.py` all import
-`install_hooks` from `tasks/quality.py`. That is one layer, not an inversion.
+`install_hooks` from `tasks/quality.py`, and `quality.py` imports `check` from
+`tasks/fences.py`. That is one layer, not an inversion.
+
+`fences.py` is the one module under `tasks/` that registers no task — it holds the
+fenced-example checker that `docs-examples` runs, extracted when it had grown to two thirds
+of `quality.py`. It is also the worked example of **rule 4 deciding a design**: keeping the
+`@task` in `quality.py` while moving the helpers meant either exporting seven
+underscore-prefixed names, which rule 4 forbids, or giving the module a single public entry
+point that takes the gate's whole body. It has one, `check`, and the helpers stayed private.
+Reach for the same shape rather than promoting a handful of privates the next time a task
+body outgrows its module.
 
 Check the whole invariant in one command:
 
@@ -158,10 +168,19 @@ files, 12 of them in `getting_started.md` — was covered by markdownlint asking
 is that gate, named by `ci.yml`'s `gates` job because, like `complexity`, it is deliberately
 not an `all` prerequisite.
 
-Its subject is `docs/` and **deliberately not `README.md`**, which stays pytest-rhiza's: two
-gates reporting one verdict would make a single fact read as two. So a broken fence in the
-README fails `rhiza-test`, and a broken fence under `docs/` fails `docs-examples` — which of
-the two went red tells you which file you edited.
+**The two gates divide by language, not by file**, and that is a correction to how this
+worked. The rule they protect is unchanged — two gates reporting one verdict would make a
+single fact read as two — but dividing by *file* left a hole: `README.md` was pytest-rhiza's
+entirely, and its `test_readme_validation` never looks at `toml` or `yaml`, so the README's
+two `[tool.rhiza-task]` examples were checked by **nothing**. Confirm it for yourself —
+that module's source contains no reference to either language.
+
+So pytest-rhiza owns README's **code** fences (`python`, `bash`) and `docs-examples` owns
+**data** fences (`toml`, `yaml`) everywhere, README included. Nothing is checked twice, and
+`DATA_FENCE_LANGUAGES` in `tasks/fences.py` is the one place to narrow if pytest-rhiza ever
+learns toml. A broken python fence in the README still fails `rhiza-test`; a broken toml one
+now fails `docs-examples`, which reports it on its own line so that two of the README's ten
+fences are never mistaken for the whole file.
 
 It is a **task and not a test**, and that placement is the rule in this repo rather than a
 preference: checking a shell fence means running `bash -n`, and no test here runs a tool. So

@@ -149,6 +149,10 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> Recorder:
     modules = (
         "python",
         "quality",
+        # Not a task module -- it registers nothing -- but it binds `uv_run` the same way to
+        # run the generated fence scripts, so it needs the same patch. The list is what
+        # decides whether a module's subprocesses are stubbed, not whether it holds a `@task`.
+        "fences",
         "extras",
         "book",
         "rust",

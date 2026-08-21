@@ -104,6 +104,13 @@ unchecked with a count, because silence there would read as full coverage. It an
 question no other gate does: not "is there a docstring?" but "is what the documentation
 claims still true?"
 
+Its subject is the docs folder, plus the **data fences** — `toml` and `yaml` — in
+`README.md`. That split exists so no fence is checked twice: `README.md` belongs to
+pytest-rhiza's `test_readme_validation` under `rhiza-test`, which parses its code fences and
+does not look at data ones. The two gates therefore divide by language rather than by file,
+and README's contribution is reported on its own line so a partial look at a file is never
+mistaken for a full one.
+
 Two of those five can go unavailable on a machine that runs the gate fine otherwise, and
 both say so on their own line rather than passing quietly: `bash` may be absent (a stock
 Windows runner), and the yaml parser is *provisioned* rather than depended on — `rhiza-task`
