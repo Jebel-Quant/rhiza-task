@@ -33,11 +33,18 @@ nav:
   - Reports:
       - Test Report: reports/html-report/report.html
       - Coverage Report: reports/html-coverage/index.html
-  # Same trade, one directory over: `rhiza-task paper` compiles docs/paper/paper.tex in
-  # place, and docs/paper is inside docs_dir, so the built site carries the PDF without
-  # anything copying it. `book` names `paper` as a prerequisite, so the normal path produces
-  # both together; the entry dangles in a checkout where latexmk is absent, exactly as the
-  # two above dangle before the gates have run.
+  # One directory over, and *not* the same trade: `rhiza-task paper` compiles
+  # docs/paper/paper.tex in place, and docs/paper is inside docs_dir, so the built site
+  # carries the PDF without anything copying it. `book` names `paper` as a prerequisite, so
+  # the normal path produces both together.
+  #
+  # What differs from the two above is a toolchain rather than a build order. The reports
+  # need only the gates, which any runner can run; this needs latexmk, and a *skipped*
+  # prerequisite does not block `book` -- so a runner with no LaTeX distribution published
+  # this entry pointing at a file nothing had written, on a green run. It did, and 404ed,
+  # until rhiza_book.yml installed TeX Live on the ref it deploys. So the entry resolves in
+  # the published book and on a machine with latexmk, and dangles anywhere else -- a branch
+  # book, or a bare checkout.
   - Paper: paper/paper.pdf
 
 extra:

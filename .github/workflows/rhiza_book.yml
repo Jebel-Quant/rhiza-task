@@ -71,6 +71,32 @@ jobs:
           restore-keys: |
             mkdocs-plugin-${{ runner.os }}-
 
+      # TeX Live, and only on the ref `deploy` will publish. `book` names `paper` as a
+      # prerequisite and a *skipped* prerequisite does not block a dependent, so without
+      # latexmk this job built a site whose `Paper: paper/paper.pdf` nav entry pointed at a
+      # file nothing had written -- and published it. That is what 404ed:
+      # https://jebel-quant.github.io/rhiza-task/paper/paper.pdf, on a run that was green,
+      # because every gate here passes when the paper is absent.
+      #
+      # Scoped to the default branch rather than run everywhere because the apt-get is the
+      # expensive half and a branch book is downloaded from the run page, not visited. A
+      # branch build therefore still carries the dangling entry; the condition mirrors
+      # `deploy`'s exactly, so the ref that publishes is the ref that has latexmk. (The
+      # fork exclusion is the job's own `if`, so it is not repeated here.)
+      #
+      # The same four packages as rhiza_paper.yml, deliberately: two workflows compiling one
+      # document against different TeX package sets is a divergence neither would catch --
+      # that one produces the PDF on the `paper` branch, this one the copy inside the book.
+      - name: Install TeX Live (publishing refs only)
+        if: ${{ github.ref_name == github.event.repository.default_branch }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            texlive-latex-extra \
+            texlive-fonts-recommended \
+            texlive-bibtex-extra \
+            latexmk
+
       # `book` depends on `test`, so this step also produces the `_tests/` tree it folds in
       # as docs/reports -- the coverage XML the badge step reads, and the HTML report and
       # coverage pages mkdocs.yml lists under Reports.
