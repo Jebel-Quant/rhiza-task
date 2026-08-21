@@ -14,6 +14,9 @@ import pytest
 
 from rhiza_task import uv as uv_module
 from rhiza_task.spec import Failed
+from rhiza_task.tasks import github as github_tasks
+
+from .conftest import UV_ENTRY_POINTS, Recorder, _task_modules
 
 
 @pytest.fixture
@@ -295,3 +298,52 @@ def test_capture_is_empty_when_the_tool_is_absent(tmp_path: Path, monkeypatch: p
 
     monkeypatch.setattr(uv_module.subprocess, "run", absent)
     assert uv_module.capture("definitely-not-a-tool", cwd=tmp_path) == ""
+
+
+class TestTheSuiteStubsEveryEntryPoint:
+    """The hermeticity guarantee, asserted rather than documented.
+
+    ``conftest``'s docstring opens with "No test in this suite runs uv", and until issue #116
+    that was four fifths true: the ``recorder`` fixture patched four of the five entry points
+    and ``capture`` was left to each test to patch by hand. Every test that needed it did, so
+    nothing leaked -- but the shape of the mistake is what matters. A forgotten patch did not
+    raise, it ran ``gh`` or ``go`` for real and passed on an authenticated machine.
+
+    A prose guarantee cannot fail; these can. That is the whole point of moving it here.
+    """
+
+    def test_the_recorder_replaces_every_entry_point_every_module_binds(self, recorder: Recorder) -> None:
+        """No task module keeps a real uv entry point once the fixture has run.
+
+        The assertion that would have caught #116, and the one that catches the next module
+        added with an entry point the fixture does not know about -- both fail-open cases,
+        because an unstubbed binding is a real subprocess rather than an error.
+
+        Args:
+            recorder: The uv recorder, whose construction is what patches the modules.
+        """
+        real = {name: getattr(uv_module, name) for name in (*UV_ENTRY_POINTS, "capture")}
+        leaked = [
+            f"{module.__name__}.{name}"
+            for module in _task_modules()
+            for name, original in real.items()
+            if getattr(module, name, None) is original
+        ]
+        assert leaked == [], f"unstubbed entry point(s) would run the real tool: {leaked}"
+
+    def test_capture_is_recorded_and_replays_canned_output(self, recorder: Recorder) -> None:
+        """``capture`` records like the others and hands back the next canned string.
+
+        Its stand-in is built separately because it returns stdout rather than a status, so
+        this pins both halves: that the call is recorded under its own kind, and that the
+        queue is consumed.
+
+        Args:
+            recorder: The uv recorder.
+        """
+        recorder.outputs.append("v1.2.3")
+        assert github_tasks.capture("gh", "release", "view", cwd=Path()) == "v1.2.3"
+        # Exhausted, not repeated: the real `capture` returns "" for a command that printed
+        # nothing, so that is the honest default rather than replaying the last answer.
+        assert github_tasks.capture("gh", "release", "view", cwd=Path()) == ""
+        assert [call.kind for call in recorder.calls] == ["capture", "capture"]
