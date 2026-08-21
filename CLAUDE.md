@@ -33,10 +33,14 @@ are unrelated to the absent template. Do not read them as evidence of a sync.
 ### The `rhiza_` filename prefix is residue, not a sync
 
 Three workflows still carry it — `rhiza_book.yml`, `rhiza_paper.yml` and
-`rhiza_release.yml` — and two of them still open with an upstream header. That is the
-history of how they arrived (a copy, once) rather than a claim about how they are
-maintained: each is a full local file with real jobs, nothing reconciles them against
-upstream, and editing them is the normal way to change them.
+`rhiza_release.yml` — and exactly one of them, `rhiza_release.yml`, still opens with
+upstream's *This file is part of the jebel-quant/rhiza repository* boilerplate;
+`grep -rn 'This file is part of the jebel-quant/rhiza' .github/` returns that one line. The
+other two open with a local *Adapted from* note naming what was changed and why, which is
+the honest header for what they now are. Either way the prefix is the history of how they
+arrived (a copy, once) rather than a claim about how they are maintained: each is a full
+local file with real jobs, nothing reconciles them against upstream, and editing them is
+the normal way to change them.
 
 `rhiza_release.yml` is the one not to rename, and the reason is in its own header:
 **PyPI Trusted Publishing validates the exact workflow file path.** The trusted publisher
@@ -139,12 +143,17 @@ this repo's name.
 
 ### The prose examples are gated too, and by a task rather than a test
 
-The same argument applied twice over to `docs/`. `README.md`'s fences were covered by
-pytest-rhiza's `test_readme_validation` under `rhiza-test`; the docs tree — 62 fences, 24 of
-them in `getting_started.md` — was covered by markdownlint asking whether the *markdown*
-parses, and by nothing asking whether the commands did. `rhiza-task docs-examples` is that
-gate, named by `ci.yml`'s `gates` job because, like `complexity`, it is deliberately not an
-`all` prerequisite.
+The same argument applied twice over to `docs/`. `README.md`'s fences are covered by
+pytest-rhiza's `test_readme_validation` under `rhiza-test`; the docs tree — 62 fences over 11
+files, 12 of them in `getting_started.md` — was covered by markdownlint asking whether the
+*markdown* parses, and by nothing asking whether the commands did. `rhiza-task docs-examples`
+is that gate, named by `ci.yml`'s `gates` job because, like `complexity`, it is deliberately
+not an `all` prerequisite.
+
+Its subject is `docs/` and **deliberately not `README.md`**, which stays pytest-rhiza's: two
+gates reporting one verdict would make a single fact read as two. So a broken fence in the
+README fails `rhiza-test`, and a broken fence under `docs/` fails `docs-examples` — which of
+the two went red tells you which file you edited.
 
 It is a **task and not a test**, and that placement is the rule in this repo rather than a
 preference: checking a shell fence means running `bash -n`, and no test here runs a tool. So
@@ -155,10 +164,11 @@ every other task's.
 Two things a change to `docs/` should know. A ```` ```result ```` block is **executed and
 diffed** against the `python` fences above it, so an example that goes stale fails a build
 rather than quietly outdating — and the prelude is every earlier `python` fence in that
-file, because `README.md`'s pair needs the first fence's `@task` before the second's
-`lookup`. And fences in a language it cannot check (`toml`, `mermaid`, `makefile`, `yaml`,
-and those carrying no language) are **reported with a count** rather than passed over in
-silence, because a green line with no numbers reads as full coverage.
+file, because `adding_a_task.md`'s pair needs the first fence's `@task` before the second's
+`lookup` — that page holds the one `result` block in the tree, which is why the gate's
+summary line reads `1 diffed`. And fences in a language it cannot check (`toml`, `mermaid`,
+`makefile`, `yaml`, and those carrying no language) are **reported with a count** rather
+than passed over in silence, because a green line with no numbers reads as full coverage.
 
 ## The coverage floor is 100, and it is load-bearing
 
