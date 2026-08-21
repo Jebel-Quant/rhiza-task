@@ -89,7 +89,8 @@ concurrency:
   cancel-in-progress: false
 
 # Least-privilege default: every job below re-declares exactly the write
-# scopes it needs (Scorecard Token-Permissions). Top-level stays read-only.
+# scopes it needs, so a compromised action in one job holds no token that
+# would let it write what a different job writes. Top-level stays read-only.
 permissions:
   contents: read
 
@@ -326,8 +327,9 @@ jobs:
         # Attach the SBOM's Sigstore attestation bundle to the release as a
         # recognised signature asset (*.sigstore.json). Non-buildable repos
         # (no [build-system], so no dist/*.intoto.jsonl provenance) would
-        # otherwise ship releases without any signature asset, which fails
-        # OpenSSF Scorecard's Signed-Releases check.
+        # otherwise ship a release whose SBOM nothing can authenticate --
+        # leaving a consumer unable to tell the published inventory from one
+        # edited after the fact.
         if: hashFiles('pyproject.toml') != '' && github.event.repository.private == false
         run: cp "${{ steps.attest-sbom.outputs.bundle-path }}" sbom.cdx.json.sigstore.json
 
@@ -350,8 +352,8 @@ jobs:
 
       - name: Stage provenance bundle for the GitHub release
         # Attach the SLSA provenance bundle to the release as a recognised
-        # signature asset (*.intoto.jsonl) so consumers — and OpenSSF
-        # Scorecard's Signed-Releases check — can verify the artifacts.
+        # signature asset (*.intoto.jsonl) so a consumer can verify which
+        # workflow run, on which commit, produced these artifacts.
         if: steps.buildable.outputs.buildable == 'true' && github.event.repository.private == false
         run: cp "${{ steps.provenance.outputs.bundle-path }}" dist/provenance.intoto.jsonl
 

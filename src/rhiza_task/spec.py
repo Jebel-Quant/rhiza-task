@@ -28,7 +28,7 @@ language-neutral and answers to its bare name, which is what ``core`` was.
 from __future__ import annotations
 
 import shutil
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -61,21 +61,30 @@ class Failed(Exception):  # noqa: N818 - ditto
         self.code = code
 
 
-# radon scores this class C (14) and :meth:`Guard.check` C (13) -- the class figure *is*
-# check's, since everything else here is five fields and a docstring. Both count the same
-# five ``if ... raise Skip`` clauses: one per kind of precondition, flat, no nesting, in
-# the order they fire. A dispatch table of five predicates would move that count rather
-# than reduce it, and would cost the reader the ordering -- tool before file before folder
-# before glob, cheapest and most likely first. The shape is deliberate.
+# This class used to hold five flat ``if ... raise Skip`` clauses, which scored C (14)
+# against `complexity_max = 15` -- one branch of headroom, so the sixth guard kind would
+# have tripped `rhiza-task complexity` rather than merely approached it. It is now the
+# decomposition that comment named: :func:`_clauses` yields one ``(unmet, message)`` pair
+# per precondition and :meth:`Guard.check` raises on the first unmet one.
 #
-# The ceiling, because 14 against `complexity_max = 15` leaves one branch of headroom and
-# "bounded by a closed set" stops being a complete answer that close to the gate: **a sixth
-# guard kind is the point where this must be decomposed.** Adding one costs two branches
-# here -- the clause itself, and the field's interaction with the existing ones -- so it
-# trips `rhiza-task complexity` rather than merely approaching it. The decomposition to
-# reach for then is a tuple of (predicate, message) checked in order, which keeps the
-# ordering the flat form is protecting; what not to reach for is raising the ceiling, since
-# that retires the only gate reading this comment back.
+# Three properties the flat form had, kept deliberately:
+#
+# * **The order still reads off the source** -- tool before file before folder before glob,
+#   cheapest and most likely first. That ordering was the whole reason the flat form was
+#   defended, and a generator preserves it where a dict of predicates would not.
+# * **Evaluation is still lazy.** Because :func:`_clauses` is a generator consumed one pair
+#   at a time, a guard whose tool is absent never stats the filesystem -- the same work the
+#   flat form did, in the same order. A tuple of eagerly-built pairs would have run every
+#   predicate before testing the first.
+# * **A sixth guard kind now costs one ``yield``**, not two branches in an already-full
+#   block. That is the point of having done this: the next kind is an edit, not a
+#   decomposition.
+#
+# `_clauses` is a module-level function rather than a second method, and that is load-bearing
+# rather than stylistic: radon scores a *class* as the sum of its methods, so moving these
+# branches to `Guard._clauses` would have relocated the 14 and reduced nothing. As written
+# the class scores A. Being module-private it also stays inside this module, which rule 4 of
+# CLAUDE.md's layering invariant requires of any underscore-prefixed name.
 @dataclass(frozen=True)
 class Guard:
     """A precondition on the repository layout.
@@ -162,20 +171,46 @@ class Guard:
             no test files found
             >>> tmp.cleanup()
         """
-        # Five guard clauses, each one precondition and each raising the line the runner
-        # prints -- see the note above the class for why they are not factored apart.
-        if self.tool and not have(self.tool):
-            raise Skip(self.reason or f"{self.tool} not found")
-        if self.file and not (root / self.file).is_file():
-            raise Skip(self.reason or f"no {self.file}")
-        if self.folder is None:
-            return
-        name = folders.get(self.folder, self.folder)
+        # The first unmet precondition wins, so `reason` overrides whichever message that
+        # clause generated -- see the note above the class for why the clauses live in a
+        # module-level generator rather than in this body or in a second method.
+        for unmet, message in _clauses(self, root, folders):
+            if unmet:
+                raise Skip(self.reason or message)
+
+
+def _clauses(guard: Guard, root: Path, folders: dict[str, str]) -> Iterator[tuple[bool, str]]:
+    """Yield each of *guard*'s preconditions as ``(unmet, message)``, in firing order.
+
+    The order is the contract: tool before file before folder before glob, cheapest and
+    most likely first. Being a generator, a pair is only produced -- and its predicate only
+    evaluated -- once the caller has consumed every earlier one, so the filesystem is left
+    alone when an earlier clause has already decided the outcome.
+
+    ``folder`` is tested with ``is not None`` rather than for truthiness, unlike the other
+    three: ``Guard(folder="")`` means the repository root, which is a satisfiable guard,
+    where an empty ``tool`` or ``file`` names nothing at all.
+
+    Args:
+        guard: The guard whose fields describe the preconditions.
+        root: Repository root.
+        folders: Resolved folder settings, e.g. ``{"source_folder": "src"}``.
+
+    Yields:
+        One ``(unmet, message)`` pair per precondition the guard declares. ``unmet`` is
+        True when the precondition fails; ``message`` is the line the runner prints unless
+        the guard carries its own ``reason``.
+    """
+    if guard.tool:
+        yield not have(guard.tool), f"{guard.tool} not found"
+    if guard.file:
+        yield not (root / guard.file).is_file(), f"no {guard.file}"
+    if guard.folder is not None:
+        name = folders.get(guard.folder, guard.folder)
         target = root / name
-        if not target.is_dir():
-            raise Skip(self.reason or f"{self.folder} '{name}' not found")
-        if self.glob and not any(target.rglob(self.glob)):
-            raise Skip(self.reason or f"no {self.glob} below '{name}'")
+        yield not target.is_dir(), f"{guard.folder} '{name}' not found"
+        if guard.glob:
+            yield not any(target.rglob(guard.glob)), f"no {guard.glob} below '{name}'"
 
 
 @dataclass(frozen=True)
