@@ -18,7 +18,11 @@ the one being tested, and every gate still passes.
 The rationale that does **not** carry over is upstream's second one -- that this is the only
 test a freshly synced project has, standing in for an empty suite that would let ``test``
 pass while measuring nothing. That vacuum cannot exist here: the suite is 300 tests behind a
-100% coverage floor. This file is one narrow invariant, not a floor.
+100% coverage floor. This file is narrow release-plumbing invariants, not a floor.
+
+The second such invariant is the release workflow's *filename*, which is load-bearing for
+publishing in a way no other file here is -- see
+:func:`test_the_trusted_publishing_workflow_keeps_its_filename`.
 
 Deliberately self-contained, as upstream is: no fixtures, so it cannot depend on what
 pytest-rhiza contributes to ``rhiza-task rhiza-test``.
@@ -89,4 +93,38 @@ def test_the_installed_version_matches_pyproject() -> None:
         f"The environment is stale, or the build backend is picking up a different tree -- re-run "
         f"`uv run rhiza-task install`, and check [build-system] and the packages it is told to "
         f"include if that does not fix it."
+    )
+
+
+# The one path in this repository that cannot be renamed by editing this repository alone.
+TRUSTED_PUBLISHING_WORKFLOW = ".github/workflows/rhiza_release.yml"
+"""The workflow filename PyPI's trusted publisher for this project is registered against."""
+
+
+def test_the_trusted_publishing_workflow_keeps_its_filename() -> None:
+    """The release workflow must keep the exact path PyPI's trusted publisher names.
+
+    PyPI Trusted Publishing validates the *workflow file path*, not the repository or the
+    job, so renaming this file silently revokes this project's ability to publish. The
+    failure is maximally delayed: every job stays green, `rhiza-task all` passes, the PR
+    merges, and the break surfaces only when a tag runs the release for real -- by which
+    point the release is the thing that is broken.
+
+    That is why the invariant is asserted here rather than left to the note in the
+    workflow's own header. A comment is read by whoever opens that file; a rename is done by
+    whoever *doesn't*. Renaming it legitimately means editing PyPI's publisher entry in the
+    same change, and then this test's constant -- which is the reminder, in the one place
+    that cannot be skipped.
+
+    Deliberately only existence, not content: what PyPI pins is the path. Asserting anything
+    about the jobs inside would couple this test to release-workflow edits it has no opinion
+    about, and every such coupling is a future red build that teaches nothing.
+    """
+    workflow = _ROOT / TRUSTED_PUBLISHING_WORKFLOW
+    assert workflow.is_file(), (
+        f"{TRUSTED_PUBLISHING_WORKFLOW} is missing. PyPI Trusted Publishing validates the exact "
+        f"workflow file path, so this project cannot publish until the file is restored at that "
+        f"path -- or, if the rename was deliberate, until PyPI's trusted publisher entry for this "
+        f"project is updated to the new filename and this test's TRUSTED_PUBLISHING_WORKFLOW "
+        f"follows it."
     )

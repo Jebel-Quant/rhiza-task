@@ -783,6 +783,142 @@ class TestBook:
         assert "genbadge[coverage]" in recorder.tools()
 
 
+class TestBookNav:
+    """``book-nav``: the gate on what the built site actually contains."""
+
+    NAV = """\
+site_name: demo
+nav:
+  - Home: index.md
+  # a comment inside the block
+  - Guides:
+      - Deep: guides/deep.md
+  - Paper: paper/paper.pdf
+  - bare.md
+  - Upstream: https://example.com/x.pdf
+
+extra:
+  social: []
+"""
+
+    def test_parses_titles_sections_bare_paths_and_skips_urls(self) -> None:
+        """The parser collects file targets and ignores what names no file.
+
+        Four shapes in one fixture, because they are the whole grammar mkdocs documents and
+        the parser is hand-written: a titled page, a section header with no value, an asset,
+        a bare path, and an external URL. The URL is the one that must *not* appear -- a
+        docs gate that reaches the network fails on somebody else's outage.
+        """
+        assert book_tasks._nav_targets(self.NAV) == [
+            "index.md",
+            "guides/deep.md",
+            "paper/paper.pdf",
+            "bare.md",
+        ]
+
+    def test_returns_nothing_without_a_nav_block(self) -> None:
+        """A config with no ``nav:`` declares no targets, which is not an error."""
+        assert book_tasks._nav_targets("site_name: demo\nextra: {}\n") == []
+
+    def test_ignores_a_nav_written_as_a_mapping(self) -> None:
+        """An entry with no ``- `` yields no target, rather than a mis-sliced one.
+
+        Writing ``nav:`` as a mapping instead of a list is a real mkdocs mistake, and the
+        branch that skips it is load-bearing rather than defensive: without it the line falls
+        through to ``stripped[2:]``, which would strip two characters off the *title* and
+        report ``index.md`` as a target it never actually found. Failing to parse is fine
+        here; inventing a target is not, because this gate's whole output is a list of names.
+        """
+        assert book_tasks._nav_targets("nav:\n  Home: index.md\n") == []
+
+    def test_markdown_resolves_to_either_built_form(self) -> None:
+        """A page may be published as ``x.html`` or ``x/index.html``; an asset only as itself.
+
+        Which of the two applies is mkdocs's ``use_directory_urls``, and this gate has no
+        opinion on it -- accepting either answers "was the page built", which is the question.
+        """
+        assert book_tasks._built_candidates("faq.md") == ("faq.html", "faq/index.html")
+        assert book_tasks._built_candidates("paper/paper.pdf") == ("paper/paper.pdf",)
+
+    def test_passes_when_every_target_was_built(self, cfg: Config) -> None:
+        """All four targets present, in both markdown forms, so the gate is silent.
+
+        Args:
+            cfg: The resolved config.
+        """
+        (cfg.root / "mkdocs.yml").write_text(self.NAV)
+        output = cfg.path("book_output")
+        for built in ("index.html", "guides/deep/index.html", "paper/paper.pdf", "bare.html"):
+            target = output / built
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("x")
+
+        book_tasks.book_nav(cfg)
+
+    def test_fails_naming_the_missing_asset(self, cfg: Config, capsys: pytest.CaptureFixture[str]) -> None:
+        """The published 404 this gate exists for: a nav entry whose asset was never written.
+
+        This is the paper's case exactly. ``rhiza-task paper`` skips without latexmk, the
+        build succeeds, zensical reports ``No issues found``, and the site deploys with a
+        dead entry in its own navigation -- so the assertion is that the *name* reaches the
+        operator, not merely that the count is wrong.
+
+        Args:
+            cfg: The resolved config.
+            capsys: pytest's output capture.
+        """
+        (cfg.root / "mkdocs.yml").write_text(self.NAV)
+        output = cfg.path("book_output")
+        for built in ("index.html", "guides/deep/index.html", "bare.html"):
+            target = output / built
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("x")
+
+        with pytest.raises(Failed, match="1 of 4"):
+            book_tasks.book_nav(cfg)
+        assert "paper/paper.pdf" in capsys.readouterr().out
+
+    def test_skips_before_the_book_is_built(self, cfg: Config) -> None:
+        """Nothing to inspect yet, which is not askable rather than wrong.
+
+        Args:
+            cfg: The resolved config.
+        """
+        (cfg.root / "mkdocs.yml").write_text(self.NAV)
+        with pytest.raises(Skip, match="no built book"):
+            book_tasks.book_nav(cfg)
+
+    def test_skips_when_the_config_declares_no_nav(self, cfg: Config) -> None:
+        """A built book and a config with no ``nav:`` measures nothing.
+
+        Args:
+            cfg: The resolved config.
+        """
+        (cfg.root / "mkdocs.yml").write_text("site_name: demo\n")
+        cfg.path("book_output").mkdir(parents=True, exist_ok=True)
+        with pytest.raises(Skip, match="no nav targets"):
+            book_tasks.book_nav(cfg)
+
+    def test_is_not_a_prerequisite_of_book(self) -> None:
+        """``book`` must not need this gate.
+
+        Half the nav entries here resolve only after the gates that produce them have run,
+        and a repository with no latexmk must still build its book -- which is what a skipped
+        prerequisite buys. Wiring this into ``book`` would turn that into a failure for every
+        consumer documenting a paper it cannot compile, so the omission is the design and a
+        test holds it.
+        """
+        spec = lookup("book")
+        assert spec is not None
+        assert "book-nav" not in spec.needs
+
+    def test_guards_on_the_mkdocs_config(self) -> None:
+        """No ``mkdocs.yml``, no nav to check -- declared as a guard, not re-checked in the body."""
+        spec = lookup("book-nav")
+        assert spec is not None
+        assert any(guard.file == "mkdocs.yml" for guard in spec.guards)
+
+
 class TestDoctorVersions:
     """doctor.mk's awk version comparison, as two functions."""
 

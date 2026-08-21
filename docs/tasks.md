@@ -137,6 +137,7 @@ the output and reports the **first** status rather than the last.
 | task | needs | does |
 |---|---|---|
 | `book` | `test benchmark stress hypothesis-test paper` | build the companion book |
+| `book-nav` | — | check that every mkdocs nav entry resolves in the built book |
 | `serve` | `book` | build the book and serve it on port 8000 |
 | `marimo` | `install` | start the Marimo editor |
 | `marimo-validate` | `install` | check that every Marimo notebook runs |
@@ -153,6 +154,20 @@ repository with no paper — or no latexmk — still builds its book, because a 
 prerequisite does not block a dependent; only a failed one does. Under `--strict` that skip
 becomes a failure and would block `book`, which is worth knowing but is not specific to
 `paper`: `benchmark` and `stress` guard on folders most repositories do not have.
+
+`book-nav` is the other side of that permissiveness, and deliberately **not** a prerequisite
+of `book`. Skipping a producer is what lets a repository without latexmk still build its
+book — and the cost is that `mkdocs.yml` can name a target the build never wrote. zensical
+does not catch it: it reports `No issues found` for a nav entry whose page is missing *and*
+for one whose asset is missing, so such a site builds green and publishes a 404 in its own
+navigation. That is not hypothetical — it is what
+`https://jebel-quant.github.io/rhiza-task/paper/paper.pdf` did.
+
+So the check is a separate gate, for the ref that publishes rather than for every build.
+Markdown targets are matched against both forms mkdocs may write (`faq.html` and
+`faq/index.html`, per `use_directory_urls`); assets are matched verbatim; external targets
+are left to a link checker. It skips before the book is built and when the config declares
+no nav, because both are questions that are not askable rather than answers that are wrong.
 
 Its prerequisite list is also where make's no-op stubs came from: `book.mk` had to declare
 `test:: ; @:`, `benchmark:: ; @:`, `stress:: ; @:` and `hypothesis-test:: ; @:` so that
@@ -238,7 +253,7 @@ in the module docstring.
 `skipped` is not a soft failure and not a pass. It is the third status, and it is what
 makes one aggregate work across repositories with different bundles installed:
 
-```
+```text
       ok  install
       ok  typecheck
  skipped  fmt  no .pre-commit-config.yaml

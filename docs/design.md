@@ -130,7 +130,7 @@ actually wants.
 `load_tasks()` imports every module in the `rhiza_task.tasks` entry-point group, and a
 failure is **reported and skipped** rather than fatal:
 
-```
+```text
 could not load task module acme: ModuleNotFoundError: No module named 'acme_internal'
 ```
 

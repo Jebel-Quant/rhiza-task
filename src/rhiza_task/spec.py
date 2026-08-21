@@ -67,6 +67,15 @@ class Failed(Exception):  # noqa: N818 - ditto
 # the order they fire. A dispatch table of five predicates would move that count rather
 # than reduce it, and would cost the reader the ordering -- tool before file before folder
 # before glob, cheapest and most likely first. The shape is deliberate.
+#
+# The ceiling, because 14 against `complexity_max = 15` leaves one branch of headroom and
+# "bounded by a closed set" stops being a complete answer that close to the gate: **a sixth
+# guard kind is the point where this must be decomposed.** Adding one costs two branches
+# here -- the clause itself, and the field's interaction with the existing ones -- so it
+# trips `rhiza-task complexity` rather than merely approaching it. The decomposition to
+# reach for then is a tuple of (predicate, message) checked in order, which keeps the
+# ordering the flat form is protecting; what not to reach for is raising the ceiling, since
+# that retires the only gate reading this comment back.
 @dataclass(frozen=True)
 class Guard:
     """A precondition on the repository layout.

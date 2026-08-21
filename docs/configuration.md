@@ -160,7 +160,7 @@ exports one for every caller and deliberately leaves it empty for consumers, who
     unconditionally, and every consumer inherits it via `INHERIT`. With this empty, `book`
     invoked `uvx zensical build` with no `--with`, and zensical refused:
 
-    ```
+    ```text
     Error: mkdocstrings plugin is enabled, but mkdocstrings is not installed.
     ```
 
