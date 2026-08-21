@@ -229,9 +229,9 @@ class Config:
     # Pinned to a tag rather than a branch: a gate that moves under you is not a gate.
     pytest_rhiza: str = "pytest-rhiza @ git+https://github.com/Jebel-Quant/pytest-rhiza@v0.2.0"
 
-    # Both are empty by default and filled in __post_init__, because both depend on the
-    # repository rather than on a constant: the layers come from the manifests present, and
-    # the check set follows from the layers. Setting either explicitly -- in
+    # Both are empty by default and filled in `_validate_layers`, because both depend on
+    # the repository rather than on a constant: the layers come from the manifests present,
+    # and the check set follows from the layers. Setting either explicitly -- in
     # pyproject.toml, or RHIZA_LAYERS=rust -- switches detection off for that field, which
     # is what a repository carrying two manifests and wanting one gate set needs.
     layers: tuple[str, ...] = ()
@@ -244,48 +244,63 @@ class Config:
 
     root: Path = field(default_factory=Path.cwd)
 
-    # radon scores this method C (13): one branch per field that needs normalising or
-    # checking -- str and list coercion, layer defaulting and membership, rhiza_checks
-    # defaulting, typechecker, coverage_fail_under, complexity_max. It is a flat sequence,
-    # one field per step, with no interaction between the steps; the count grows with the
-    # number of validated settings and not with the depth of anything. Deliberate.
+    # A flat sequence of calls, one per group of settings, and so A (1). It was C (13) --
+    # one branch per validated field -- carrying a comment that named **C (15)** as the
+    # point where the flat form stopped paying for itself, and per-group helpers as the
+    # answer. #124 honoured that ceiling at two branches of headroom instead of waiting for
+    # `rhiza-task complexity` to report it, and the shape below is the one that comment
+    # named: the readable one-field-per-step order survives, each step just bounded.
     #
-    # Unlike the other three C blocks here, that growth rule needs a stated ceiling, and
-    # the ceiling is **C (15)**. `_run_one` is bounded by the size of `Status` and
-    # `Guard.check` by the number of guard kinds -- closed sets, so their figures cannot
-    # drift far. "One branch per validated setting" is not a closed set: every future
-    # setting adds one, and a justification with no limit is an open licence rather than a
-    # decision. At 15 -- roughly two more settings -- the flat form stops paying for
-    # itself, and the answer is per-group helpers (`_validate_layers`,
-    # `_validate_typechecker`, `_validate_coverage`) called in sequence from here, which
-    # keeps the readable one-field-per-step order while bounding each block.
-    #
-    # 12 became 13 when `complexity_max` arrived -- the setting that configures the gate
-    # now watching this number, which is the point rather than an irony: `rhiza-task
-    # complexity` is what turns the paragraph above from discipline into a gate, so the
-    # next setting to cross 15 fails a build instead of going unnoticed. `uvx radon cc src
-    # -a -s` remains the way to read the figure by hand.
+    # The helpers are **methods**, which the `Guard`/`_clauses` precedent would have argued
+    # against -- on the grounds that radon scores a class as the *sum* of its methods, so a
+    # new method relocates the figure rather than reducing it. That premise is wrong: radon
+    # scores a class as the **mean** of its methods, so a small method *lowers* it. A
+    # two-method probe under `uvx radon cc -s` is the check -- a lone method of 5 scores its
+    # class 6, and adding a second of 1 scores it 4 -- and `Config` here went B (6) -> A (4)
+    # rather than up. What survives of that precedent is the *other* half, which was never
+    # about radon: `_clauses` is a module-level generator because it needs no `self` and
+    # because laziness preserves the guards' evaluation order. These five need `self` and
+    # have no order to protect, so they are methods.
     def __post_init__(self) -> None:
         """Normalise the list fields, then validate the enumerated and numeric ones.
 
-        :func:`_coerce` sees a string without knowing which field it is destined for, so
-        it can only recognise the two shapes that announce themselves -- a JSON array and
-        a ``;``-separated list. Everything else it leaves as a ``str``, and a ``str``
-        reaching a ``tuple[str, ...]`` field is splatted one *character* per argument at
-        the call site: ``UV_SYNC_ARGS="--group test"`` became ``uv sync - - g r o u p``.
-
-        The field's type is known here and nowhere lower, so this is where a string
-        becomes a tuple. Splitting on whitespace is the make layer's own format --
-        python.mk documented ``LICENSE_IGNORE_PACKAGES`` as space-separated and
-        ``RHIZA_CHECKS`` accumulated space-separated module names -- so a ``.rhiza/.env``
-        written for make keeps working, as does the ``UV_SYNC_ARGS`` that rhiza's synced
-        ``.devcontainer/bootstrap.sh`` exports.
+        Each step is a helper, so this method's own branch count is zero and the ceiling the
+        history above describes no longer applies to it. A new validated setting adds a call
+        here and its branches to its own helper -- which is what makes "one branch per
+        validated setting" stop being an open-ended growth rule.
 
         Raises:
             ValueError: When ``typechecker`` is not one of ty, mypy, both,
                 ``coverage_fail_under`` is outside 0-100, ``complexity_max`` is below 1,
                 ``layers`` names a layer that does not exist, :attr:`root` is not an
-                existing directory, or a ``*_folder`` escapes it.
+                existing directory, or a ``*_folder`` escapes it. Each helper below raises
+                for its own settings and documents the message it uses.
+        """
+        self._coerce_sequence_fields()
+        self._validate_layers()
+        self._validate_typechecker()
+        self._validate_coverage()
+        self._validate_complexity_max()
+        # Order matters, and only between these two: `_validate_folders` asks whether a
+        # setting escapes the root, which presupposes there is a root to escape.
+        self._validate_root()
+        self._validate_folders()
+
+    def _coerce_sequence_fields(self) -> None:
+        """Turn a ``str`` or ``list`` on a ``tuple[str, ...]`` field into a tuple.
+
+        :func:`_coerce` sees a string without knowing which field it is destined for, so it
+        can only recognise the two shapes that announce themselves -- a JSON array and a
+        ``;``-separated list. Everything else it leaves as a ``str``, and a ``str`` reaching
+        a ``tuple[str, ...]`` field is splatted one *character* per argument at the call
+        site: ``UV_SYNC_ARGS="--group test"`` became ``uv sync - - g r o u p``.
+
+        The field's type is known here and nowhere lower, so this is where a string becomes
+        a tuple. Splitting on whitespace is the make layer's own format -- python.mk
+        documented ``LICENSE_IGNORE_PACKAGES`` as space-separated and ``RHIZA_CHECKS``
+        accumulated space-separated module names -- so a ``.rhiza/.env`` written for make
+        keeps working, as does the ``UV_SYNC_ARGS`` that rhiza's synced
+        ``.devcontainer/bootstrap.sh`` exports.
         """
         for f in fields(self):
             if str(f.type).replace(" ", "") != "tuple[str,...]":
@@ -296,6 +311,17 @@ class Config:
             elif isinstance(value, list):
                 object.__setattr__(self, f.name, tuple(value))
 
+    def _validate_layers(self) -> None:
+        """Default :attr:`layers` and :attr:`rhiza_checks` from the repository, then check them.
+
+        Both are empty by default and filled here, because both depend on the repository
+        rather than on a constant. Setting either explicitly switches detection off for that
+        field, which is what a repository carrying two manifests and wanting one gate set
+        needs -- so the defaulting is conditional and the membership check is not.
+
+        Raises:
+            ValueError: When ``layers`` names a layer that does not exist.
+        """
         if not self.layers:
             object.__setattr__(self, "layers", detect_layers(self.root))
         unknown = [layer for layer in self.layers if layer not in LAYERS]
@@ -305,22 +331,38 @@ class Config:
         if not self.rhiza_checks:
             object.__setattr__(self, "rhiza_checks", rhiza_checks_for(self.layers))
 
+    def _validate_typechecker(self) -> None:
+        """Reject a :attr:`typechecker` outside the enumerated set.
+
+        Raises:
+            ValueError: When ``typechecker`` is not one of ty, mypy, both.
+        """
         if self.typechecker not in TYPECHECKERS:
             msg = f"typechecker must be one of {', '.join(TYPECHECKERS)} (got {self.typechecker!r})"
             raise ValueError(msg)
+
+    def _validate_coverage(self) -> None:
+        """Reject a :attr:`coverage_fail_under` that is not a percentage.
+
+        Raises:
+            ValueError: When ``coverage_fail_under`` is outside 0-100.
+        """
         if not 0 <= int(self.coverage_fail_under) <= 100:
             msg = f"coverage_fail_under must be a percentage (got {self.coverage_fail_under!r})"
             raise ValueError(msg)
+
+    def _validate_complexity_max(self) -> None:
+        """Reject a :attr:`complexity_max` below 1.
+
+        A ceiling of 0 would fail every block including the empty ones, which is a typo
+        rather than a very strict policy.
+
+        Raises:
+            ValueError: When ``complexity_max`` is below 1.
+        """
         if int(self.complexity_max) < 1:
             msg = f"complexity_max must be at least 1 (got {self.complexity_max!r})"
             raise ValueError(msg)
-
-        # Two calls rather than two more `if`s, and not only for tidiness: this method is
-        # the one whose branch count has a stated ceiling, so validation that needs its own
-        # branches goes in a helper where it costs nothing here. A call is not a decision
-        # point, so `__post_init__` stays at C (13) with both of these in front of it.
-        self._validate_root()
-        self._validate_folders()
 
     def _validate_root(self) -> None:
         """Reject a :attr:`root` that is not an existing directory.

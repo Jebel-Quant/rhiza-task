@@ -216,8 +216,15 @@ Two things a change to `docs/` should know. A ```` ```result ```` block is **exe
 diffed** against the `python` fences above it, so an example that goes stale fails a build
 rather than quietly outdating — and the prelude is every earlier `python` fence in that
 file, because `adding_a_task.md`'s pair needs the first fence's `@task` before the second's
-`lookup` — that page holds the one `result` block in the tree, which is why the gate's
-summary line reads `1 diffed`. And fences in a language it cannot check (`mermaid`,
+`lookup`. There are **two** such blocks — that pair, and `layers.md`'s shadowing example,
+whose answers used to sit in trailing `# 'python:test'` comments until they were made a
+`result` block — so the gate's summary line reads `2 diffed`. That is every python fence in
+the tree that *produces output*; the remaining five define a task or bind a name and print
+nothing, so a `result` block on them would be ceremony rather than a check. One of them is
+also why a diffed block is not free: `adding_a_task.md`'s later fences sit *after* its
+`result` block, and moving one above would put a printing fence in the prelude — the
+assumption `_result_violations` documents and deliberately does not loosen.
+And fences in a language it cannot check (`mermaid`,
 `makefile`, and those carrying no language) are **reported with a count** rather
 than passed over in silence, because a green line with no numbers reads as full coverage.
 
@@ -310,35 +317,55 @@ The comments here are unusually dense, and that is the convention rather than an
 The rule they follow: **say why, especially when the code looks wrong.** A flat
 `if ... raise` sequence that radon scores C, a `--partial-match` flag, a `# nosec`, a
 version pinned one patch above upstream — each carries the bug it prevents or the decision
-it records. Two blocks rank C on cyclomatic complexity and each states why the flat form
+it records. **One** block ranks C on cyclomatic complexity, and it states why the flat form
 is preferred over a decomposition that would satisfy the metric.
 
-One rule those two are held to: **if the branch count grows, the comment states a
-ceiling.** `_run_one` is bounded by a closed set — the size of `Status` — so its figure
-cannot drift far and "deliberate" is a complete answer. `Config.__post_init__` is one
-branch per validated setting, which is open-ended, so it names C (15) as the point where
-per-group helpers win. A growth rule without a limit is an open licence rather than a
-decision.
+The rule it is held to: **if the branch count grows, the comment states a ceiling.**
+`_run_one` is bounded by a closed set — the size of `Status` — so its figure cannot drift
+far and "deliberate" is a complete answer. A growth rule without a limit is an open licence
+rather than a decision.
 
-`Guard` and `Guard.check` used to be the other two, at C (14) and C (13). They are the
-worked example of a ceiling being *honoured* rather than restated: at one branch of
-headroom the comment stopped claiming "deliberate", named a tuple of
-`(predicate, message)` as the decomposition to reach for, and that decomposition is now
-`_clauses` — with the class at A (5). Two lessons kept from doing it. The helper is a
-module-level function because **radon scores a class as the sum of its methods**, so a
-second method would have relocated the 14 and reduced nothing. And it is a *generator*,
-because the property the flat form was really protecting was evaluation order — tool
-before file before folder before glob, each only reached if the last was satisfied — which
-a lazily-consumed `yield` keeps and an eagerly-built tuple of pairs would have lost.
+Two earlier cases were the other C blocks, and both are now worked examples of a ceiling
+being *honoured* rather than restated — which is the outcome this rule is for.
+
+`Guard` and `Guard.check`, at C (14) and C (13): at one branch of headroom the comment
+stopped claiming "deliberate", named a tuple of `(predicate, message)` as the
+decomposition to reach for, and that decomposition is now `_clauses` — with the class at
+A (5). The lesson kept from it is about the *generator*: the property the flat form was
+really protecting was evaluation order — tool before file before folder before glob, each
+only reached if the last was satisfied — which a lazily-consumed `yield` keeps and an
+eagerly-built tuple of pairs would have lost. That, and needing no `self`, is why the
+helper is module-level.
+
+`Config.__post_init__`, at C (13): one branch per validated setting, which is *open-ended*
+— every future setting adds one — so its comment named C (15), roughly two more settings,
+as the point where per-group helpers win. #124 took it there at two branches of headroom
+rather than waiting for the gate, and it is now A (1): a flat sequence of calls to
+`_coerce_sequence_fields`, `_validate_layers`, `_validate_typechecker`,
+`_validate_coverage` and `_validate_complexity_max`. The readable one-field-per-step order
+survived; each step is just bounded. **A new validated setting now adds a call here and its
+branches to its own helper**, which is what stops "one branch per validated setting" being
+a growth rule at all.
+
+**One correction that decomposition forced, and it matters because it is load-bearing
+advice.** This file used to say the `Guard` helper was module-level because *radon scores a
+class as the sum of its methods*, so a second method would relocate the figure and reduce
+nothing. **That is wrong.** radon scores a class as the **mean** of its methods, so a small
+method *lowers* the class score. The check is a two-method probe under `uvx radon cc -s`: a
+lone method of 5 scores its class 6, and adding a second of 1 scores it **4**, not 6. So
+`Config`'s five new helpers are *methods* — they need `self` — and the class went B (6) →
+A (4) rather than up. Prefer a module-level function when it needs no `self` or when
+laziness matters, as `_clauses` does; not to dodge a class score that works the other way.
 
 Unlike the layering invariant above, this one **is** gated: `rhiza-task complexity` fails on
 any block above `complexity_max`, which `pyproject.toml` leaves at the shipped 15, and
-`ci.yml`'s `gates` job names it. So the ceiling `Config.__post_init__`'s note commits to is
-read back by a build rather than by a reader who remembers to — which is the whole reason
-that note can say "roughly two more settings" and be held to it. `uvx radon cc src -a -s`
-remains how you read the figure by hand, and the gate reports the worst *block*, classes
-included — so the number to watch is currently `Config.__post_init__`'s 13, with
-`_run_one`'s 12 behind it and no class above either.
+`ci.yml`'s `gates` job names it. So a ceiling a comment commits to is read back by a build
+rather than by a reader who remembers to — which is the whole reason
+`Config.__post_init__`'s note could say "roughly two more settings" and be held to it.
+`uvx radon cc src -a -s` remains how you read the figure by hand, and the gate reports the
+worst *block*, classes included — so the number to watch is now `_run_one`'s **12**, with
+`Config.load`'s B (9) behind it, no other C block anywhere, and no class above A (4). The
+tree average is A (3.23).
 
 When changing such code, update the comment with it. A stale comment is worse than none:
 `ci.yml` once asserted that `rhiza-task fmt` skipped for want of a pre-commit config, for
