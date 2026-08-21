@@ -375,8 +375,13 @@ changes landed as `fix:`/`refactor:` before this was written down — `docs-exam
 failing instead of skipping (#111). All three are strictness increases; none says so in its
 subject line. See #115.
 
-**The next tag must therefore be at least `minor`, and its notes must say `docs-examples`
-checks more than it did at v1.0.0.** `git-cliff` will file those three under *Bug Fixes* and
-*Refactor*, which is exactly where a reader will not look for a behaviour change — so the
-note is manual, and this paragraph is what remembers it. Delete this paragraph once that
-release is out; the rule above stays.
+That was discharged by **v1.1.0**, a `minor` carrying an `⚠️ Upgrade note` at the top of its
+`CHANGELOG.md` section that names all three. The dated reminder that stood here is gone, as it
+said it would be.
+
+Two things that release established, both worth keeping. **`git-cliff` files a strictness
+increase wherever its commit type puts it, so the upgrade note is always manual** — and
+`CHANGELOG.md` is where to put it, because `rhiza_release.yml` generates the *GitHub release
+body* separately with `git-cliff --latest` from commits, so a note added here does **not** reach
+it. And **`git-cliff --prepend` eats this file's `# Changelog` heading**: prior sections survive,
+the title does not, so restore it and diff before committing. Both of v1.1.0's prepends did it.
