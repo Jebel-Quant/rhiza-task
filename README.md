@@ -115,7 +115,7 @@ race, never on 1/2/4), `mutation` (run/html/move/results, reporting the *first* 
 |---|---|
 | `spec.py` | `Task`, `Guard`, `Skip`/`Failed`, the `@task` registry, layer resolution |
 | `config.py` | six-layer resolution, replacing `?=` and `+=` |
-| `uv.py` | the three ways rhiza reaches a tool |
+| `uv.py` | the four ways rhiza reaches a tool: `uv`, `uvx`, `uv run --with`, and `tool` for a cargo/go binary already on PATH |
 | `runner.py` | prerequisite dedup, guards, outcome bookkeeping |
 | `cli.py` | Typer app, generated from the registry |
 | `tasks/*.py` | the gates themselves, loaded by entry point |
@@ -197,10 +197,12 @@ audit - run the in-house audit
 ('install',) source_folder Quality
 ```
 
-That last pair of blocks is executed and diffed, not just rendered: the `result` block is
-compared against the fences' real output by the same convention `rhiza-task rhiza-test`
-applies to every docstring's `>>>` examples. A change to `lookup`, to `Task`, or to the
-decorator above breaks the README rather than quietly outdating it.
+That last pair of blocks is executed and diffed, not just rendered: `rhiza-task rhiza-test`
+runs the `python` fences and compares their real output against the `result` block. The copy
+of the same pair in the book's [Adding a Task](https://jebel-quant.github.io/rhiza-task/adding_a_task/)
+page is diffed by `rhiza-task docs-examples`, which owns the docs tree for the same reason.
+A change to `lookup`, to `Task`, or to the decorator above breaks a build rather than quietly
+outdating a page.
 
 A one-off that is only ever a make target goes in `local.mk` — but that file is in core's
 `.gitignore`, so it holds developer-local targets only. A repo-owned target CI invokes
@@ -253,7 +255,9 @@ repeating it:
 | [Adding a Task](https://jebel-quant.github.io/rhiza-task/adding_a_task/) | guards, outcomes, and which of the four provisioning forms to reach for |
 | [Migrating from make](https://jebel-quant.github.io/rhiza-task/migration/) | the three steps, and the fragment-relocation trap that silently drops targets |
 | [FAQ](https://jebel-quant.github.io/rhiza-task/faq/) | the failure modes, and what each one actually means |
+| [Design](https://jebel-quant.github.io/rhiza-task/design/) | where the evidence came from — jointview, the repo the comments cite by name — and why exactly four recipes resisted the declarative form |
 | [API Reference](https://jebel-quant.github.io/rhiza-task/api/) | the modules, generated from the docstrings that carry the reasoning |
+| [Paper](https://jebel-quant.github.io/rhiza-task/paper/paper.pdf) | the argument written up long-form, compiled by `rhiza-task paper` into the book |
 
 It is built by the `book` task itself — `mkdocs.yml` at the root is what turns that task
 from a skip into a build — and published by `.github/workflows/rhiza_book.yml` on every
@@ -269,23 +273,45 @@ uv run rhiza-task serve    # build, then serve on http://localhost:8000
 ```bash
 uv sync --all-groups
 uv run pytest              # the fast inner loop
-uv run rhiza-task all      # run before pushing: every gate, as CI runs them
+uv run rhiza-task all      # every gate `all` names, as CI runs them
 ```
 
 `uv run rhiza-task all` is the pre-push check, and it is what `ci.yml`'s `gates` job runs
-— deptry, the 100% coverage floor, interrogate, bandit, the copyleft scan, `ty` and
-`rhiza-test` on top of the suite. `uv run pytest` alone is strictly weaker than the check
-that will fail a pull request, so a green pytest is not yet a green PR. This repo exists to
-provide that aggregate, so it gates itself with it.
+— the pre-commit hooks, deptry, the 100% coverage floor, interrogate, bandit, the copyleft
+scan, `ty` and `rhiza-test` on top of the suite. That job then names the two gates that sit
+outside `all` on purpose, `complexity` and `docs-examples`, because adding either as an
+`all` prerequisite would fail builds in consumer repositories that changed nothing. So the
+full pre-push sequence is three commands:
 
-The examples above are checked, not decorative — `rhiza-task rhiza-test` runs the `>>>`
-examples in `config.py`, `runner.py` and `spec.py` and diffs this README's `python` fences
-against its `result` block. Both need the project environment, since the fences import the
-package: `uv run` rather than a bare interpreter.
+```bash
+uv run rhiza-task all
+uv run rhiza-task complexity
+uv run rhiza-task docs-examples
+```
 
-No test in the suite runs uv. Every task test patches the three entry points in `uv.py`
-and asserts on the argument vector that would have been executed — which is exactly what
-the make recipes expressed in `$$`-escaped shell, and could not assert.
+`uv run pytest` alone is strictly weaker than the check that will fail a pull request, so a
+green pytest is not yet a green PR. This repo exists to provide that aggregate, so it gates
+itself with it.
+
+The examples in this file are checked, not decorative, and three different gates own three
+different sets of them:
+
+| examples | gate |
+|---|---|
+| this README's `python` fences, diffed against its `result` block | `rhiza-task rhiza-test`, via pytest-rhiza's `test_readme_validation` |
+| every fence under `docs/` — `python` compiled, `bash` parsed, `result` diffed | `rhiza-task docs-examples` |
+| the 39 `>>>` examples in `config.py`, `runner.py` and `spec.py` | `tests/test_doctests.py`, under plain `pytest` |
+
+`rhiza-test` is not what runs the docstring examples, which is worth knowing because it
+reads as though it should: pytest-rhiza's `test_docstrings` asks whether a docstring exists
+and is well-formed, and `interrogate` asks the same presence question at 100%. Neither
+evaluates a `>>>`. All three gates need the project environment, since the examples import
+the package: `uv run` rather than a bare interpreter.
+
+No test in the suite runs uv. Every task test patches the four entry points in `uv.py` —
+`uv`, `uvx`, `uv_run` and `tool` — and asserts on the argument vector that would have been
+executed, which is exactly what the make recipes expressed in `$$`-escaped shell and could
+not assert.
 
 `CLAUDE.md` carries the rest: the layering invariant the import graph holds by discipline,
 why the 100% coverage floor is load-bearing rather than decorative, and the house rule on
