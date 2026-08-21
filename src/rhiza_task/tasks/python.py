@@ -3,10 +3,15 @@
 python.mk is 312 lines, over half of the synced make. Most of it converts to the
 declarative form in :mod:`rhiza_task.spec`; ``test`` is the one recipe that does not, and
 it is written out in full below.
+
+``complexity`` is the one task here with no make ancestor. It lives in this module because
+radon is a Python tool and the gate is therefore Python-layer, even though its section is
+``Quality`` alongside the neutral gates it reads like.
 """
 
 from __future__ import annotations
 
+import json
 import shutil
 
 from ..config import Config
@@ -351,6 +356,94 @@ def docs_coverage(cfg: Config) -> None:
     )
 
 
+@task(
+    "complexity",
+    "fail on a block above the cyclomatic-complexity ceiling",
+    section="Quality",
+    layer="python",
+    guards=(Guard("source_folder"),),
+)
+def complexity(cfg: Config) -> None:
+    """Fail when any block's cyclomatic complexity exceeds :attr:`Config.complexity_max`.
+
+    The one task here that is not a python.mk port. It exists because this repository's own
+    convention -- a C-ranked block carries a comment arguing why the flat form is preferred
+    -- committed to a *number* in ``config.py``, and nothing read it back. A stated ceiling
+    that only a human checks is the same shape as a doctest no gate executes: correct today,
+    stale-proof only by discipline, in the one place growth is expected.
+
+    Why the report goes through a file rather than a pipe: radon's verdict is a number per
+    block, so the gate has to read its output, and ``-O`` is how radon hands output to
+    something other than a terminal. That keeps the invocation a fixed argument vector with
+    no shell and no capturing variant of :func:`~rhiza_task.uv.uvx` -- the same reason every
+    other call in this package is one.
+
+    ``closures`` is deliberately not walked. radon only fills it under ``--show-closures``,
+    which is not passed, so a nested function's complexity is already counted in its
+    parent's -- walking the empty list would suggest a coverage this gate does not have.
+
+    Args:
+        cfg: The resolved config.
+
+    Raises:
+        Skip: When radon produced no report, so nothing was measured.
+        Failed: When at least one block is above the ceiling.
+    """
+    report = cfg.root / "_tests" / "complexity.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    # Stale data first, for the reason `test` unlinks `.coverage*`: a report left by an
+    # earlier run would be read as this run's verdict if radon failed to write.
+    report.unlink(missing_ok=True)
+
+    uvx("radon", "cc", cfg.source_folder, "--json", "--output-file", str(report), cwd=cfg.root)
+    if not report.is_file():
+        raise Skip("radon wrote no report")
+
+    over = _over_ceiling(json.loads(report.read_text()), cfg.complexity_max)
+    for label, score in over:
+        print(f"{label}: {score}")
+    if over:
+        raise Failed(1, f"{len(over)} block(s) above the complexity ceiling of {cfg.complexity_max}")
+    print(f"[INFO] no block above the complexity ceiling of {cfg.complexity_max}")
+
+
+def _over_ceiling(measured: dict[str, object], ceiling: int) -> list[tuple[str, int]]:
+    """Return the blocks above ``ceiling``, worst first.
+
+    radon keys its JSON by path, and the value is either a list of blocks or -- for a file
+    it could not parse -- a dict carrying an ``error``. The dict is skipped rather than
+    raised on: an unparseable file is ruff's finding to report, and failing the complexity
+    gate for it would put one syntax error behind two red gates.
+
+    Args:
+        measured: radon's parsed ``cc --json`` output.
+        ceiling: The highest complexity a block may have.
+
+    Returns:
+        ``(label, complexity)`` pairs, highest complexity first, then by label so the
+        ordering is total and the output is diffable between runs.
+    """
+    over: list[tuple[str, int]] = []
+    for path, blocks in measured.items():
+        if not isinstance(blocks, list):
+            continue
+        for block in blocks:
+            score = int(block["complexity"])
+            if score <= ceiling:
+                continue
+            qualified = f"{block['classname']}.{block['name']}" if block.get("classname") else block["name"]
+            over.append((f"{path}:{block['lineno']} {qualified}", score))
+    return sorted(over, key=lambda item: (-item[1], item[0]))
+
+
+# `complexity` is deliberately *not* a prerequisite below, and the reason is semver rather
+# than doubt about the gate. `all` is the aggregate every consumer's CI invokes, so adding a
+# prerequisite to it fails builds in repositories that changed nothing -- a breaking change
+# shipped as a feature. A consumer opts in by naming it, in `all`'s own `[tool.rhiza-task]`
+# repo or in a workflow step, and this repository does the latter in ci.yml's `gates` job.
+#
+# Stated here for the reason ci.yml states the same thing about `semgrep`: a reader has to
+# be able to tell "outside `all` on purpose" from "forgotten".
 @task(
     "all",
     "run every gate, as CI does",

@@ -124,6 +124,7 @@ exports one for every caller and deliberately leaves it empty for consumers, who
 | setting | default | what |
 |---|---|---|
 | `coverage_fail_under` | `90` | the coverage floor, enforced wherever `test` runs |
+| `complexity_max` | `15` | the cyclomatic-complexity ceiling `complexity` enforces |
 | `typechecker` | `ty` | `ty`, `mypy` or `both` |
 | `license_fail_on` | `("GPL", "LGPL", "AGPL")` | matched as **substrings** |
 | `license_ignore_packages` | `()` | packages exempt from the copyleft scan |

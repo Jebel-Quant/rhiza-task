@@ -154,6 +154,17 @@ class Config:
 
     coverage_fail_under: int = 90
 
+    # The ceiling the ``complexity`` gate enforces, as radon's own cyclomatic-complexity
+    # number rather than its A-F rank. A number and not a rank because rank C spans 11-20,
+    # which is too coarse to hold a decision: this repository's four deliberate C blocks
+    # sit at 12-14, and a gate that accepted the whole of C would accept 20 without anyone
+    # choosing it. 15 is what src/rhiza_task/config.py's own note commits to.
+    #
+    # Above the default rather than at it is the normal case for a consumer: 15 is a
+    # ceiling for a codebase that already argues its C blocks in comments, and a repo that
+    # does not should either raise it or not run the gate.
+    complexity_max: int = 15
+
     # ty | mypy | both. python.mk documents that ``both`` masks ty's exit status behind
     # mypy's, and jointview sets ``ty`` in .rhiza/.env for that reason. The shell ``case``
     # whose fourth branch validated this is replaced by __post_init__, so a typo now fails
@@ -227,23 +238,27 @@ class Config:
 
     root: Path = field(default_factory=Path.cwd)
 
-    # radon scores this method C (12): one branch per field that needs normalising or
+    # radon scores this method C (13): one branch per field that needs normalising or
     # checking -- str and list coercion, layer defaulting and membership, rhiza_checks
-    # defaulting, typechecker, coverage_fail_under. It is a flat sequence, one field per
-    # step, with no interaction between the steps; the count grows with the number of
-    # validated settings and not with the depth of anything. Deliberate.
+    # defaulting, typechecker, coverage_fail_under, complexity_max. It is a flat sequence,
+    # one field per step, with no interaction between the steps; the count grows with the
+    # number of validated settings and not with the depth of anything. Deliberate.
     #
     # Unlike the other three C blocks here, that growth rule needs a stated ceiling, and
     # the ceiling is **C (15)**. `_run_one` is bounded by the size of `Status` and
     # `Guard.check` by the number of guard kinds -- closed sets, so their figures cannot
     # drift far. "One branch per validated setting" is not a closed set: every future
     # setting adds one, and a justification with no limit is an open licence rather than a
-    # decision. At 15 -- roughly three more settings -- the flat form stops paying for
+    # decision. At 15 -- roughly two more settings -- the flat form stops paying for
     # itself, and the answer is per-group helpers (`_validate_layers`,
     # `_validate_typechecker`, `_validate_coverage`) called in sequence from here, which
     # keeps the readable one-field-per-step order while bounding each block.
     #
-    # `uvx radon cc src -a -s` is the check; nothing gates it, so this is discipline.
+    # 12 became 13 when `complexity_max` arrived -- the setting that configures the gate
+    # now watching this number, which is the point rather than an irony: `rhiza-task
+    # complexity` is what turns the paragraph above from discipline into a gate, so the
+    # next setting to cross 15 fails a build instead of going unnoticed. `uvx radon cc src
+    # -a -s` remains the way to read the figure by hand.
     def __post_init__(self) -> None:
         """Normalise the list fields, then validate the enumerated and numeric ones.
 
@@ -262,8 +277,9 @@ class Config:
 
         Raises:
             ValueError: When ``typechecker`` is not one of ty, mypy, both,
-                ``coverage_fail_under`` is outside 0-100, ``layers`` names a layer that
-                does not exist, or a ``*_folder`` escapes :attr:`root`.
+                ``coverage_fail_under`` is outside 0-100, ``complexity_max`` is below 1,
+                ``layers`` names a layer that does not exist, :attr:`root` is not an
+                existing directory, or a ``*_folder`` escapes it.
         """
         for f in fields(self):
             if str(f.type).replace(" ", "") != "tuple[str,...]":
@@ -289,8 +305,41 @@ class Config:
         if not 0 <= int(self.coverage_fail_under) <= 100:
             msg = f"coverage_fail_under must be a percentage (got {self.coverage_fail_under!r})"
             raise ValueError(msg)
+        if int(self.complexity_max) < 1:
+            msg = f"complexity_max must be at least 1 (got {self.complexity_max!r})"
+            raise ValueError(msg)
 
+        # Two calls rather than two more `if`s, and not only for tidiness: this method is
+        # the one whose branch count has a stated ceiling, so validation that needs its own
+        # branches goes in a helper where it costs nothing here. A call is not a decision
+        # point, so `__post_init__` stays at C (13) with both of these in front of it.
+        self._validate_root()
         self._validate_folders()
+
+    def _validate_root(self) -> None:
+        """Reject a :attr:`root` that is not an existing directory.
+
+        Every other setting is validated here and this one was not, so a mistyped ``--root``
+        travelled all the way into a task body and surfaced as whatever the first tool did
+        with a working directory that is not there: ``FileNotFoundError`` from
+        ``subprocess._execute_child`` for a gate that shells out, ``NotADirectoryError`` from
+        ``Path._scandir`` for one that walks the tree. Both are tracebacks through a private
+        stdlib frame, and neither names the flag the user got wrong.
+
+        The two cases are separated because they are different mistakes: a path that is not
+        there is usually a typo, and a path that is a file is usually a missing ``dirname``.
+
+        Deliberately not folded into :meth:`_validate_folders`. That method asks whether a
+        *setting* escapes the root, which presupposes there is a root to escape -- so this
+        has to run first, and merging them would make one message answer two questions.
+
+        Raises:
+            ValueError: When ``root`` does not exist, or exists and is not a directory.
+        """
+        if not self.root.is_dir():
+            reason = "is not a directory" if self.root.exists() else "does not exist"
+            msg = f"root {str(self.root)!r} {reason}"
+            raise ValueError(msg)
 
     def _validate_folders(self) -> None:
         """Reject a ``*_folder`` setting that resolves outside :attr:`root`.

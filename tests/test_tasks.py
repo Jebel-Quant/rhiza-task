@@ -6,6 +6,7 @@ the make recipes said in ``$$``-escaped shell.
 
 from __future__ import annotations
 
+import json
 import shutil
 from dataclasses import replace
 from pathlib import Path
@@ -742,3 +743,207 @@ class TestPyprojectStructure:
         for loud in ("--tb=long", "--showlocals", "-rA", "--durations=0", "--no-header"):
             assert loud in call.flags
         assert call.kwargs["withs"] == (cfg.pytest_rhiza,)
+
+
+class TestComplexity:
+    """The one Python-layer gate with no make ancestor.
+
+    Every other test here asserts the vector and stops, because the vector is the contract.
+    This gate reads a *value* back -- radon's per-block numbers -- so ``uvx`` is patched to
+    behave like radon and write a report, and the assertions are about the verdict the task
+    reaches from it. Same reason ``capture`` is patched for the Go coverage gate.
+    """
+
+    @staticmethod
+    def _radon(monkeypatch: pytest.MonkeyPatch, payload: object | None) -> list[tuple[str, ...]]:
+        """Patch ``uvx`` to write ``payload`` to the file the task's vector names.
+
+        Args:
+            monkeypatch: pytest's patcher.
+            payload: The object to serialise as radon's report, or None to write nothing --
+                which is how a radon that produced no output is simulated.
+
+        Returns:
+            The argument vectors the task passed, tool name first, in invocation order.
+        """
+        seen: list[tuple[str, ...]] = []
+
+        def fake(tool: str, *args: str, cwd: Path, **kwargs: object) -> int:
+            """Record the vector and stand in for radon's ``--output-file``.
+
+            Args:
+                tool: The tool name.
+                *args: Its arguments.
+                cwd: Working directory, unused.
+                **kwargs: Ignored.
+
+            Returns:
+                0, as a successful radon does.
+            """
+            seen.append((tool, *args))
+            if payload is not None:
+                Path(args[args.index("--output-file") + 1]).write_text(json.dumps(payload))
+            return 0
+
+        monkeypatch.setattr(python, "uvx", fake)
+        return seen
+
+    @staticmethod
+    def _block(name: str, score: int, line: int = 10, classname: str | None = None) -> dict[str, object]:
+        """Build one entry shaped like radon's JSON blocks.
+
+        Args:
+            name: The block's own name.
+            score: Its cyclomatic complexity.
+            line: The line it starts on.
+            classname: The owning class, for a method; omitted entirely for a function,
+                because radon omits the key rather than setting it to None.
+
+        Returns:
+            A block dict.
+        """
+        block: dict[str, object] = {"type": "function", "complexity": score, "lineno": line, "name": name}
+        if classname is not None:
+            block["classname"] = classname
+        return block
+
+    def test_asks_radon_for_json_in_a_file(self, cfg: Config, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The vector names ``--json`` and an ``--output-file``, so nothing needs a pipe.
+
+        This is the assertion that keeps the gate free of a capturing ``uvx``: a change that
+        reached for a pipe instead would have to change this vector.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+        """
+        seen = self._radon(monkeypatch, {})
+        python.complexity(cfg)
+        assert seen[0][:5] == ("radon", "cc", "src", "--json", "--output-file")
+        assert Path(seen[0][5]) == cfg.root / "_tests" / "complexity.json"
+
+    def test_passes_when_every_block_is_at_or_below_the_ceiling(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The ceiling is inclusive: a block *at* the maximum is not a finding.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        self._radon(monkeypatch, {"src/a.py": [self._block("wide", 15), self._block("narrow", 1)]})
+        python.complexity(replace(cfg, complexity_max=15))
+        assert "no block above the complexity ceiling of 15" in capsys.readouterr().out
+
+    def test_fails_on_a_block_above_the_ceiling(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """One block over the line fails the gate and is named with its file and line.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        self._radon(monkeypatch, {"src/a.py": [self._block("sprawling", 16, line=42)]})
+        with pytest.raises(Failed, match=r"1 block\(s\) above the complexity ceiling of 15"):
+            python.complexity(replace(cfg, complexity_max=15))
+        assert "src/a.py:42 sprawling: 16" in capsys.readouterr().out
+
+    def test_honours_a_raised_ceiling(self, cfg: Config, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The ceiling is a setting, so a consumer that wants 20 gets 20.
+
+        The gate would be unusable outside this repository otherwise: 15 is a ceiling for a
+        codebase that already argues its C blocks in comments.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+        """
+        self._radon(monkeypatch, {"src/a.py": [self._block("sprawling", 18)]})
+        python.complexity(replace(cfg, complexity_max=20))
+
+    def test_reports_a_method_by_its_qualified_name(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A method reads as ``Class.method``, which is how radon's own text output reads.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        self._radon(monkeypatch, {"src/a.py": [self._block("check", 20, line=7, classname="Guard")]})
+        with pytest.raises(Failed):
+            python.complexity(cfg)
+        assert "src/a.py:7 Guard.check: 20" in capsys.readouterr().out
+
+    def test_orders_the_worst_block_first(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Findings are ordered by complexity, then by label, so the output is diffable.
+
+        The tie-break matters: dict order follows radon's file walk, so without it the same
+        two findings could swap places between runs and read as a change.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        self._radon(
+            monkeypatch,
+            {
+                "src/b.py": [self._block("tie", 17)],
+                "src/a.py": [self._block("worst", 30), self._block("tie", 17)],
+            },
+        )
+        with pytest.raises(Failed, match="3 block"):
+            python.complexity(cfg)
+        lines = [line for line in capsys.readouterr().out.splitlines() if line.startswith("src/")]
+        assert [line.rsplit(": ", 1)[1] for line in lines] == ["30", "17", "17"]
+        assert lines[1].startswith("src/a.py")
+
+    def test_skips_a_file_radon_could_not_parse(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """An unparseable file is an error dict, not a list, and is not this gate's finding.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        self._radon(monkeypatch, {"src/broken.py": {"error": "invalid syntax"}})
+        python.complexity(cfg)
+        assert "no block above the complexity ceiling" in capsys.readouterr().out
+
+    def test_skips_when_radon_wrote_no_report(self, cfg: Config, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Nothing measured is a skip, not a pass -- ``--strict`` is what promotes it.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+        """
+        self._radon(monkeypatch, None)
+        with pytest.raises(Skip, match="radon wrote no report"):
+            python.complexity(cfg)
+
+    def test_discards_a_report_left_by_an_earlier_run(self, cfg: Config, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A stale report is removed before radon runs, so it cannot be read as this verdict.
+
+        Reaching Skip rather than Failed is the assertion: the pre-written report says a
+        block scores 99, and a gate that re-read it would fail instead.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+        """
+        stale = cfg.root / "_tests" / "complexity.json"
+        stale.parent.mkdir(parents=True, exist_ok=True)
+        stale.write_text(json.dumps({"src/a.py": [self._block("sprawling", 99)]}))
+
+        self._radon(monkeypatch, None)
+        with pytest.raises(Skip):
+            python.complexity(cfg)

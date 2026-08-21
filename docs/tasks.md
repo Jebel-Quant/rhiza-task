@@ -89,9 +89,21 @@ and checks the floor itself.
 | `rhiza-test` | `install` | run the rhiza repository checks |
 | `test-pyproject` | `install` | run the `pyproject.toml` structure checks, verbosely |
 | `todos` | — | list every TODO, FIXME and HACK comment |
+| `complexity` | — | fail on a block above the cyclomatic-complexity ceiling |
 
 `fmt` skips without a `.pre-commit-config.yaml`, and `semgrep` without a
 `.rhiza/semgrep.yml`. Neither is a defect — see [Skip is an outcome](#skip-is-an-outcome).
+
+`complexity` is the one task in this section that is Python-only: it runs `radon`, so it is
+registered in the `python` layer even though it reads like a neutral gate. It measures every
+block in `source_folder` and fails when one scores above
+[`complexity_max`](configuration.md#gates-and-thresholds) (default `15`).
+
+It is deliberately **not** a prerequisite of `all`. `all` is the aggregate a consumer's CI
+invokes, so adding a gate to it would fail builds in repositories that changed nothing —
+name `complexity` in a workflow step to opt in, as this repository's `ci.yml` does. A repo
+whose blocks are larger should raise the ceiling rather than skip the gate; 15 suits a
+codebase that already argues its complex blocks in comments.
 
 `rhiza-test` runs the checks that used to live in a synced `.rhiza/tests/` folder, now
 provisioned as [`pytest-rhiza`](https://github.com/jebel-quant/pytest-rhiza). Which checks
