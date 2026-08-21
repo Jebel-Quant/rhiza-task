@@ -53,7 +53,7 @@ lookup("test", ["rust", "python"]).key  # 'rust:test'
 that did not win:
 
 ```bash
-uvx rhiza-task@1.0.0 rust:test
+uvx rhiza-task@1.1.0 rust:test
 ```
 
 Pinning the layer list does the same thing globally:
@@ -75,7 +75,7 @@ layer showed, having synced exactly one fragment.
 `--all` answers the question the make layer could not:
 
 ```bash
-uvx rhiza-task@1.0.0 list --all   # what the layers you do not have call things
+uvx rhiza-task@1.1.0 list --all   # what the layers you do not have call things
 ```
 
 ## A missing name is `None`, not an error

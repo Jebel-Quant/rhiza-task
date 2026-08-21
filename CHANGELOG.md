@@ -1,5 +1,113 @@
 # Changelog
 
+## [1.1.0] - 2026-08-21
+
+### ⚠️ Upgrade note
+
+`docs-examples` checks more than it did at v1.0.0, so a repository whose documentation passed
+that gate can see it go red on upgrade without having changed anything. That is the gate
+working, not a regression. Three changes compound:
+
+- **`toml` and `yaml` fences are parsed**, where they were previously counted as uncheckable.
+  A malformed configuration example under the docs folder now fails.
+- **`README.md`'s `toml` and `yaml` fences are checked too.** Its `python` and `bash` fences
+  remain pytest-rhiza's, under `rhiza-test`, so no fence is checked twice.
+- **A yaml checker that crashes now fails** instead of reporting "parser unavailable", which
+  passed.
+
+To see what a repository would report before upgrading, run `uvx rhiza-task@1.1.0 docs-examples`
+against it.
+
+This note is here because the three changes landed as `fix:` and `refactor:` commits, so the
+generated sections below file them where a reader does not look for a behaviour change. The
+convention that a gate getting stricter is a `feat:` was written down after the fact, in
+`CLAUDE.md`.
+
+
+### 🚀 Features
+
+- *(book)* Add the mkdocs book, built by the existing book task
+- Gate the docs tree's fenced examples, and correct four drifted figures
+
+### 🐛 Bug Fixes
+
+- *(bumpversion)* Relock, and carry uv.lock through the bump
+- *(runner)* Propagate the failing task's own exit status
+- Contain *_folder settings, record the unwired gates, fold a deferred import
+- *(security)* Stop the security gate warning about this repo's own suppressions
+- Reject a --root that is not an existing directory
+- Stop publishing local build paths in the book's reports
+- Close the seven findings from the quality run
+- Decompose Guard to A (5), and retire the orphaned Scorecard comments
+- Close the three findings from the quality run
+- Close the three regressions the quality re-run found
+- Check README's data fences, which nothing was checking
+- Bump the version pins in docs/, not just README.md
+- Let a release PR go green by deselecting the tag-version check
+
+### 💼 Other
+
+- Add a pre-commit config, so fmt measures something
+- Raise the coverage floor to 100, and make the stronger claim it unlocks
+- Automate the pins, test the parsing, and write down the invariants
+- Bump the actions group with 3 updates
+- Pin this repo's typechecker rather than inheriting the default
+- Run both typecheckers, and fix the one finding mypy --strict adds
+
+### 🚜 Refactor
+
+- Promote the name normaliser, and record why Python's security gate differs
+- Extract the fence checker into tasks/fences.py
+- Promote task_modules, and say where the layering rules stop
+
+### 📚 Documentation
+
+- *(readme)* Add five badges and cut the prose back by a fifth
+- Make the examples executable, and declare the layout opt-out
+- Say why the four C-complexity blocks are shaped as they are
+- Link the book and widen the package description
+- *(ci)* Correct the comments the pre-commit config made stale
+- *(design)* Introduce jointview, so the comments citing it have an antecedent
+- *(build)* Fix the stale premise about how the opt-out reason spells its floor
+- Give Config.__post_init__'s growth rule a ceiling
+- Add a security policy
+- Correct the --strict answer, which had gone stale twice
+- Link upstream's decision records from the design page
+- Add docs/paper/paper.tex describing the package
+- Publish the compiled paper in the mkdocs book
+- Correct drifted figures and split the three example gates
+- Describe the toml and yaml fence checks in tasks.md
+- Record why fences.py is the largest module in src/
+- Make commit types release evidence, and flag the pending minor
+- CLAUDE.md still said four entry points
+
+### 🧪 Testing
+
+- Assert exit-status and outcome contracts, not only argument vectors
+- Assert the propagated exit code, not the collapsed one
+- Cover the last 37 statements, without touching src
+- Execute the 39 doctests, so the documented contracts are gated
+- Cover the two defensive except branches, retiring their pragmas
+- Assert the installed version matches the declared one
+- Stub capture too, and assert the hermeticity guarantee
+
+### ⚙️ Miscellaneous Tasks
+
+- *(bumpversion)* Keep the README's `rhiza-task@` pin in step
+- *(release)* Re-sync from rhiza v1.4.2, keeping the local trim
+- Adopt rhiza's scorecard, codeql and quality-review stubs
+- Test both ends of the declared dependency range
+- Enforce ruff.toml in a gate CI runs
+- Lift the book and paper workflows from rhiza
+- Invoke the CLI end-to-end on every matrix leg, not just ubuntu
+- SHA-pin the two reusable workflow calls
+- Add CODEOWNERS and the branch and tag ruleset definitions
+- Add an editorconfig
+- Close the four gaps /quality found, and gate the complexity ceiling
+- Drop the two upstream workflow delegations, and correct CLAUDE.md
+- Install TeX Live on the ref the book deploys, fixing the paper 404
+# Changelog
+
 ## [1.0.0] - 2026-08-20
 
 ### 🚀 Features
