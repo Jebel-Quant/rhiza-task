@@ -1739,6 +1739,74 @@ class TestDocsExamples:
         assert len(seen) == 1
         assert "2 file(s), 2 fence(s): 2 checked" in capsys.readouterr().out
 
+    def test_checks_the_readme_data_fences_and_not_its_code_fences(self, cfg: Config) -> None:
+        """README contributes toml and yaml only, because pytest-rhiza owns its code fences.
+
+        The division is by *language* rather than by file, which is what lets both gates cover
+        README without two of them reporting one fact. pytest-rhiza's
+        ``test_readme_validation`` parses the python and shell fences; its module has no
+        reference to toml or yaml, which is the gap this closes.
+
+        Args:
+            cfg: The resolved config.
+        """
+        (cfg.root / "README.md").write_text(
+            "```python\nx = 1\n```\n\n```bash\nls\n```\n\n```toml\na = 1\n```\n\n```yaml\nb: 2\n```\n"
+        )
+        found = fence_checker._readme_fences(cfg)
+        assert [fence.language for fence in found] == ["toml", "yaml"]
+
+    def test_tolerates_a_repository_with_no_readme(self, cfg: Config) -> None:
+        """A missing README is not a failure: this gate's subject is the docs tree.
+
+        Args:
+            cfg: The resolved config.
+        """
+        assert not (cfg.root / "README.md").exists()
+        assert fence_checker._readme_fences(cfg) == []
+
+    def test_fails_on_a_broken_readme_toml_fence_and_names_both_scopes(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A malformed toml fence in README fails the gate, and the summary names README.
+
+        The summary matters as much as the failure. Data fences are checked in two places now,
+        so a message naming only the docs folder would point a reader at the wrong file for
+        half of what it reports.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        monkeypatch.setattr(fence_checker.shutil, "which", lambda _name: None)
+        self._docs(cfg, "g.md", "```python\nx = 1\n```\n")
+        (cfg.root / "README.md").write_text("```toml\n[tool.rhiza-task\n```\n")
+        with pytest.raises(Failed, match=r"under docs and README\.md"):
+            quality.docs_examples(cfg)
+        out = capsys.readouterr().out
+        assert "README.md:1: toml fence does not parse" in out
+        assert "README.md: 1 data fence(s) checked" in out
+
+    def test_measures_the_readme_even_when_the_docs_tree_has_nothing(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A README data fence is a measurement, so the gate passes rather than skipping.
+
+        Skipping would say "nothing was checked" while a toml fence had just been parsed --
+        the inverse of the silent-pass this gate exists to prevent, and just as untrue.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        monkeypatch.setattr(fence_checker.shutil, "which", lambda _name: None)
+        self._docs(cfg, "g.md", "```mermaid\ngraph TD;\n```\n")
+        (cfg.root / "README.md").write_text("```toml\na = 1\n```\n")
+        quality.docs_examples(cfg)
+        assert "README.md: 1 data fence(s) checked" in capsys.readouterr().out
+
     def test_is_guarded_on_the_docs_folder(self, cfg: Config) -> None:
         """A repository with no docs tree skips through the guard, rather than failing.
 

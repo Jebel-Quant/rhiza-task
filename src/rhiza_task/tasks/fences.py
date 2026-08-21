@@ -67,6 +67,46 @@ from ..spec import Failed, Skip
 from ..uv import uv_run
 
 
+@dataclass(frozen=True)
+class Scan:
+    """One pass over the documentation, before any checking.
+
+    A record for the reason :class:`Tally` is one: :func:`check` reached C (12) once README
+    joined the sources, which would have made it the third C-ranked block in this package.
+    ``CLAUDE.md`` asks for an argument per C block and this one had none worth making --
+    parsing, checking and reporting are three jobs, and splitting them is the decomposition
+    the metric was pointing at rather than a contortion to satisfy it. Passing the four
+    results positionally between those parts is what a record avoids.
+
+    Attributes:
+        per_file: The docs tree's fences, grouped by file, because a ``result`` block's prelude
+            is the python fences *in its own file* and nowhere else.
+        fences: The same fences, flat. The docs tree only -- the code checkers' subject.
+        readme: ``README.md``'s data fences, and none of its code fences. Empty when there is
+            no README. See :func:`_readme_fences`.
+        bash: Absolute path to bash, or None when it is absent -- resolved once, because its
+            absence must leave the shell fences counted rather than fail the gate.
+    """
+
+    per_file: list[list[Fence]]
+    fences: list[Fence]
+    readme: list[Fence]
+    bash: str | None
+
+    @property
+    def data(self) -> list[Fence]:
+        """Return the fences the data checkers see: the docs tree's and README's together.
+
+        One list rather than a second pass over README, because :func:`_yaml_violations` owns a
+        single scratch folder -- calling it twice would have the second run clobber the first's
+        markers -- and one subprocess for every yaml fence is cheaper anyway.
+
+        Returns:
+            Every fence from both sources.
+        """
+        return self.fences + self.readme
+
+
 def check(cfg: Config) -> None:
     """Run the gate: parse every checkable fence, diff the executed ones, print the inventory.
 
@@ -74,48 +114,93 @@ def check(cfg: Config) -> None:
     itself is registered in :mod:`rhiza_task.tasks.quality` and carries the argument for why
     the gate exists.
 
+    Three steps, each its own function: :func:`_scan` parses, this gathers the violations, and
+    :func:`_verdict` prints and decides. See :class:`Scan` for why that split exists.
+
     Args:
         cfg: The resolved config.
 
     Raises:
-        Skip: When the tree holds no checkable fence, so nothing was measured. A docs tree
-            documenting nothing runnable would otherwise score a silent pass, which is the
-            failure this gate exists to make visible.
+        Skip: When nothing was measured. Documentation carrying nothing runnable would
+            otherwise score a silent pass, which is the failure this gate exists to make
+            visible.
         Failed: When at least one example is broken or stale.
     """
     scratch = cfg.root / "_tests" / "docs-examples"
     scratch.mkdir(parents=True, exist_ok=True)
-    # Resolved once: `bash` is absent on a stock Windows runner, and its absence must leave
-    # the shell fences *unchecked and counted* rather than failing the gate for a fact about
-    # the machine. Same reasoning as `Guard(tool=...)` raising Skip rather than Failed.
-    bash = shutil.which("bash")
+    scan = _scan(cfg)
 
+    # None, not [], when the parser could not be provisioned: an empty list is
+    # "checked, all sound", and reporting a machine's missing network as a clean bill of
+    # health is the one thing this gate must never do. `bash` is handled the same way, in
+    # `_scan`, by the same argument.
+    yaml_broken = _yaml_violations(scan.data, cfg, scratch)
+
+    broken = [
+        *_syntax_violations(scan.fences),
+        *(_shell_violations(scan.fences, scan.bash, scratch) if scan.bash else []),
+        *_toml_violations(scan.data),
+        *(yaml_broken or []),
+        *_result_violations(scan.per_file, cfg, scratch),
+    ]
+    _verdict(cfg, scan, broken, yaml_broken is not None)
+
+
+def _scan(cfg: Config) -> Scan:
+    """Parse every markdown file this gate looks at, and resolve bash once.
+
+    Args:
+        cfg: The resolved config.
+
+    Returns:
+        What was found, as a :class:`Scan`.
+    """
     per_file = [
         _fences(md.relative_to(cfg.root).as_posix(), md.read_text(errors="replace"))
         for md in sorted(cfg.path("docs_folder").rglob("*.md"))
     ]
-    fences = [fence for one_file in per_file for fence in one_file]
+    return Scan(
+        per_file=per_file,
+        fences=[fence for one_file in per_file for fence in one_file],
+        readme=_readme_fences(cfg),
+        # Resolved once: `bash` is absent on a stock Windows runner, and its absence must leave
+        # the shell fences *unchecked and counted* rather than failing the gate for a fact
+        # about the machine. Same reasoning as `Guard(tool=...)` raising Skip rather than
+        # Failed.
+        bash=shutil.which("bash"),
+    )
 
-    # None, not [], when the parser could not be provisioned: an empty list is
-    # "checked, all sound", and reporting a machine's missing network as a clean bill of
-    # health is the one thing this gate must never do. `bash` is handled the same way one
-    # line above, by the same argument.
-    yaml_broken = _yaml_violations(fences, cfg, scratch)
 
-    broken = [
-        *_syntax_violations(fences),
-        *(_shell_violations(fences, bash, scratch) if bash else []),
-        *_toml_violations(fences),
-        *(yaml_broken or []),
-        *_result_violations(per_file, cfg, scratch),
-    ]
+def _verdict(cfg: Config, scan: Scan, broken: list[str], yaml_ran: bool) -> None:
+    """Print the violations and the inventory, then raise the outcome.
+
+    Args:
+        cfg: The resolved config.
+        scan: What :func:`_scan` found.
+        broken: Every violation message, in the order they were gathered.
+        yaml_ran: Whether the yaml parser could be provisioned.
+
+    Raises:
+        Skip: When nothing was measured, so a pass would mean nothing.
+        Failed: When at least one example is broken or stale.
+    """
     for violation in broken:
         print(violation)
 
-    if not _report(fences, bash, yaml_broken is not None, len(per_file)):
+    measured = _report(scan.fences, scan.bash, yaml_ran, len(scan.per_file))
+    if scan.readme:
+        # Its own line, and outside the inventory above, because README contributes only its
+        # data fences: folding two of its ten into "12 file(s), 64 fence(s)" would read as
+        # full coverage of a file this gate deliberately only half-looks at.
+        print(f"[INFO] README.md: {len(scan.readme)} data fence(s) checked; its code fences are pytest-rhiza's")
+    if not measured and not scan.readme:
         raise Skip(f"no checkable fence under {cfg.docs_folder}")
     if broken:
-        raise Failed(1, f"{len(broken)} broken example(s) under {cfg.docs_folder}")
+        # `and README.md` rather than only the docs folder: since data fences are checked in
+        # both, a summary naming one scope would point a reader at the wrong file for half the
+        # failures it reports. The per-violation lines above carry the real locations.
+        scope = f"{cfg.docs_folder} and README.md" if scan.readme else cfg.docs_folder
+        raise Failed(1, f"{len(broken)} broken example(s) under {scope}")
 
 
 # Deliberately permissive about what follows the language: mkdocs-material accepts
@@ -186,6 +271,18 @@ for number, where in enumerate((here / "index.txt").read_text().splitlines()):
 (here / "report.txt").write_text("\\n".join(broken))
 """
 
+# The languages this gate checks in ``README.md`` as well as under the docs folder, and the
+# reason is a gap rather than a preference. ``README.md`` is pytest-rhiza's subject -- its
+# ``test_readme_validation`` runs under `rhiza-test` -- so this gate has always left the file
+# alone to keep one verdict per fact. But that module contains no reference to `toml` or
+# `yaml` at all, so README's data fences were checked by *nothing*: both of this repository's
+# are `[tool.rhiza-task]` and `rhiza.toml` examples naming real settings, which is exactly the
+# class that goes stale when a setting is renamed. See issue #112.
+#
+# So the two gates divide by *language* rather than by file, which keeps the no-double-verdict
+# rule intact and statable: pytest-rhiza owns README's code fences, this owns data fences
+# everywhere. Should pytest-rhiza ever learn toml, this set is the one place to narrow.
+DATA_FENCE_LANGUAGES = YAML_FENCE_LANGUAGES | {TOML_FENCE_LANGUAGE}
 CHECKED_FENCE_LANGUAGES = (
     SHELL_FENCE_LANGUAGES | YAML_FENCE_LANGUAGES | {PYTHON_FENCE_LANGUAGE, RESULT_FENCE_LANGUAGE, TOML_FENCE_LANGUAGE}
 )
@@ -275,6 +372,31 @@ def _fences(path: str, text: str) -> list[Fence]:
             continue
         body.append(line)
     return fences
+
+
+def _readme_fences(cfg: Config) -> list[Fence]:
+    """Return ``README.md``'s data fences, and none of its code fences.
+
+    The filter is the whole function. ``README.md`` belongs to pytest-rhiza's
+    ``test_readme_validation``, which parses its python and shell fences, so taking the whole
+    file would make two gates report one fact -- the thing this gate has always refused to do.
+    Taking only the languages that module does not know about closes the gap without creating
+    the overlap: see :data:`DATA_FENCE_LANGUAGES` for why those are toml and yaml.
+
+    Absent rather than required: a repository need not have a README, and this gate's subject
+    is the docs tree.
+
+    Args:
+        cfg: The resolved config.
+
+    Returns:
+        The toml and yaml fences in ``README.md``, or an empty list when there is no README.
+    """
+    readme = cfg.root / "README.md"
+    if not readme.is_file():
+        return []
+    found = _fences("README.md", readme.read_text(errors="replace"))
+    return [fence for fence in found if fence.language in DATA_FENCE_LANGUAGES]
 
 
 def _syntax_violations(fences: list[Fence]) -> list[str]:
