@@ -79,6 +79,40 @@ TOML_FENCE_LANGUAGE = "toml"
 # failed to name would be silently counted as unchecked rather than parsed -- the exact
 # silence this gate exists to break.
 YAML_FENCE_LANGUAGES = frozenset({"yaml", "yml"})
+
+# The driver :func:`_yaml_violations` writes out and runs. A module-level constant with its
+# body at column 0, rather than an indented literal inside that function, and the indentation
+# is the whole point: `CLAUDE.md` documents
+# `grep -rnE '^\s+(from|import) ' src/` as the way to check this package for deferred imports,
+# and tells the reader it returns two lines. An indented `import yaml` inside a string literal
+# matched that pattern and took it to four -- two false positives in the one check the
+# layering invariant is verified by, which is worse than the invariant being unchecked because
+# it teaches the reader to ignore the output. At column 0 nothing matches and the documented
+# count holds.
+#
+# `started.txt` is written before any parsing and `report.txt` after all of it, so the caller
+# can tell three outcomes apart that would otherwise collapse into one: the parser could not
+# be provisioned (no marker at all), the checker ran and crashed (marker, no report), and the
+# checker finished (both). Without the first marker a bug in this script is indistinguishable
+# from a machine with no network, and the gate passes green either way.
+YAML_CHECKER_SCRIPT = """\
+import pathlib
+
+import yaml
+
+here = pathlib.Path(__file__).parent / "yaml"
+(here / "started.txt").write_text("ok")
+broken = []
+for number, where in enumerate((here / "index.txt").read_text().splitlines()):
+    try:
+        yaml.safe_load((here / f"{number:04d}.yaml").read_text())
+    except yaml.YAMLError as exc:
+        # Flattened: a YAMLError's str spans four lines with a caret diagram, and the
+        # report this joins is one line per violation.
+        detail = " ".join(str(exc).split())
+        broken.append(f"{where}: yaml fence does not parse: {detail}")
+(here / "report.txt").write_text("\\n".join(broken))
+"""
 CHECKED_FENCE_LANGUAGES = (
     SHELL_FENCE_LANGUAGES | YAML_FENCE_LANGUAGES | {PYTHON_FENCE_LANGUAGE, RESULT_FENCE_LANGUAGE, TOML_FENCE_LANGUAGE}
 )
@@ -578,6 +612,14 @@ def _yaml_violations(fences: list[Fence], cfg: Config, scratch: Path) -> list[st
     quotes, backslashes, indentation that carries meaning -- where an escaping bug would look
     like a parse failure in the document. Files move the bytes without reinterpreting them.
 
+    Three outcomes, deliberately distinguished by two marker files rather than by an exit
+    status. ``uv`` exits non-zero both when it cannot resolve ``pyyaml`` and when the script it
+    provisioned crashes, so the status alone cannot separate a machine's missing network from
+    this repository's bug -- and collapsing them is the worse error, because "unavailable" is a
+    pass. ``started.txt`` is written immediately after ``import yaml`` and ``report.txt`` after
+    the last fence, so their presence answers it: neither means the parser never arrived, the
+    first alone means the checker died mid-run, and both mean it finished.
+
     Args:
         fences: Every fence in the tree.
         cfg: The resolved config.
@@ -585,8 +627,9 @@ def _yaml_violations(fences: list[Fence], cfg: Config, scratch: Path) -> list[st
 
     Returns:
         Violation messages, one per broken fence; an empty list when the tree holds no yaml
-        fence or every one of them parsed; or None when the parser could not be provisioned,
-        so the caller can report them as unchecked rather than sound.
+        fence or every one of them parsed; a single-item list naming the script when it started
+        and did not finish, which fails the gate; or None when the parser could not be
+        provisioned at all, so the caller can report the fences as unchecked rather than sound.
     """
     targets = [fence for fence in fences if fence.language in YAML_FENCE_LANGUAGES]
     if not targets:
@@ -598,35 +641,16 @@ def _yaml_violations(fences: list[Fence], cfg: Config, scratch: Path) -> list[st
         (folder / f"{number:04d}.yaml").write_text(fence.code)
     (folder / "index.txt").write_text("\n".join(f"{fence.path}:{fence.line}" for fence in targets))
 
+    started = folder / "started.txt"
     report = folder / "report.txt"
-    # Unlinked first: the file's *existence* is how a run that happened is told from one that
-    # never started, so a stale copy from a previous invocation would report last run's
-    # verdict as this one's.
+    # Unlinked first: each file's *existence* is a verdict, so a stale copy from a previous
+    # invocation would report last run's outcome as this one's.
+    started.unlink(missing_ok=True)
     report.unlink(missing_ok=True)
     script = scratch / "fence_yaml.py"
-    script.write_text(
-        textwrap.dedent(
-            """\
-            import pathlib
+    script.write_text(YAML_CHECKER_SCRIPT)
 
-            import yaml
-
-            here = pathlib.Path(__file__).parent / "yaml"
-            broken = []
-            for number, where in enumerate((here / "index.txt").read_text().splitlines()):
-                try:
-                    yaml.safe_load((here / f"{number:04d}.yaml").read_text())
-                except yaml.YAMLError as exc:
-                    # Flattened: a YAMLError's str spans four lines with a caret diagram, and
-                    # the report this joins is one line per violation.
-                    detail = " ".join(str(exc).split())
-                    broken.append(f"{where}: yaml fence does not parse: {detail}")
-            (here / "report.txt").write_text("\\n".join(broken))
-            """
-        )
-    )
-
-    uv_run(
+    code = uv_run(
         "python",
         script.relative_to(cfg.root).as_posix(),
         cwd=cfg.root,
@@ -634,10 +658,19 @@ def _yaml_violations(fences: list[Fence], cfg: Config, scratch: Path) -> list[st
         no_project=True,
         check=False,
     )
-    if not report.is_file():
+    if not started.is_file():
+        # Never reached the first statement after `import yaml`: no network, no such package,
+        # no interpreter. A fact about the machine, so the caller counts these fences as
+        # unchecked rather than failing the gate.
         return None
+    if not report.is_file():
+        # Started and did not finish, which is this repository's bug and not the machine's --
+        # so it is a violation, and the gate goes red. Before `started.txt` existed this case
+        # returned None and read as "parser unavailable", meaning a broken checker reported
+        # itself as a clean skip.
+        return [f"{script.name}: the yaml checker started and did not finish (exit {code})"]
     # An empty report file is "ran, found nothing", which splitlines turns into [] -- distinct
-    # from the None above, and the distinction is the point of writing the file at all.
+    # from the None above, and the distinction is the point of writing the files at all.
     return report.read_text(errors="replace").splitlines()
 
 
@@ -753,16 +786,23 @@ def _tally(fences: list[Fence]) -> Tally:
         ((language, count) for language, count in tally.items() if language not in CHECKED_FENCE_LANGUAGES),
         key=lambda item: (-item[1], item[0]),
     )
-    return Tally(
+    # B604 matches the *keyword name* `shell=` below and reads this as a subprocess call being
+    # handed a shell. It is a field assignment on a frozen dataclass of integers, and the
+    # nearest subprocess is two hundred lines away. Renaming the field to dodge the pattern
+    # would cost the symmetry with `python`, `toml`, `yaml` and `diffed` -- which is the whole
+    # reason the tuple became a record -- so the suppression is the cheaper trade.
+    #
+    # The marker sits on this line and not on `shell=` itself, which is where the finding is
+    # reported and where it was first written. bandit locates a B604 at the keyword but does
+    # its nosec bookkeeping against the enclosing call node, so a marker on the keyword line
+    # suppresses the finding *and* then reports itself as unmatched -- one
+    # `nosec encountered ... but no failed test` line in every `fmt` and `security` run, which
+    # is noise in the two gates whose value is a clean signal. Here both agree and neither
+    # fires. The marker carries no prose for the reason this file's header gives: bandit reads
+    # anything after it as more test IDs.
+    return Tally(  # nosec B604
         python=tally[PYTHON_FENCE_LANGUAGE],
-        # B604 matches the *keyword name* here and reads this as a subprocess call being handed
-        # a shell. It is a field assignment on a frozen dataclass of integers, and the nearest
-        # subprocess is two hundred lines away. Renaming the field to dodge the pattern would
-        # cost the symmetry with `python`, `toml`, `yaml` and `diffed` -- which is the whole
-        # reason the tuple became a record -- so suppressing the one low-confidence match is
-        # the cheaper trade. The marker carries no prose for the reason this file's header
-        # gives: bandit reads anything after it as more test IDs.
-        shell=sum(tally[language] for language in SHELL_FENCE_LANGUAGES),  # nosec B604
+        shell=sum(tally[language] for language in SHELL_FENCE_LANGUAGES),
         toml=tally[TOML_FENCE_LANGUAGE],
         yaml=sum(tally[language] for language in YAML_FENCE_LANGUAGES),
         diffed=tally[RESULT_FENCE_LANGUAGE],
