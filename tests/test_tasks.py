@@ -18,6 +18,10 @@ from rhiza_task.config import Config
 from rhiza_task.spec import Failed, Skip, lookup
 from rhiza_task.tasks import book as book_tasks
 from rhiza_task.tasks import extras, python, quality
+
+# Aliased: the tests bind local `fences` lists all over this file, and the module would
+# shadow them.
+from rhiza_task.tasks import fences as fence_checker
 from rhiza_task.tasks.doctor import at_least, parse_version
 
 from .conftest import Recorder
@@ -1281,7 +1285,7 @@ class TestDocsExamples:
             The recorded argument vectors, appended to as the gate runs.
         """
         seen: list[list[str]] = []
-        monkeypatch.setattr(quality.shutil, "which", lambda _name: "/bin/bash")
+        monkeypatch.setattr(fence_checker.shutil, "which", lambda _name: "/bin/bash")
 
         def fake_run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
             """Record the vector and report the canned outcome.
@@ -1296,7 +1300,7 @@ class TestDocsExamples:
             seen.append(argv)
             return subprocess.CompletedProcess(argv, code, "", stderr)
 
-        monkeypatch.setattr(quality.subprocess, "run", fake_run)
+        monkeypatch.setattr(fence_checker.subprocess, "run", fake_run)
         return seen
 
     def test_dedents_a_fence_indented_inside_an_admonition(self) -> None:
@@ -1306,9 +1310,9 @@ class TestDocsExamples:
         ``IndentationError``, which would be a finding against this checker rather than the
         documentation -- and this repository's docs indent eight of them.
         """
-        fences = quality._fences("docs/x.md", '!!! tip "t"\n\n    ```python\n    x = 1\n    ```\n')
+        fences = fence_checker._fences("docs/x.md", '!!! tip "t"\n\n    ```python\n    x = 1\n    ```\n')
         assert [(f.line, f.language, f.code) for f in fences] == [(3, "python", "x = 1")]
-        assert quality._syntax_violations(fences) == []
+        assert fence_checker._syntax_violations(fences) == []
 
     def test_keeps_only_the_language_from_an_attributed_fence(self) -> None:
         """``python title="x"`` is a python fence, and an unlabelled one carries no language.
@@ -1317,7 +1321,7 @@ class TestDocsExamples:
         attributed fence, that fence's *closing* backticks would be read as the next opening
         one and every language after it would be wrong.
         """
-        fences = quality._fences("d.md", '```python title="a.py"\nx = 1\n```\n\n```\nplain\n```\n')
+        fences = fence_checker._fences("d.md", '```python title="a.py"\nx = 1\n```\n\n```\nplain\n```\n')
         assert [f.language for f in fences] == ["python", ""]
 
     def test_reports_a_python_fence_that_does_not_parse(self) -> None:
@@ -1327,8 +1331,8 @@ class TestDocsExamples:
         ``Guard``, so resolving names would report the documentation as broken when it is
         only partial.
         """
-        fences = quality._fences("d.md", "```python\nx = (1,\n```\n\n```python\ny = Undefined(1)\n```\n")
-        violations = quality._syntax_violations(fences)
+        fences = fence_checker._fences("d.md", "```python\nx = (1,\n```\n\n```python\ny = Undefined(1)\n```\n")
+        violations = fence_checker._syntax_violations(fences)
         assert len(violations) == 1
         # Line 2, the offending code, not line 1 where the fence opens.
         assert violations[0].startswith("d.md:2: python fence does not parse:")
@@ -1344,8 +1348,8 @@ class TestDocsExamples:
             tmp_path: Scratch directory for the throwaway script.
         """
         seen = self._bash(monkeypatch, 2, f"{tmp_path / 'fence.sh'}: line 2: syntax error\n")
-        fences = quality._fences("d.md", "```bash\nif true\n```\n")
-        violations = quality._shell_violations(fences, "/bin/bash", tmp_path)
+        fences = fence_checker._fences("d.md", "```bash\nif true\n```\n")
+        violations = fence_checker._shell_violations(fences, "/bin/bash", tmp_path)
         assert seen[0][:2] == ["/bin/bash", "-n"]
         assert violations == ["d.md:1: shell fence does not parse: fence: line 2: syntax error"]
 
@@ -1359,8 +1363,8 @@ class TestDocsExamples:
             tmp_path: Scratch directory for the throwaway script.
         """
         self._bash(monkeypatch, 2, "")
-        fences = quality._fences("d.md", "```sh\nif true\n```\n")
-        violations = quality._shell_violations(fences, "/bin/bash", tmp_path)
+        fences = fence_checker._fences("d.md", "```sh\nif true\n```\n")
+        violations = fence_checker._shell_violations(fences, "/bin/bash", tmp_path)
         assert violations == ["d.md:1: shell fence does not parse: exit 2"]
 
     def test_reports_a_toml_fence_that_does_not_parse(self) -> None:
@@ -1370,11 +1374,11 @@ class TestDocsExamples:
         ``key = value`` lines quoted out of a ``[tool.rhiza-task]`` table, and rejecting those
         would report the documentation as broken for being an excerpt.
         """
-        fences = quality._fences(
+        fences = fence_checker._fences(
             "d.md",
             "```toml\n[tool.rhiza-task\n```\n\n```toml\ncoverage_fail_under = 100\n```\n",
         )
-        violations = quality._toml_violations(fences)
+        violations = fence_checker._toml_violations(fences)
         assert len(violations) == 1
         assert violations[0].startswith("d.md:1: toml fence does not parse:")
 
@@ -1385,8 +1389,8 @@ class TestDocsExamples:
             cfg: The resolved config.
             recorder: The uv recorder, which must stay empty.
         """
-        fences = quality._fences("d.md", "```python\nx = 1\n```\n")
-        assert quality._yaml_violations(fences, cfg, cfg.root) == []
+        fences = fence_checker._fences("d.md", "```python\nx = 1\n```\n")
+        assert fence_checker._yaml_violations(fences, cfg, cfg.root) == []
         assert recorder.tools() == []
 
     def test_provisions_a_yaml_parser_rather_than_depending_on_one(self, cfg: Config, recorder: Recorder) -> None:
@@ -1402,10 +1406,10 @@ class TestDocsExamples:
         """
         scratch = cfg.root / "_tests" / "docs-examples"
         scratch.mkdir(parents=True, exist_ok=True)
-        fences = quality._fences("d.md", "```yaml\na: 1\n```\n")
+        fences = fence_checker._fences("d.md", "```yaml\na: 1\n```\n")
         # None, not []: uv_run is recorded rather than run, so the report file never appears --
         # which is exactly the "could not measure" case, and must not read as "all sound".
-        assert quality._yaml_violations(fences, cfg, scratch) is None
+        assert fence_checker._yaml_violations(fences, cfg, scratch) is None
         call = recorder.find("python")
         assert call.kind == "uv_run"
         assert call.flags == ["_tests/docs-examples/fence_yaml.py"]
@@ -1444,9 +1448,9 @@ class TestDocsExamples:
             (scratch / "yaml" / "report.txt").write_text("d.md:1: yaml fence does not parse: bad\n")
             return 0
 
-        monkeypatch.setattr(quality, "uv_run", fake_uv_run)
-        fences = quality._fences("d.md", "```yaml\na: '\n```\n")
-        assert quality._yaml_violations(fences, cfg, scratch) == ["d.md:1: yaml fence does not parse: bad"]
+        monkeypatch.setattr(fence_checker, "uv_run", fake_uv_run)
+        fences = fence_checker._fences("d.md", "```yaml\na: '\n```\n")
+        assert fence_checker._yaml_violations(fences, cfg, scratch) == ["d.md:1: yaml fence does not parse: bad"]
 
     def test_fails_when_the_yaml_checker_starts_and_does_not_finish(
         self, cfg: Config, monkeypatch: pytest.MonkeyPatch
@@ -1478,9 +1482,9 @@ class TestDocsExamples:
             (scratch / "yaml" / "started.txt").write_text("ok")
             return 1
 
-        monkeypatch.setattr(quality, "uv_run", fake_uv_run)
-        fences = quality._fences("d.md", "```yaml\na: 1\n```\n")
-        violations = quality._yaml_violations(fences, cfg, scratch)
+        monkeypatch.setattr(fence_checker, "uv_run", fake_uv_run)
+        fences = fence_checker._fences("d.md", "```yaml\na: 1\n```\n")
+        violations = fence_checker._yaml_violations(fences, cfg, scratch)
         assert violations == ["fence_yaml.py: the yaml checker started and did not finish (exit 1)"]
 
     def test_discards_a_started_marker_left_by_an_earlier_run(self, cfg: Config, recorder: Recorder) -> None:
@@ -1497,8 +1501,8 @@ class TestDocsExamples:
         scratch = cfg.root / "_tests" / "docs-examples"
         (scratch / "yaml").mkdir(parents=True, exist_ok=True)
         (scratch / "yaml" / "started.txt").write_text("last time")
-        fences = quality._fences("d.md", "```yaml\na: 1\n```\n")
-        assert quality._yaml_violations(fences, cfg, scratch) is None
+        fences = fence_checker._fences("d.md", "```yaml\na: 1\n```\n")
+        assert fence_checker._yaml_violations(fences, cfg, scratch) is None
         assert recorder.tools() == ["python"]
 
     def test_discards_a_yaml_report_left_by_an_earlier_run(self, cfg: Config, recorder: Recorder) -> None:
@@ -1514,8 +1518,8 @@ class TestDocsExamples:
         scratch = cfg.root / "_tests" / "docs-examples"
         (scratch / "yaml").mkdir(parents=True, exist_ok=True)
         (scratch / "yaml" / "report.txt").write_text("d.md:9: last time's verdict\n")
-        fences = quality._fences("d.md", "```yaml\na: 1\n```\n")
-        assert quality._yaml_violations(fences, cfg, scratch) is None
+        fences = fence_checker._fences("d.md", "```yaml\na: 1\n```\n")
+        assert fence_checker._yaml_violations(fences, cfg, scratch) is None
         assert recorder.tools() == ["python"]
 
     def test_counts_yaml_fences_as_unchecked_when_the_parser_is_unavailable(
@@ -1532,7 +1536,7 @@ class TestDocsExamples:
             monkeypatch: pytest's patcher.
             capsys: pytest's output capture.
         """
-        monkeypatch.setattr(quality.shutil, "which", lambda _name: None)
+        monkeypatch.setattr(fence_checker.shutil, "which", lambda _name: None)
         self._docs(cfg, "g.md", "```yaml\na: 1\n```\n\n```python\nx = 1\n```\n")
         quality.docs_examples(cfg)
         out = capsys.readouterr().out
@@ -1550,8 +1554,8 @@ class TestDocsExamples:
             monkeypatch: pytest's patcher.
             capsys: pytest's output capture.
         """
-        monkeypatch.setattr(quality.shutil, "which", lambda _name: None)
-        monkeypatch.setattr(quality, "_yaml_violations", lambda *_args: [])
+        monkeypatch.setattr(fence_checker.shutil, "which", lambda _name: None)
+        monkeypatch.setattr(fence_checker, "_yaml_violations", lambda *_args: [])
         self._docs(cfg, "g.md", "```toml\nx = 1\n```\n\n```yaml\na: 1\n```\n")
         quality.docs_examples(cfg)
         out = capsys.readouterr().out
@@ -1570,11 +1574,11 @@ class TestDocsExamples:
         """
         scratch = cfg.root / "_tests" / "docs-examples"
         scratch.mkdir(parents=True, exist_ok=True)
-        quality._run_fences(cfg, scratch, ["print('hi')"])
+        fence_checker._run_fences(cfg, scratch, ["print('hi')"])
         call = recorder.find("python")
         assert call.kind == "uv_run"
-        assert call.flags == ["_tests/docs-examples/fences.py"]
-        assert "sys.stdout = open(" in (scratch / "fences.py").read_text()
+        assert call.flags == ["_tests/docs-examples/result_fences.py"]
+        assert "sys.stdout = open(" in (scratch / "result_fences.py").read_text()
 
     def test_treats_a_script_that_wrote_nothing_as_unrunnable(self, cfg: Config, recorder: Recorder) -> None:
         """No captured stdout means the fences did not run, which is not a passing diff.
@@ -1585,7 +1589,7 @@ class TestDocsExamples:
         """
         scratch = cfg.root / "_tests" / "docs-examples"
         scratch.mkdir(parents=True, exist_ok=True)
-        assert quality._run_fences(cfg, scratch, ["print('hi')"]) is None
+        assert fence_checker._run_fences(cfg, scratch, ["print('hi')"]) is None
         assert recorder.tools() == ["python"]
 
     def test_discards_stdout_left_by_an_earlier_run(self, cfg: Config, recorder: Recorder) -> None:
@@ -1598,7 +1602,7 @@ class TestDocsExamples:
         scratch = cfg.root / "_tests" / "docs-examples"
         scratch.mkdir(parents=True, exist_ok=True)
         (scratch / "stdout.txt").write_text("last time's answer")
-        assert quality._run_fences(cfg, scratch, ["print('hi')"]) is None
+        assert fence_checker._run_fences(cfg, scratch, ["print('hi')"]) is None
         assert recorder.tools() == ["python"]
 
     @pytest.mark.parametrize(
@@ -1623,9 +1627,9 @@ class TestDocsExamples:
             printed: What the python fences are made to print, or None for a failed run.
             expected: Substrings the violations must contain.
         """
-        monkeypatch.setattr(quality, "_run_fences", lambda *_args: printed)
-        fences = quality._fences("d.md", "```python\nprint('one')\n```\n\n```result\none\n```\n")
-        violations = quality._result_violations([fences], cfg, cfg.root)
+        monkeypatch.setattr(fence_checker, "_run_fences", lambda *_args: printed)
+        fences = fence_checker._fences("d.md", "```python\nprint('one')\n```\n\n```result\none\n```\n")
+        violations = fence_checker._result_violations([fences], cfg, cfg.root)
         assert len(violations) == len(expected)
         for violation, fragment in zip(violations, expected, strict=True):
             assert fragment in violation
@@ -1636,8 +1640,8 @@ class TestDocsExamples:
         Args:
             cfg: The resolved config.
         """
-        fences = quality._fences("d.md", "```result\nnothing produces this\n```\n")
-        assert quality._result_violations([fences], cfg, cfg.root) == [
+        fences = fence_checker._fences("d.md", "```result\nnothing produces this\n```\n")
+        assert fence_checker._result_violations([fences], cfg, cfg.root) == [
             "d.md:1: result block with no python fence above it"
         ]
 
@@ -1654,8 +1658,8 @@ class TestDocsExamples:
         """
         scratch = cfg.root / "_tests" / "docs-examples"
         scratch.mkdir(parents=True, exist_ok=True)
-        quality._run_fences(cfg, scratch, ["V = 7", "print(V)"])
-        script = (scratch / "fences.py").read_text()
+        fence_checker._run_fences(cfg, scratch, ["V = 7", "print(V)"])
+        script = (scratch / "result_fences.py").read_text()
         assert "V = 7" in script
         assert script.index("V = 7") < script.index("print(V)")
         assert recorder.tools() == ["python"]
@@ -1695,7 +1699,7 @@ class TestDocsExamples:
             monkeypatch: pytest's patcher.
             capsys: pytest's output capture.
         """
-        monkeypatch.setattr(quality.shutil, "which", lambda _name: None)
+        monkeypatch.setattr(fence_checker.shutil, "which", lambda _name: None)
         self._docs(cfg, "g.md", "```bash\nls\n```\n\n```python\nx = 1\n```\n")
         quality.docs_examples(cfg)
         out = capsys.readouterr().out
@@ -1712,7 +1716,7 @@ class TestDocsExamples:
             monkeypatch: pytest's patcher.
             capsys: pytest's output capture.
         """
-        monkeypatch.setattr(quality.shutil, "which", lambda _name: None)
+        monkeypatch.setattr(fence_checker.shutil, "which", lambda _name: None)
         self._docs(cfg, "g.md", "```python\nx = (1,\n```\n")
         with pytest.raises(Failed, match="1 broken example"):
             quality.docs_examples(cfg)
@@ -1779,5 +1783,5 @@ class TestDocsExamples:
             (scratch / "stdout.txt").write_text("captured\n")
             return 0
 
-        monkeypatch.setattr(quality, "uv_run", fake_uv_run)
-        assert quality._run_fences(cfg, scratch, ["print('captured')"]) == "captured\n"
+        monkeypatch.setattr(fence_checker, "uv_run", fake_uv_run)
+        assert fence_checker._run_fences(cfg, scratch, ["print('captured')"]) == "captured\n"

@@ -99,7 +99,17 @@ Four rules follow. All four currently hold, and each has been broken at least on
    elsewhere, promote it and document why it is public — do not import it as-is.
 
 Within `tasks/`, siblings may share: `python.py`, `rust.py` and `go.py` all import
-`install_hooks` from `tasks/quality.py`. That is one layer, not an inversion.
+`install_hooks` from `tasks/quality.py`, and `quality.py` imports `check` from
+`tasks/fences.py`. That is one layer, not an inversion.
+
+`fences.py` is the one module under `tasks/` that registers no task — it holds the
+fenced-example checker that `docs-examples` runs, extracted when it had grown to two thirds
+of `quality.py`. It is also the worked example of **rule 4 deciding a design**: keeping the
+`@task` in `quality.py` while moving the helpers meant either exporting seven
+underscore-prefixed names, which rule 4 forbids, or giving the module a single public entry
+point that takes the gate's whole body. It has one, `check`, and the helpers stayed private.
+Reach for the same shape rather than promoting a handful of privates the next time a task
+body outgrows its module.
 
 Check the whole invariant in one command:
 
