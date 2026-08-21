@@ -63,10 +63,16 @@ version bump and the tag: the bump is what the release PR contains, and the tag 
 that PR's merge commit, so for the length of the PR the declared version is ahead of every
 tag that exists.
 
-That mattered here because `the gates this package applies to others` is a **required** status
-check and runs ``rhiza-task all``, which runs this gate -- so a release PR could not go green,
-and v1.0.0's was merged with the job red. A required check that can never pass teaches people
-to merge red, which is a worse outcome than the check's own value. See #115.
+What that costs is a red ``rhiza-task all`` on the releaser's own machine for the length of the
+release, which is where it was hit while cutting v1.1.0.
+
+**It costs nothing in CI, and the note this replaces claimed otherwise.** ci.yml's checkout sets
+no ``fetch-depth`` and no ``fetch-tags``, so no CI job has any tags at all and this check already
+skips there -- ``No version tags found in repository``. The required ``gates`` job was therefore
+never blocked by it, and the assertion that v1.0.0's release PR had been merged red was inferred
+from a local run rather than read off a CI one. Both claims were wrong, and they were wrong in
+the direction that made this change look more necessary than it is. Recorded rather than quietly
+deleted, because the overstatement shipped. See #115.
 """
 
 CLEAN_ARTIFACTS = ("dist", "build", ".coverage", ".pytest_cache", ".benchmarks", "_tests", "_book")
@@ -138,11 +144,11 @@ def rhiza_test(cfg: Config) -> None:
 
     One check is dropped while a release is in flight. :data:`TAG_VERSION_CHECK` asserts that
     the newest tag equals the declared version, which a repository cannot satisfy between its
-    version bump and its tag -- and because that assertion runs inside this gate, and this gate
-    runs inside ``all``, and ``all`` is a required status check, a release PR could not go
-    green. v1.0.0's was merged with the job red. :func:`_release_pending` detects the window
-    from the repository's own state, so nothing has to be passed in and the check returns by
-    itself once the tag exists.
+    version bump and its tag -- so ``rhiza-task all``, which a developer runs before pushing,
+    went red for the length of a release. :func:`_release_pending` detects the window from the
+    repository's own state, so nothing has to be passed in and the check returns by itself once
+    the tag exists. It is a *local* improvement only: CI has no tags, so this check skips there
+    regardless -- see that constant's own note.
 
     Args:
         cfg: The resolved config.
