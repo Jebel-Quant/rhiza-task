@@ -9,9 +9,12 @@ about working *on* it.
 
 ## This repository is not rhiza-managed
 
-There is no `.rhiza/` directory, no file is template-owned, and **every file is locally
-owned and locally editable** — including `.github/workflows/`, `.pre-commit-config.yaml`,
-`ruff.toml` and `pytest.ini`, which in a managed repo would belong upstream.
+There is no `.rhiza/` directory. Nothing here is synced from `jebel-quant/rhiza`, no file
+is template-owned, and **every file is locally owned and locally editable** — including
+`.github/workflows/`, `.pre-commit-config.yaml`, `ruff.toml` and `pytest.ini`, which in a
+managed repo would belong upstream. No `uses:` in this repository points at
+`jebel-quant/rhiza`; `grep -rn 'uses:.*jebel-quant/rhiza' .github/` is how you confirm it,
+and it should stay empty.
 
 That is deliberate, and it is not an oversight to correct. This package is the thing that
 *replaces* the template's make layer: a repo that consumed the template would run its
@@ -27,44 +30,39 @@ is circular. Two visible consequences, both intended:
 `rhiza-test` and `test-pyproject` are *this repo's own* tasks running `pytest-rhiza`, and
 are unrelated to the absent template. Do not read them as evidence of a sync.
 
-### The two workflows that do reach upstream
+### The `rhiza_` filename prefix is residue, not a sync
 
-"Nothing is synced" is right; "nothing references `jebel-quant/rhiza`" would not be. Two
-workflow files are thin wrappers that `uses:` a reusable workflow from the template repo,
-and both still carry its `This file is part of the jebel-quant/rhiza repository` header:
+Three workflows still carry it — `rhiza_book.yml`, `rhiza_paper.yml` and
+`rhiza_release.yml` — and two of them still open with an upstream header. That is the
+history of how they arrived (a copy, once) rather than a claim about how they are
+maintained: each is a full local file with real jobs, nothing reconciles them against
+upstream, and editing them is the normal way to change them.
 
-| file | delegates to | pin |
-|---|---|---|
-| `.github/workflows/rhiza_codeql.yml` | `rhiza/.github/workflows/rhiza_codeql.yml` | `31e1a11` (v1.4.2) |
-| `.github/workflows/rhiza_scorecard.yml` | `rhiza/.github/workflows/rhiza_scorecard.yml` | `31e1a11` (v1.4.2) |
+`rhiza_release.yml` is the one not to rename, and the reason is in its own header:
+**PyPI Trusted Publishing validates the exact workflow file path.** The trusted publisher
+registered for this project names that filename, so renaming the file breaks publishing at
+the next tag — and no gate here can catch it, because every job is green until a release
+actually runs. Renaming it means editing PyPI's publisher entry in the same change.
 
-They are the odd ones out and it is worth knowing why they are tolerated. `rhiza_book.yml`,
-`rhiza_paper.yml` and `rhiza_release.yml` are *fully local* files with real jobs — the same
-name prefix, none of the delegation — so the pattern in this repo is to vendor, and these
-two have simply not been vendored.
+**`rhiza_codeql.yml` and `rhiza_scorecard.yml` used to be the exception** — thin stubs that
+`uses:`-delegated to reusable workflows in `jebel-quant/rhiza`, pinned at v1.4.2. Both are
+now removed, which is what makes the paragraph above unqualified. Two consequences worth
+knowing:
 
-**This is not the circularity the section above forbids.** That one is specifically about
-*gates*: a repo whose gates run through a published copy of this package cannot test its
-own working tree. Neither delegated workflow invokes `rhiza-task`, `make` or `uv` at the
-pinned SHA — upstream's codeql is `codeql-action/init` plus `analyze` (its only `make`
-mention is inside a `build-mode == 'manual'` step that Python never takes, and which
-`exit 1`s if reached), and upstream's scorecard is `ossf/scorecard-action` plus
-`upload-sarif`. So no gate of this repository runs through a published `rhiza-task`.
+- **CodeQL security analysis is not running from a workflow any more.** GitHub's dynamic
+  *code-quality* scan still reports on pull requests, but that is a different product from
+  the security analysis, and default security setup reads `not-configured`. Enabling default
+  setup in repository settings restores the coverage with no workflow file and no upstream
+  dependency, which is strictly better than either delegating or vendoring; until it is
+  enabled, this repo has no CodeQL security scanning.
+- **The OSSF Scorecard badge and SARIF upload are gone with the scorecard workflow.** Note
+  that `rhiza_release.yml` still generates SBOMs and build attestations for Scorecard's
+  Signed-Releases check, so those comments describe a check nothing is currently scoring.
 
-**What the SHA pin is holding back, though, is exactly that.** v1.4.2 is the template
-release that *retired the make layer*, which means upstream's gates now are `rhiza-task`.
-If a later release adds a `uvx rhiza-task` setup step to either workflow, a routine pin
-bump would make this repository gate itself with a published copy of itself, silently and
-for the first time. So the pin is load-bearing in a way a version pin usually is not:
-**before bumping either SHA, read the upstream workflow and check it still invokes no
-`rhiza-task`.** That is the review this table exists to prompt.
-
-Why not simply vendor them and be done: the delegation buys the *publish* half —
-`security-events: write`, `upload-sarif`, the Scorecard badge and API. Those are
-workflow-level `uses:` actions, so no task in this package can replace them, and a
-`rhiza-task codeql` or `rhiza-task scorecard` would complement these files rather than
-retire them. Vendoring remains the answer whenever the review above becomes tiresome; it
-is a copy of two short files, not a redesign.
+A local `rhiza-task scorecard` task was considered as a replacement and rejected: Scorecard's
+checks are forge-API queries about the *remote* repository, so a local task could not give a
+pre-push signal the way `bandit` or `pytest` do — it would restate what the workflow already
+reported, while costing a public task name on a released package.
 
 ## The layering invariant
 
@@ -94,9 +92,15 @@ Within `tasks/`, siblings may share: `python.py`, `rust.py` and `go.py` all impo
 Check the whole invariant in one command:
 
 ```bash
-grep -rnE '^\s+(from|import) ' src/          # deferred imports (expect only the guarded one)
+grep -rnE '^\s+(from|import) ' src/          # deferred imports
 grep -rnE 'from \.{1,2}[a-z_.]* import .*\b_[a-z]' src/   # private cross-module imports
 ```
+
+The first returns **two** lines, and only one is an import: `spec.py`'s `TYPE_CHECKING`
+guard, which rule 1 permits. The other is prose inside a `config.py` docstring that happens
+to begin with the word "from" — a false positive of matching text rather than syntax, and
+worth knowing so it is not read as a violation to fix. The second command should return
+nothing at all.
 
 ## Tests assert argument vectors, and never run uv
 
@@ -216,8 +220,15 @@ ceiling.** Three of them are bounded by closed sets — `_run_one` by the size o
 `Guard` and `Guard.check` by the number of guard kinds — so their figures cannot drift far
 and "deliberate" is a complete answer. `Config.__post_init__` is one branch per validated
 setting, which is open-ended, so it names C (15) as the point where per-group helpers win.
-A growth rule without a limit is an open licence rather than a decision; `uvx radon cc src
--a -s` is how you check, and nothing gates it.
+A growth rule without a limit is an open licence rather than a decision.
+
+Unlike the layering invariant above, this one **is** gated: `rhiza-task complexity` fails on
+any block above `complexity_max`, which `pyproject.toml` leaves at the shipped 15, and
+`ci.yml`'s `gates` job names it. So the ceiling `Config.__post_init__`'s note commits to is
+read back by a build rather than by a reader who remembers to — which is the whole reason
+that note can say "roughly two more settings" and be held to it. `uvx radon cc src -a -s`
+remains how you read the figure by hand, and the gate reports the worst *block*, classes
+included, so the number to watch is currently `Guard`'s 14 rather than any method's 13.
 
 When changing such code, update the comment with it. A stale comment is worse than none:
 `ci.yml` once asserted that `rhiza-task fmt` skipped for want of a pre-commit config, for

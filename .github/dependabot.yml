@@ -13,9 +13,13 @@
 version: 2
 
 updates:
-  # The SHA pins, and the `@v1.4.2` refs to jebel-quant/rhiza's reusable workflows --
-  # dependabot rewrites both, and keeps the trailing `# vX.Y.Z` comment in step with the
-  # SHA it writes, which is the whole reason that comment convention is worth following.
+  # The SHA pins on every third-party action. dependabot rewrites them and keeps the
+  # trailing `# vX.Y.Z` comment in step with the SHA it writes, which is the whole reason
+  # that comment convention is worth following.
+  #
+  # There are no reusable-workflow refs left for it to move: this used to also cover the
+  # `@v1.4.2` pins on jebel-quant/rhiza's `rhiza_codeql.yml` and `rhiza_scorecard.yml`, and
+  # both of those workflows have since been removed. Every `uses:` here is now third-party.
   - package-ecosystem: github-actions
     directory: /
     schedule:
