@@ -4,6 +4,10 @@
 producing gates, copies their output into the docs tree, exports every notebook, builds
 the site, and generates a coverage badge.
 
+The one artefact it does *not* copy is the paper's PDF. latexmk writes it beside its
+source, and ``paper_folder`` is already inside ``docs_dir``, so the site build finds it
+where it lies -- a prerequisite plus a ``nav`` entry, and no plumbing.
+
 Its prerequisite list is also where make's no-op stubs came from. book.mk has to declare
 ``test:: ; @:``, ``benchmark:: ; @:``, ``stress:: ; @:`` and ``hypothesis-test:: ; @:``
 so that ``book`` can depend on gates the ``tests`` bundle may not have contributed. The
@@ -13,17 +17,29 @@ runner skips unregistered prerequisites, so all four stubs are gone.
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 
 from ..config import Config
 from ..spec import Failed, Guard, Skip, task
 from ..uv import uv_run, uvx
 
 
+# `paper` is a prerequisite for the same reason the other four are: it produces something
+# the book publishes, and the book should be one command. It needs no copy step, unlike the
+# `_tests/` tree -- latexmk writes the PDF beside its source, and `paper_folder` defaults to
+# `docs/paper`, which is already inside `docs_dir`. So the build picks it up as an asset and
+# mkdocs.yml only has to name it in `nav`.
+#
+# Safe to add because a *skipped* prerequisite does not block a dependent -- only FAILED and
+# BLOCKED do (see `_run_one`) -- so a repository with no paper, or no latexmk, still builds
+# its book. Under `--strict` a skip becomes a failure and would block `book`, which is worth
+# knowing but is not new: `benchmark` and `stress` guard on folders most repositories do not
+# have, so `--strict book` already required a repo that has all of them.
 @task(
     "book",
     "build the companion book",
     section="Book",
-    needs=("test", "benchmark", "stress", "hypothesis-test"),
+    needs=("test", "benchmark", "stress", "hypothesis-test", "paper"),
 )
 def book(cfg: Config) -> None:
     """Build the MkDocs/Zensical site, with test reports and notebooks folded in.
@@ -52,6 +68,7 @@ def book(cfg: Config) -> None:
     )
     output.mkdir(parents=True, exist_ok=True)
     (output / ".nojekyll").touch()
+    _prune_latex_artifacts(cfg, output)
 
     coverage = cfg.root / "_tests" / "coverage.xml"
     if coverage.is_file():
@@ -150,6 +167,52 @@ def marimo_validate(cfg: Config) -> None:
     print(f"[SUCCESS] all {len(notebooks)} notebook(s) valid")
 
 
+LATEX_ARTIFACTS = (".aux", ".fdb_latexmk", ".fls", ".log", ".out", ".toc", ".bbl", ".blg", ".synctex.gz")
+"""What latexmk leaves beside the document, mirroring .gitignore's list for the same folder.
+
+Matched as name suffixes rather than through :attr:`~pathlib.PurePath.suffix`, because
+``.synctex.gz`` is two extensions and ``suffix`` would report only ``.gz``.
+"""
+
+
+def _prune_latex_artifacts(cfg: Config, output: Path) -> None:
+    """Remove latexmk's auxiliary files from the built site, keeping the PDF and the source.
+
+    The paper's source sits inside ``docs_dir`` so that its PDF needs no copy step, and the
+    price is that everything *else* latexmk leaves beside it is copied into the site too.
+    ``paper.log`` is the one that matters: some 20 KB of build trace which records absolute
+    paths from whichever machine ran the build.
+
+    mkdocs would answer this with ``exclude_docs``. zensical does not implement it -- the
+    note in ``docs/mkdocs-base.yml`` records that an excluded page is still written -- and
+    deleting them at the source would defeat latexmk's incremental rebuild, which reads
+    ``.aux`` and ``.fdb_latexmk`` to decide what to redo. So they are pruned here, from the
+    output, where nothing reads them again.
+
+    Scoped to the paper folder rather than swept over the whole site: ``.log`` and ``.out``
+    are not LaTeX-specific names, and a consumer with a genuine ``debug.log`` under ``docs/``
+    should keep it. ``docs`` is spelled out for the reason :func:`_copy_reports` spells it
+    out -- ``docs_dir`` is mkdocs's setting, not one this package resolves.
+
+    Args:
+        cfg: The resolved config.
+        output: The built site directory.
+    """
+    paper = cfg.path("paper_folder")
+    docs = cfg.root / "docs"
+    if not paper.is_relative_to(docs):
+        # The paper lives outside docs_dir, so the build never copied it and there is
+        # nothing in the site to prune.
+        return
+
+    published = output / paper.relative_to(docs)
+    if not published.is_dir():
+        return
+    for path in sorted(published.iterdir()):
+        if path.is_file() and path.name.endswith(LATEX_ARTIFACTS):
+            path.unlink(missing_ok=True)
+
+
 def _copy_reports(cfg: Config) -> None:
     """Copy the test-report tree into the docs folder, if the gates produced one.
 
@@ -163,6 +226,59 @@ def _copy_reports(cfg: Config) -> None:
     destination = cfg.root / "docs" / "reports"
     destination.mkdir(parents=True, exist_ok=True)
     shutil.copytree(reports, destination, dirs_exist_ok=True)
+    _scrub_local_paths(cfg.root, destination)
+
+
+SCRUBBED_SUFFIXES = (".html", ".htm", ".xml", ".json", ".js", ".css", ".txt", ".svg")
+"""Which report files are rewritten. Text formats only, so no binary is touched."""
+
+
+def _scrub_local_paths(root: Path, destination: Path) -> None:
+    """Mask absolute build paths in the *published* copy of the reports.
+
+    A report is written for the machine that produced it and then published to the web,
+    which is a change of audience nothing in the toolchain notices. Two paths leak:
+
+    * the repository root, which pytest records as its ``rootdir``;
+    * the home directory, because pytest-xdist stamps every test with the worker banner
+      ``[gw0] darwin -- Python 3.11.15 <interpreter>``, and under ``uv run --with`` that
+      interpreter lives in the user's uv cache. In this repository that was 300-odd
+      occurrences in one ``report.html``.
+
+    Neither is fixable upstream from here. coverage's own ``relative_files`` handles the
+    coverage artefacts and is set in ``pyproject.toml``; the xdist banner has no setting,
+    and dropping ``-n auto`` to avoid it would slow every consumer's suite to protect a
+    report. So the copy is rewritten and ``_tests/`` is left exactly as produced, which is
+    what a developer reads locally and where absolute paths are the useful form.
+
+    Ordering matters: the root is replaced before the home directory, because on CI the
+    root lives *inside* it and masking the shorter prefix first would leave a half-path.
+
+    Known limit: matching is textual, so a Windows path embedded in JSON arrives
+    backslash-escaped and is not recognised. The gate that publishes a book runs on Linux,
+    so this is a real gap rather than a closed one.
+
+    Args:
+        root: The repository root, as the reports spell it.
+        destination: The published copy, under ``docs/``.
+    """
+    # `Path.home()` rather than $HOME: on Windows the variable is often unset, and the
+    # masking has to be harmless there rather than crash.
+    masks = ((str(root), "."), (str(Path.home()), "~"))
+    for path in sorted(destination.rglob("*")):
+        if not path.is_file() or not path.name.endswith(SCRUBBED_SUFFIXES):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            # A report file that cannot be read as text is one this function has no opinion
+            # about; skipping it must not cost the book its build.
+            continue
+        scrubbed = text
+        for absolute, mask in masks:
+            scrubbed = scrubbed.replace(absolute, mask)
+        if scrubbed != text:
+            path.write_text(scrubbed, encoding="utf-8")
 
 
 def _export_notebooks(cfg: Config) -> None:

@@ -33,6 +33,12 @@ nav:
   - Reports:
       - Test Report: reports/html-report/report.html
       - Coverage Report: reports/html-coverage/index.html
+  # Same trade, one directory over: `rhiza-task paper` compiles docs/paper/paper.tex in
+  # place, and docs/paper is inside docs_dir, so the built site carries the PDF without
+  # anything copying it. `book` names `paper` as a prerequisite, so the normal path produces
+  # both together; the entry dangles in a checkout where latexmk is absent, exactly as the
+  # two above dangle before the gates have run.
+  - Paper: paper/paper.pdf
 
 extra:
   social:

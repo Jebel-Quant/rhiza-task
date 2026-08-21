@@ -127,7 +127,7 @@ the output and reports the **first** status rather than the last.
 
 | task | needs | does |
 |---|---|---|
-| `book` | `test benchmark stress hypothesis-test` | build the companion book |
+| `book` | `test benchmark stress hypothesis-test paper` | build the companion book |
 | `serve` | `book` | build the book and serve it on port 8000 |
 | `marimo` | `install` | start the Marimo editor |
 | `marimo-validate` | `install` | check that every Marimo notebook runs |
@@ -136,6 +136,14 @@ the output and reports the **first** status rather than the last.
 exports every Marimo notebook to `docs/notebooks/*.html`, builds the site with
 [zensical](https://github.com/squidfunk/zensical), and generates a coverage badge. It
 skips entirely without a `mkdocs.yml`.
+
+`paper` is a prerequisite but needs no copy step, unlike `_tests/`: latexmk writes the PDF
+beside its source, and `paper_folder` (default `docs/paper`) is already inside `docs_dir`,
+so the site build picks it up as an asset and `mkdocs.yml` only names it in `nav`. A
+repository with no paper — or no latexmk — still builds its book, because a *skipped*
+prerequisite does not block a dependent; only a failed one does. Under `--strict` that skip
+becomes a failure and would block `book`, which is worth knowing but is not specific to
+`paper`: `benchmark` and `stress` guard on folders most repositories do not have.
 
 Its prerequisite list is also where make's no-op stubs came from: `book.mk` had to declare
 `test:: ; @:`, `benchmark:: ; @:`, `stress:: ; @:` and `hypothesis-test:: ; @:` so that

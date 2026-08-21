@@ -85,12 +85,14 @@ layer has resolves to nothing rather than raising**. That is what lets `book` de
 gates a repository may not have:
 
 ```python
-needs = ("test", "benchmark", "stress", "hypothesis-test")
+needs = ("test", "benchmark", "stress", "hypothesis-test", "paper")
 ```
 
 In make this required `book.mk` to declare four no-op double-colon stubs —
 `test:: ; @:` and friends — so that the dependency could exist at all. The runner skips
-unregistered prerequisites, so all four are gone.
+unregistered prerequisites, so all four are gone. `paper` is the fifth name and never had
+a stub: it is neutral rather than layered, so it resolves in every repository, and what it
+does about a repository with no `.tex` file is skip.
 
 ## What every layer must deliver
 
