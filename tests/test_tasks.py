@@ -1431,7 +1431,7 @@ class TestDocsExamples:
         scratch.mkdir(parents=True, exist_ok=True)
 
         def fake_uv_run(*_args: object, **_kwargs: object) -> int:
-            """Write the report the provisioned script would have written.
+            """Write both markers the provisioned script would have written.
 
             Args:
                 *_args: Ignored.
@@ -1440,12 +1440,66 @@ class TestDocsExamples:
             Returns:
                 Zero, as the script does whatever it found.
             """
+            (scratch / "yaml" / "started.txt").write_text("ok")
             (scratch / "yaml" / "report.txt").write_text("d.md:1: yaml fence does not parse: bad\n")
             return 0
 
         monkeypatch.setattr(quality, "uv_run", fake_uv_run)
         fences = quality._fences("d.md", "```yaml\na: '\n```\n")
         assert quality._yaml_violations(fences, cfg, scratch) == ["d.md:1: yaml fence does not parse: bad"]
+
+    def test_fails_when_the_yaml_checker_starts_and_does_not_finish(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A crash after ``import yaml`` is this repo's bug, so it is a violation, not a skip.
+
+        The case the two marker files exist for. ``uv`` exits non-zero both when it cannot
+        resolve pyyaml and when the script it provisioned dies, so the status cannot tell a
+        missing network from a broken checker -- and before ``started.txt`` this returned None
+        and reported itself as "parser unavailable", which is a pass.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+        """
+        scratch = cfg.root / "_tests" / "docs-examples"
+        scratch.mkdir(parents=True, exist_ok=True)
+
+        def fake_uv_run(*_args: object, **_kwargs: object) -> int:
+            """Write only the started marker, as a script dying mid-run would leave it.
+
+            Args:
+                *_args: Ignored.
+                **_kwargs: Ignored.
+
+            Returns:
+                A non-zero status, as a crashing script does.
+            """
+            (scratch / "yaml" / "started.txt").write_text("ok")
+            return 1
+
+        monkeypatch.setattr(quality, "uv_run", fake_uv_run)
+        fences = quality._fences("d.md", "```yaml\na: 1\n```\n")
+        violations = quality._yaml_violations(fences, cfg, scratch)
+        assert violations == ["fence_yaml.py: the yaml checker started and did not finish (exit 1)"]
+
+    def test_discards_a_started_marker_left_by_an_earlier_run(self, cfg: Config, recorder: Recorder) -> None:
+        """A stale start marker is removed, so an unprovisionable run cannot look like a crash.
+
+        Without the unlink the previous run's marker would survive, `report.txt` would be
+        absent, and a machine with no network would be reported as a broken checker -- the
+        distinction the markers exist to draw, inverted.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder, which records rather than running the script.
+        """
+        scratch = cfg.root / "_tests" / "docs-examples"
+        (scratch / "yaml").mkdir(parents=True, exist_ok=True)
+        (scratch / "yaml" / "started.txt").write_text("last time")
+        fences = quality._fences("d.md", "```yaml\na: 1\n```\n")
+        assert quality._yaml_violations(fences, cfg, scratch) is None
+        assert recorder.tools() == ["python"]
 
     def test_discards_a_yaml_report_left_by_an_earlier_run(self, cfg: Config, recorder: Recorder) -> None:
         """A stale report is removed first, so its verdict cannot be read as this run's.
