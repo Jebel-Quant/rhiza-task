@@ -1241,13 +1241,18 @@ class TestComplexity:
 
 
 class TestDocsExamples:
-    """``docs-examples``: the fence parser, the three checks, and the inventory.
+    """``docs-examples``: the fence parser, the five checks, and the inventory.
 
     Hermetic like the rest of the suite. ``bash`` and ``uv_run`` are both patched, so the
     tests assert the argument vector each check *would* run -- ``bash -n`` over a throwaway
     script, ``uv run python`` over a generated one -- rather than provisioning either. That
     matters more here than elsewhere: this gate's whole job is to run other people's code,
     and a test that really ran it would execute the repository's own documentation.
+
+    The toml check is the one exception, and it is asserted directly: :mod:`tomllib` is stdlib
+    at this package's Python floor, so there is no subprocess to stand in for and no vector to
+    assert -- the parse either happens in-process or the interpreter could not have run the
+    test.
     """
 
     @staticmethod
@@ -1358,6 +1363,147 @@ class TestDocsExamples:
         violations = quality._shell_violations(fences, "/bin/bash", tmp_path)
         assert violations == ["d.md:1: shell fence does not parse: exit 2"]
 
+    def test_reports_a_toml_fence_that_does_not_parse(self) -> None:
+        """A malformed toml fence is a violation, and a table-less fragment is not.
+
+        The fragment half is the one that matters: most toml under ``docs/`` is a handful of
+        ``key = value`` lines quoted out of a ``[tool.rhiza-task]`` table, and rejecting those
+        would report the documentation as broken for being an excerpt.
+        """
+        fences = quality._fences(
+            "d.md",
+            "```toml\n[tool.rhiza-task\n```\n\n```toml\ncoverage_fail_under = 100\n```\n",
+        )
+        violations = quality._toml_violations(fences)
+        assert len(violations) == 1
+        assert violations[0].startswith("d.md:1: toml fence does not parse:")
+
+    def test_treats_a_tree_with_no_yaml_fence_as_nothing_to_provision(self, cfg: Config, recorder: Recorder) -> None:
+        """No yaml fence means no subprocess at all, rather than an empty one.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder, which must stay empty.
+        """
+        fences = quality._fences("d.md", "```python\nx = 1\n```\n")
+        assert quality._yaml_violations(fences, cfg, cfg.root) == []
+        assert recorder.tools() == []
+
+    def test_provisions_a_yaml_parser_rather_than_depending_on_one(self, cfg: Config, recorder: Recorder) -> None:
+        """The yaml check runs ``uv run --no-project --with pyyaml python <script>``.
+
+        ``rhiza-task`` is a published CLI, so a runtime dependency is an install cost every
+        consumer pays on every invocation. Two fences in this repository's own docs do not
+        justify one, which is why the parser is provisioned for the length of a single call.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        scratch = cfg.root / "_tests" / "docs-examples"
+        scratch.mkdir(parents=True, exist_ok=True)
+        fences = quality._fences("d.md", "```yaml\na: 1\n```\n")
+        # None, not []: uv_run is recorded rather than run, so the report file never appears --
+        # which is exactly the "could not measure" case, and must not read as "all sound".
+        assert quality._yaml_violations(fences, cfg, scratch) is None
+        call = recorder.find("python")
+        assert call.kind == "uv_run"
+        assert call.flags == ["_tests/docs-examples/fence_yaml.py"]
+        assert call.kwargs["withs"] == ("pyyaml",)
+        assert call.kwargs["no_project"] is True
+        # The fence reaches the parser as a file, so no escaping can corrupt indentation.
+        assert (scratch / "yaml" / "0000.yaml").read_text() == "a: 1"
+        assert (scratch / "yaml" / "index.txt").read_text() == "d.md:1"
+
+    def test_returns_the_violations_the_yaml_parser_reported(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A report file written by the subprocess becomes one violation per line.
+
+        ``uv_run`` is patched with a stand-in producing the *effect* the real script has --
+        the report file -- which covers the path the verdict depends on without a parser.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+        """
+        scratch = cfg.root / "_tests" / "docs-examples"
+        scratch.mkdir(parents=True, exist_ok=True)
+
+        def fake_uv_run(*_args: object, **_kwargs: object) -> int:
+            """Write the report the provisioned script would have written.
+
+            Args:
+                *_args: Ignored.
+                **_kwargs: Ignored.
+
+            Returns:
+                Zero, as the script does whatever it found.
+            """
+            (scratch / "yaml" / "report.txt").write_text("d.md:1: yaml fence does not parse: bad\n")
+            return 0
+
+        monkeypatch.setattr(quality, "uv_run", fake_uv_run)
+        fences = quality._fences("d.md", "```yaml\na: '\n```\n")
+        assert quality._yaml_violations(fences, cfg, scratch) == ["d.md:1: yaml fence does not parse: bad"]
+
+    def test_discards_a_yaml_report_left_by_an_earlier_run(self, cfg: Config, recorder: Recorder) -> None:
+        """A stale report is removed first, so its verdict cannot be read as this run's.
+
+        Without the unlink a run whose parser could not be provisioned would return the
+        *previous* run's violations, which is worse than either honest answer.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder, which records rather than runs the script.
+        """
+        scratch = cfg.root / "_tests" / "docs-examples"
+        (scratch / "yaml").mkdir(parents=True, exist_ok=True)
+        (scratch / "yaml" / "report.txt").write_text("d.md:9: last time's verdict\n")
+        fences = quality._fences("d.md", "```yaml\na: 1\n```\n")
+        assert quality._yaml_violations(fences, cfg, scratch) is None
+        assert recorder.tools() == ["python"]
+
+    def test_counts_yaml_fences_as_unchecked_when_the_parser_is_unavailable(
+        self, cfg: Config, recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """An unprovisionable parser leaves the yaml fences counted, not assumed sound.
+
+        The same rule the missing-bash line follows: a fact about the machine must not fail
+        the gate, and must not be reported as coverage either.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder, which stands in for the unprovisionable parser.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        monkeypatch.setattr(quality.shutil, "which", lambda _name: None)
+        self._docs(cfg, "g.md", "```yaml\na: 1\n```\n\n```python\nx = 1\n```\n")
+        quality.docs_examples(cfg)
+        out = capsys.readouterr().out
+        assert "yaml parser unavailable: 1 yaml fence(s) went unchecked" in out
+        assert "1 file(s), 2 fence(s): 1 checked" in out
+        assert recorder.tools() == ["python"]
+
+    def test_counts_the_toml_and_yaml_fences_in_the_inventory_line(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The summary names all five kinds, so a reader can see which half was measured.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        monkeypatch.setattr(quality.shutil, "which", lambda _name: None)
+        monkeypatch.setattr(quality, "_yaml_violations", lambda *_args: [])
+        self._docs(cfg, "g.md", "```toml\nx = 1\n```\n\n```yaml\na: 1\n```\n")
+        quality.docs_examples(cfg)
+        out = capsys.readouterr().out
+        assert "0 python, 0 shell, 1 toml, 1 yaml, 0 diffed" in out
+        assert "1 file(s), 2 fence(s): 2 checked" in out
+
     def test_runs_the_generated_script_through_the_project_environment(self, cfg: Config, recorder: Recorder) -> None:
         """The fences run as ``uv run python <script>``, so imports see the project's deps.
 
@@ -1463,19 +1609,23 @@ class TestDocsExamples:
     def test_skips_when_the_docs_folder_holds_no_checkable_fence(
         self, cfg: Config, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """A tree of ``toml`` and unlabelled fences measured nothing, so it skips.
+        """A tree of ``mermaid`` and unlabelled fences measured nothing, so it skips.
 
         Passing would be the failure this gate exists to prevent: 100 percent docstring
         coverage over documentation carrying nothing runnable already reads as green.
+
+        ``mermaid`` rather than the ``toml`` this used to use: toml is checked now, so a toml
+        fence is no longer an example of something nothing looks at. Keeping it would have
+        left a test asserting a skip that the gate is right not to take.
 
         Args:
             cfg: The resolved config.
             capsys: pytest's output capture.
         """
-        self._docs(cfg, "conf.md", "```toml\nx = 1\n```\n\n```\nplain\n```\n")
+        self._docs(cfg, "conf.md", "```mermaid\ngraph TD;\n```\n\n```\nplain\n```\n")
         with pytest.raises(Skip, match="no checkable fence"):
             quality.docs_examples(cfg)
-        assert "2 fence(s) not checkable: 1 (none), 1 toml" in capsys.readouterr().out
+        assert "2 fence(s) not checkable: 1 (none), 1 mermaid" in capsys.readouterr().out
 
     def test_counts_shell_fences_as_unchecked_when_bash_is_absent(
         self, cfg: Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

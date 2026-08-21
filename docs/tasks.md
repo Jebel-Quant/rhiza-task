@@ -97,11 +97,25 @@ and checks the floor itself.
 fence it can check. None is a defect — see [Skip is an outcome](#skip-is-an-outcome).
 
 `docs-examples` parses every `python` fence with `compile`, every `bash` fence with
-`bash -n` — parsed, never executed — and runs the `python` fences that a ```result```
-block follows, diffing what they print against that block. Fences in any other language
-are reported as unchecked with a count, because silence there would read as full
-coverage. It answers the question no other gate does: not "is there a docstring?" but
-"is what the documentation claims still true?"
+`bash -n` — parsed, never executed — every `toml` fence with `tomllib`, every `yaml` fence
+with a real parser, and runs the `python` fences that a ```result``` block follows,
+diffing what they print against that block. Fences in any other language are reported as
+unchecked with a count, because silence there would read as full coverage. It answers the
+question no other gate does: not "is there a docstring?" but "is what the documentation
+claims still true?"
+
+Two of those five can go unavailable on a machine that runs the gate fine otherwise, and
+both say so on their own line rather than passing quietly: `bash` may be absent (a stock
+Windows runner), and the yaml parser is *provisioned* rather than depended on — `rhiza-task`
+is a published CLI, so a runtime dependency is an install cost every consumer pays on every
+invocation, which two fences do not justify. In either case those fences are counted out of
+the checked total, never assumed sound. `toml` has no such caveat: `tomllib` is stdlib at
+this package's `>=3.11` floor.
+
+Parsing is not validation. A `toml` fence that parses may still name a setting that does not
+exist, and a `yaml` fence that parses may still be an invalid workflow; checking either would
+need the schema. What this closes is the narrower gap where a fence stopped being the language
+it claims.
 
 `complexity` is the one task in this section that is Python-only: it runs `radon`, so it is
 registered in the `python` layer even though it reads like a neutral gate. It measures every

@@ -22,6 +22,7 @@ import shutil
 # explanation becomes one `Test in comment:` warning per word.
 import subprocess  # nosec B404
 import textwrap
+import tomllib
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,7 +69,19 @@ PYTHON_FENCE_LANGUAGE = "python"
 # The convention README.md already uses and pytest-rhiza's `test_readme_validation` already
 # checks *there*: a ```result``` block holds the expected stdout of the python fence above it.
 RESULT_FENCE_LANGUAGE = "result"
-CHECKED_FENCE_LANGUAGES = SHELL_FENCE_LANGUAGES | {PYTHON_FENCE_LANGUAGE, RESULT_FENCE_LANGUAGE}
+# `tomllib` is stdlib at the floor this package declares (`requires-python = ">=3.11"`), so
+# the toml half costs nothing to provision -- and it is the half that matters most here: the
+# toml fences under `docs/` are this package's own `[tool.rhiza-task]` and `[tool.bumpversion]`
+# examples, which is precisely the class that goes stale when a setting is renamed or a
+# default moves. Eleven of them at the time of writing, against two yaml.
+TOML_FENCE_LANGUAGE = "toml"
+# `yml` as well as `yaml`: mkdocs-material's own docs spell it both ways, and a fence this set
+# failed to name would be silently counted as unchecked rather than parsed -- the exact
+# silence this gate exists to break.
+YAML_FENCE_LANGUAGES = frozenset({"yaml", "yml"})
+CHECKED_FENCE_LANGUAGES = (
+    SHELL_FENCE_LANGUAGES | YAML_FENCE_LANGUAGES | {PYTHON_FENCE_LANGUAGE, RESULT_FENCE_LANGUAGE, TOML_FENCE_LANGUAGE}
+)
 
 
 @dataclass(frozen=True)
@@ -87,6 +100,35 @@ class Fence:
     line: int
     language: str
     code: str
+
+
+@dataclass(frozen=True)
+class Tally:
+    """How many fences of each kind the tree holds.
+
+    A record rather than the tuple this used to be. Four counts unpacked positionally were
+    already at the edge of readable; toml and yaml take it to six, where
+    ``python, shell, toml, yaml, diffed, unchecked = _tally(fences)`` stops being checkable by
+    eye and a transposed pair would report shell fences as toml with nothing failing. The
+    fields carry the meaning instead.
+
+    Attributes:
+        python: ``python`` fences, checked by :func:`compile`.
+        shell: ``bash``/``sh`` fences, checked by ``bash -n`` when bash is present.
+        toml: ``toml`` fences, checked in-process by :mod:`tomllib`.
+        yaml: ``yaml``/``yml`` fences, checked by a provisioned parser in a subprocess.
+        diffed: ``result`` fences, executed and compared against the python fences above them.
+        unchecked: Each remaining language paired with its count, commonest first and then
+            alphabetically so the report line is diffable between runs. A fence with no
+            language at all is counted under ``(none)``.
+    """
+
+    python: int
+    shell: int
+    toml: int
+    yaml: int
+    diffed: int
+    unchecked: list[tuple[str, int]]
 
 
 @task("fmt", "run the pre-commit hooks over all files", section="Quality")
@@ -251,18 +293,29 @@ def docs_examples(cfg: Config) -> None:
     Not a second check of ``README.md``, deliberately: that file is pytest-rhiza's subject,
     and counting one verdict twice would make two gates report one fact.
 
-    Three kinds of fence are checked and the rest are counted:
+    Five kinds of fence are checked and the rest are counted:
 
     * ``python`` -- :func:`compile`, so a fence that is a *fragment* still passes. Names need
       not resolve; only the syntax is asserted.
     * ``bash``/``sh`` -- ``bash -n``, which parses without executing. Never executed, because
       a README's shell is routinely ``rm -rf`` and ``git push``, and an unparseable fence is a
       documentation bug without running it.
+    * ``toml`` -- :func:`tomllib.loads`, in this process. Stdlib at this package's Python
+      floor, so it needs nothing provisioned.
+    * ``yaml``/``yml`` -- a real parser, provisioned into a subprocess because adding one to
+      this package's runtime dependencies to serve two fences would be the wrong trade: it is
+      a published CLI whose install cost every consumer pays.
     * ``result`` -- executed and diffed against the python fences above it.
 
-    Anything else -- ``toml``, ``mermaid``, ``makefile``, ``yaml``, and fences carrying no
-    language at all -- is reported as unchecked. Naming the count is the point: silence there
-    would read as "everything was checked".
+    Anything else -- ``mermaid``, ``makefile``, and fences carrying no language at all -- is
+    reported as unchecked. Naming the count is the point: silence there would read as
+    "everything was checked".
+
+    Parsing is *not* validation, and the distinction is worth keeping: a ``toml`` fence that
+    parses may still name a setting this package does not have, and a ``yaml`` fence that
+    parses may still be an invalid workflow. Schema-checking either would need the schema, and
+    for the workflow snippets actionlint already owns that question over the real files. What
+    this closes is the narrower gap where a fence stopped being the language it claims.
 
     ``install`` is a prerequisite because the executed half imports the project's own
     packages, exactly as :func:`rhiza_test`'s docstring check does.
@@ -289,15 +342,23 @@ def docs_examples(cfg: Config) -> None:
     ]
     fences = [fence for one_file in per_file for fence in one_file]
 
+    # None, not [], when the parser could not be provisioned: an empty list is
+    # "checked, all sound", and reporting a machine's missing network as a clean bill of
+    # health is the one thing this gate must never do. `bash` is handled the same way one
+    # line above, by the same argument.
+    yaml_broken = _yaml_violations(fences, cfg, scratch)
+
     broken = [
         *_syntax_violations(fences),
         *(_shell_violations(fences, bash, scratch) if bash else []),
+        *_toml_violations(fences),
+        *(yaml_broken or []),
         *_result_violations(per_file, cfg, scratch),
     ]
     for violation in broken:
         print(violation)
 
-    if not _report(fences, bash, len(per_file)):
+    if not _report(fences, bash, yaml_broken is not None, len(per_file)):
         raise Skip(f"no checkable fence under {cfg.docs_folder}")
     if broken:
         raise Failed(1, f"{len(broken)} broken example(s) under {cfg.docs_folder}")
@@ -468,6 +529,118 @@ def _shell_violations(fences: list[Fence], bash: str, scratch: Path) -> list[str
     return broken
 
 
+def _toml_violations(fences: list[Fence]) -> list[str]:
+    """Return one message per toml fence that does not parse.
+
+    In this process and with no subprocess, unlike every other checker here, because
+    :mod:`tomllib` is stdlib from 3.11 and this package declares ``requires-python = ">=3.11"``.
+    So there is nothing to provision and nothing to skip for: a toml fence is checked on every
+    machine that can run the gate at all, which is not true of the shell or yaml halves.
+
+    A *fragment* is accepted the way :func:`_syntax_violations` accepts one -- ``tomllib``
+    parses a bare ``key = value`` with no table header perfectly well, which is what most
+    configuration examples in ``docs/`` are. Only genuine syntax errors are reported.
+
+    Args:
+        fences: Every fence in the tree.
+
+    Returns:
+        Violation messages, one per broken fence.
+    """
+    broken: list[str] = []
+    for fence in fences:
+        if fence.language != TOML_FENCE_LANGUAGE:
+            continue
+        try:
+            tomllib.loads(fence.code)
+        except tomllib.TOMLDecodeError as exc:
+            # `exc` already carries "(at line N, column M)", and that N is relative to the
+            # fence body. Prefixing the fence's own line would produce two numbers meaning
+            # different things on one line, so the message is taken whole and the fence is
+            # located by its opening line alone -- the same choice `_shell_violations` makes.
+            broken.append(f"{fence.path}:{fence.line}: toml fence does not parse: {exc}")
+    return broken
+
+
+def _yaml_violations(fences: list[Fence], cfg: Config, scratch: Path) -> list[str] | None:
+    """Return one message per yaml fence that does not parse, or None when unmeasured.
+
+    The one checker here that needs a package this project does not depend on. That is the
+    whole reason it is a subprocess: ``rhiza-task`` is a published CLI, so every runtime
+    dependency is an install cost paid by every consumer on every ``uvx`` invocation, and
+    taking one on to parse two fences in this repository's own docs would be a poor trade.
+    ``uv_run(..., withs=("pyyaml",), no_project=True)`` provisions it for the length of one
+    call instead -- the same move :func:`~rhiza_task.tasks.book.marimo` makes for marimo, and
+    the reason :mod:`rhiza_task.uv` grew ``withs`` at all.
+
+    The fences are written to files rather than embedded in the generated script. Embedding
+    would need them escaped into a literal, and a yaml fence is exactly the kind of text --
+    quotes, backslashes, indentation that carries meaning -- where an escaping bug would look
+    like a parse failure in the document. Files move the bytes without reinterpreting them.
+
+    Args:
+        fences: Every fence in the tree.
+        cfg: The resolved config.
+        scratch: Directory for the throwaway files.
+
+    Returns:
+        Violation messages, one per broken fence; an empty list when the tree holds no yaml
+        fence or every one of them parsed; or None when the parser could not be provisioned,
+        so the caller can report them as unchecked rather than sound.
+    """
+    targets = [fence for fence in fences if fence.language in YAML_FENCE_LANGUAGES]
+    if not targets:
+        return []
+
+    folder = scratch / "yaml"
+    folder.mkdir(parents=True, exist_ok=True)
+    for number, fence in enumerate(targets):
+        (folder / f"{number:04d}.yaml").write_text(fence.code)
+    (folder / "index.txt").write_text("\n".join(f"{fence.path}:{fence.line}" for fence in targets))
+
+    report = folder / "report.txt"
+    # Unlinked first: the file's *existence* is how a run that happened is told from one that
+    # never started, so a stale copy from a previous invocation would report last run's
+    # verdict as this one's.
+    report.unlink(missing_ok=True)
+    script = scratch / "fence_yaml.py"
+    script.write_text(
+        textwrap.dedent(
+            """\
+            import pathlib
+
+            import yaml
+
+            here = pathlib.Path(__file__).parent / "yaml"
+            broken = []
+            for number, where in enumerate((here / "index.txt").read_text().splitlines()):
+                try:
+                    yaml.safe_load((here / f"{number:04d}.yaml").read_text())
+                except yaml.YAMLError as exc:
+                    # Flattened: a YAMLError's str spans four lines with a caret diagram, and
+                    # the report this joins is one line per violation.
+                    detail = " ".join(str(exc).split())
+                    broken.append(f"{where}: yaml fence does not parse: {detail}")
+            (here / "report.txt").write_text("\\n".join(broken))
+            """
+        )
+    )
+
+    uv_run(
+        "python",
+        script.relative_to(cfg.root).as_posix(),
+        cwd=cfg.root,
+        withs=("pyyaml",),
+        no_project=True,
+        check=False,
+    )
+    if not report.is_file():
+        return None
+    # An empty report file is "ran, found nothing", which splitlines turns into [] -- distinct
+    # from the None above, and the distinction is the point of writing the file at all.
+    return report.read_text(errors="replace").splitlines()
+
+
 def _result_violations(per_file: list[list[Fence]], cfg: Config, scratch: Path) -> list[str]:
     """Return one message per ``result`` block that no longer matches what its python prints.
 
@@ -555,7 +728,7 @@ def _run_fences(cfg: Config, scratch: Path, codes: list[str]) -> str | None:
     return printed.read_text(errors="replace")
 
 
-def _tally(fences: list[Fence]) -> tuple[int, int, int, list[tuple[str, int]]]:
+def _tally(fences: list[Fence]) -> Tally:
     """Count the fences by what can be done with them.
 
     Split out of :func:`_report` rather than inlined there, which read more directly: the two
@@ -564,51 +737,81 @@ def _tally(fences: list[Fence]) -> tuple[int, int, int, list[tuple[str, int]]]:
     separate jobs, so this is the decomposition the metric asks for rather than a contortion
     to satisfy it.
 
+    Since toml and yaml joined, that argument has stopped being about taste: at B (7) here and
+    B (10) there, one function doing both would land above ``complexity_max`` and fail
+    ``rhiza-task complexity`` outright. So this split is now held by the gate rather than by
+    the reader who remembers why it is here.
+
     Args:
         fences: Every fence in the tree.
 
     Returns:
-        ``(python, shell, diffed, unchecked)``, where ``unchecked`` pairs each remaining
-        language with its count, commonest first and then alphabetically so the line is
-        diffable between runs. A fence with no language is counted under ``(none)``.
+        The counts, as a :class:`Tally`.
     """
     tally = Counter(fence.language or "(none)" for fence in fences)
     unchecked = sorted(
         ((language, count) for language, count in tally.items() if language not in CHECKED_FENCE_LANGUAGES),
         key=lambda item: (-item[1], item[0]),
     )
-    return (
-        tally[PYTHON_FENCE_LANGUAGE],
-        sum(tally[language] for language in SHELL_FENCE_LANGUAGES),
-        tally[RESULT_FENCE_LANGUAGE],
-        unchecked,
+    return Tally(
+        python=tally[PYTHON_FENCE_LANGUAGE],
+        # B604 matches the *keyword name* here and reads this as a subprocess call being handed
+        # a shell. It is a field assignment on a frozen dataclass of integers, and the nearest
+        # subprocess is two hundred lines away. Renaming the field to dodge the pattern would
+        # cost the symmetry with `python`, `toml`, `yaml` and `diffed` -- which is the whole
+        # reason the tuple became a record -- so suppressing the one low-confidence match is
+        # the cheaper trade. The marker carries no prose for the reason this file's header
+        # gives: bandit reads anything after it as more test IDs.
+        shell=sum(tally[language] for language in SHELL_FENCE_LANGUAGES),  # nosec B604
+        toml=tally[TOML_FENCE_LANGUAGE],
+        yaml=sum(tally[language] for language in YAML_FENCE_LANGUAGES),
+        diffed=tally[RESULT_FENCE_LANGUAGE],
+        unchecked=unchecked,
     )
 
 
-def _report(fences: list[Fence], bash: str | None, files: int) -> bool:
+def _report(fences: list[Fence], bash: str | None, yaml_ran: bool, files: int) -> bool:
     """Print the inventory and report whether anything was checkable.
 
     The unchecked count is printed rather than dropped because "0 examples" and "43 fences
     nothing looks at" both pass every other gate in this repository while documenting nothing
     verifiable. A reader seeing only a green line would take it for full coverage.
 
+    Two of the five kinds can go unchecked on a machine that runs the gate fine otherwise --
+    shell without bash, yaml without a provisioned parser -- and each gets its own line saying
+    so. They are counted out of ``checked`` in that case rather than assumed sound, which is
+    the same rule the tool guards elsewhere in this package follow.
+
+    B (10) after toml and yaml were added, from B (6). The growth is one branch per kind that
+    can be unavailable, which is open-ended rather than closed, so it gets a ceiling: **a
+    sixth checkable language that needs provisioning takes this to C (12)**, and at that point
+    the availability lines want a loop over ``(count, ran, noun)`` triples rather than a
+    branch each. A kind that cannot go unavailable -- anything stdlib, as toml is -- costs
+    nothing here and does not count against that.
+
     Args:
         fences: Every fence in the tree.
         bash: Path to bash, or None when it is absent.
+        yaml_ran: Whether the yaml parser could be provisioned.
         files: How many markdown files were read.
 
     Returns:
         True when at least one fence was checked, so the caller can skip rather than pass.
     """
-    python, shell, diffed, unchecked = _tally(fences)
-    checked = python + diffed + (shell if bash else 0)
+    tally = _tally(fences)
+    checked = tally.python + tally.diffed + tally.toml + (tally.shell if bash else 0) + (tally.yaml if yaml_ran else 0)
     print(f"\n[INFO] {files} file(s), {len(fences)} fence(s): {checked} checked")
-    print(f"[INFO] {python} python, {shell} shell, {diffed} diffed")
-    if bash is None and shell:
-        print(f"[INFO] bash not found: {shell} shell fence(s) went unchecked")
-    if unchecked:
-        listing = ", ".join(f"{count} {language}" for language, count in unchecked)
-        print(f"[INFO] {sum(count for _, count in unchecked)} fence(s) not checkable: {listing}")
+    print(
+        f"[INFO] {tally.python} python, {tally.shell} shell, "
+        f"{tally.toml} toml, {tally.yaml} yaml, {tally.diffed} diffed"
+    )
+    if bash is None and tally.shell:
+        print(f"[INFO] bash not found: {tally.shell} shell fence(s) went unchecked")
+    if not yaml_ran and tally.yaml:
+        print(f"[INFO] yaml parser unavailable: {tally.yaml} yaml fence(s) went unchecked")
+    if tally.unchecked:
+        listing = ", ".join(f"{count} {language}" for language, count in tally.unchecked)
+        print(f"[INFO] {sum(count for _, count in tally.unchecked)} fence(s) not checkable: {listing}")
     return checked > 0
 
 
