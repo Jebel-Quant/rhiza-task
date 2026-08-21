@@ -184,8 +184,16 @@ class Recorder:
         raise AssertionError(msg)
 
 
-def _task_modules() -> list[ModuleType]:
+def task_modules() -> list[ModuleType]:
     """Import and return every module under :mod:`rhiza_task.tasks`.
+
+    Public, and named without a leading underscore on purpose. It has two callers -- the
+    ``recorder`` fixture below, which patches what it finds, and ``test_uv``'s assertion that
+    nothing was left unpatched -- and ``CLAUDE.md``'s fourth layering rule says that a private
+    helper needed in a second place gets promoted and documented rather than imported as-is.
+    That rule is written about ``src/``, and the grep that checks it only reads ``src/``, but
+    the reason it exists does not stop at a directory boundary: the pair below is exactly the
+    "two callers need the same spelling" case the rule names.
 
     Discovered rather than listed. This used to be a tuple of twelve module names, which was
     accurate but only by inspection -- and wrong in the direction that does not announce
@@ -226,7 +234,7 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> Recorder:
         The recorder collecting every call.
     """
     rec = Recorder()
-    for module in _task_modules():
+    for module in task_modules():
         for kind in UV_ENTRY_POINTS:
             if hasattr(module, kind):
                 monkeypatch.setattr(module, kind, rec.make(kind))

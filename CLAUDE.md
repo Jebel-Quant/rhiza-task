@@ -124,12 +124,36 @@ to begin with the word "from" — a false positive of matching text rather than 
 worth knowing so it is not read as a violation to fix. The second command should return
 nothing at all.
 
+**Both greps read `src/`, and the two rules do not carry over to `tests/` identically.**
+Worth stating, because running them repo-wide returns about twenty-five hits and nothing
+explains them:
+
+- **Rule 3 (no deferred imports) does not apply to `tests/`, and should not.** A test that
+  registers a task with `@task` wants that import *inside* the test, so the registry is
+  mutated within the scope the `registered` fixture cleans up; hoisting it to module level
+  would leak a task into every other test in the file. `test_cli.py` is most of the count and
+  every occurrence is that pattern. The rule exists because a deferred import in `src/` hides
+  a cycle for years — a test function has no cycle to hide.
+- **Rule 4 (no private name crosses a module boundary) *does* carry over**, because its
+  reason is about callers rather than layers. `tests/test_uv.py` importing `_task_modules`
+  from `conftest.py` was the one violation, introduced by #118 and caught by running the
+  second grep over `tests/` rather than by any gate. It is now `task_modules`, public with a
+  docstring saying why — the promotion the rule asks for. So: `grep … tests/` for the second
+  command should also return nothing, and that is worth checking when you touch `conftest.py`.
+
 ## Tests assert argument vectors, and never run uv
 
-**No test in this suite runs `uv`, or any other tool.** Every test patches
-`rhiza_task.uv`'s entry points — `uv`, `uvx`, `uv_run`, `tool` — through the `Recorder`
-fixture in `tests/conftest.py`, and asserts on the argument vector that *would* have been
-executed.
+**No test in this suite runs `uv`, or any other tool.** Every test patches all **five** of
+`rhiza_task.uv`'s entry points — `uv`, `uvx`, `uv_run`, `tool`, `capture` — through the
+`Recorder` fixture in `tests/conftest.py`, and asserts on the argument vector that *would*
+have been executed.
+
+Five, and it was four until #116. `capture` was left out of the fixture while the other four
+were patched, so each test that needed it patched it by hand; all of them did, so nothing
+ever leaked, but the guarantee this paragraph makes was four fifths true and failed *open* —
+a forgotten patch ran `gh` for real rather than erroring. `tests/test_uv.py` now asserts that
+no task module holds a real entry point once the fixture has run, so the sentence above is
+checked by a test rather than by this file being kept up to date.
 
 This is the point of the package rather than a shortcut: the make recipes expressed their
 contract as shell, and the vectors are that contract made assertable without provisioning a

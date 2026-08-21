@@ -16,7 +16,7 @@ from rhiza_task import uv as uv_module
 from rhiza_task.spec import Failed
 from rhiza_task.tasks import github as github_tasks
 
-from .conftest import UV_ENTRY_POINTS, Recorder, _task_modules
+from .conftest import UV_ENTRY_POINTS, Recorder, task_modules
 
 
 @pytest.fixture
@@ -325,7 +325,7 @@ class TestTheSuiteStubsEveryEntryPoint:
         real = {name: getattr(uv_module, name) for name in (*UV_ENTRY_POINTS, "capture")}
         leaked = [
             f"{module.__name__}.{name}"
-            for module in _task_modules()
+            for module in task_modules()
             for name, original in real.items()
             if getattr(module, name, None) is original
         ]
