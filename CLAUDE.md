@@ -53,15 +53,23 @@ actually runs. Renaming it means editing PyPI's publisher entry in the same chan
 now removed, which is what makes the paragraph above unqualified. Two consequences worth
 knowing:
 
-- **CodeQL security analysis is not running from a workflow any more.** GitHub's dynamic
-  *code-quality* scan still reports on pull requests, but that is a different product from
-  the security analysis, and default security setup reads `not-configured`. Enabling default
-  setup in repository settings restores the coverage with no workflow file and no upstream
-  dependency, which is strictly better than either delegating or vendoring; until it is
-  enabled, this repo has no CodeQL security scanning.
-- **The OSSF Scorecard badge and SARIF upload are gone with the scorecard workflow.** Note
-  that `rhiza_release.yml` still generates SBOMs and build attestations for Scorecard's
-  Signed-Releases check, so those comments describe a check nothing is currently scoring.
+- **CodeQL security analysis runs from GitHub's default setup, not from a workflow.**
+  GitHub's dynamic *code-quality* scan also reports on pull requests, but that is a
+  different product from the security analysis. Default setup was enabled in repository
+  settings on 2026-08-21 and covers `actions` and `python`, which restores the coverage
+  with no workflow file and no upstream dependency — strictly better than either
+  delegating to a stub or vendoring the workflow. So there is deliberately no `codeql.yml`
+  to find, and its absence is not a gap to fill:
+  `gh api repos/Jebel-Quant/rhiza-task/code-scanning/default-setup` reporting
+  `"state":"configured"` is how you confirm the coverage exists. That endpoint may report
+  `"languages":[]` straight after a settings change even while both analyses run; the
+  run's own jobs are the authority.
+- **The OSSF Scorecard badge and SARIF upload are gone with the scorecard workflow.**
+  `rhiza_release.yml` still generates SBOMs and build attestations, and `CODEOWNERS` still
+  gates review — but those are kept for consumers rather than for a scorer, and their
+  comments now say so on their own terms. Nothing here is scored by Scorecard; a comment
+  that implies otherwise is stale and should be rewritten, not left as a hint that a run
+  exists somewhere.
 
 A local `rhiza-task scorecard` task was considered as a replacement and rejected: Scorecard's
 checks are forge-API queries about the *remote* repository, so a local task could not give a
@@ -232,15 +240,26 @@ The comments here are unusually dense, and that is the convention rather than an
 The rule they follow: **say why, especially when the code looks wrong.** A flat
 `if ... raise` sequence that radon scores C, a `--partial-match` flag, a `# nosec`, a
 version pinned one patch above upstream — each carries the bug it prevents or the decision
-it records. Four blocks rank C on cyclomatic complexity and each states why the flat form
+it records. Two blocks rank C on cyclomatic complexity and each states why the flat form
 is preferred over a decomposition that would satisfy the metric.
 
-One rule those four are held to: **if the branch count grows, the comment states a
-ceiling.** Three of them are bounded by closed sets — `_run_one` by the size of `Status`,
-`Guard` and `Guard.check` by the number of guard kinds — so their figures cannot drift far
-and "deliberate" is a complete answer. `Config.__post_init__` is one branch per validated
-setting, which is open-ended, so it names C (15) as the point where per-group helpers win.
-A growth rule without a limit is an open licence rather than a decision.
+One rule those two are held to: **if the branch count grows, the comment states a
+ceiling.** `_run_one` is bounded by a closed set — the size of `Status` — so its figure
+cannot drift far and "deliberate" is a complete answer. `Config.__post_init__` is one
+branch per validated setting, which is open-ended, so it names C (15) as the point where
+per-group helpers win. A growth rule without a limit is an open licence rather than a
+decision.
+
+`Guard` and `Guard.check` used to be the other two, at C (14) and C (13). They are the
+worked example of a ceiling being *honoured* rather than restated: at one branch of
+headroom the comment stopped claiming "deliberate", named a tuple of
+`(predicate, message)` as the decomposition to reach for, and that decomposition is now
+`_clauses` — with the class at A (5). Two lessons kept from doing it. The helper is a
+module-level function because **radon scores a class as the sum of its methods**, so a
+second method would have relocated the 14 and reduced nothing. And it is a *generator*,
+because the property the flat form was really protecting was evaluation order — tool
+before file before folder before glob, each only reached if the last was satisfied — which
+a lazily-consumed `yield` keeps and an eagerly-built tuple of pairs would have lost.
 
 Unlike the layering invariant above, this one **is** gated: `rhiza-task complexity` fails on
 any block above `complexity_max`, which `pyproject.toml` leaves at the shipped 15, and
@@ -248,7 +267,8 @@ any block above `complexity_max`, which `pyproject.toml` leaves at the shipped 1
 read back by a build rather than by a reader who remembers to — which is the whole reason
 that note can say "roughly two more settings" and be held to it. `uvx radon cc src -a -s`
 remains how you read the figure by hand, and the gate reports the worst *block*, classes
-included, so the number to watch is currently `Guard`'s 14 rather than any method's 13.
+included — so the number to watch is currently `Config.__post_init__`'s 13, with
+`_run_one`'s 12 behind it and no class above either.
 
 When changing such code, update the comment with it. A stale comment is worse than none:
 `ci.yml` once asserted that `rhiza-task fmt` skipped for want of a pre-commit config, for

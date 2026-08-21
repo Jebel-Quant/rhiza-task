@@ -2,14 +2,13 @@
 #
 # Pull requests that modify matching paths require an approving review from a listed
 # owner. That requirement is enforced by `require_code_owner_review` in
-# .github/rulesets/main-branch-protection.json, and it feeds the OpenSSF Scorecard
-# Code-Review and Branch-Protection checks that .github/workflows/rhiza_scorecard.yml
-# publishes.
+# .github/rulesets/main-branch-protection.json.
 #
 # Repository admins can still bypass, per that ruleset's `bypass_actors` entry, so a
 # maintainer can self-merge without waiting for a second reviewer. Note what that costs:
-# Scorecard's Code-Review check counts *approved* changesets, so a bypassed merge leaves
-# it at 0 even with this file in place. Branch-Protection is the check this moves.
+# this file constrains who *can* approve, and the ruleset constrains what may reach main,
+# but neither records that a human actually reviewed a bypassed merge. So the protection
+# it buys is real for anyone without admin and advisory for anyone with it.
 #
 # One owner, not the `@Jebel-Quant/rhiza` team the upstream copy names: that team has no
 # access to this repository, and GitHub treats an owner without write access as unknown --
