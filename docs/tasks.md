@@ -90,9 +90,18 @@ and checks the floor itself.
 | `test-pyproject` | `install` | run the `pyproject.toml` structure checks, verbosely |
 | `todos` | — | list every TODO, FIXME and HACK comment |
 | `complexity` | — | fail on a block above the cyclomatic-complexity ceiling |
+| `docs-examples` | `install` | check the fenced examples in the docs tree |
 
-`fmt` skips without a `.pre-commit-config.yaml`, and `semgrep` without a
-`.rhiza/semgrep.yml`. Neither is a defect — see [Skip is an outcome](#skip-is-an-outcome).
+`fmt` skips without a `.pre-commit-config.yaml`, `semgrep` without a
+`.rhiza/semgrep.yml`, and `docs-examples` without a docs folder — or with one holding no
+fence it can check. None is a defect — see [Skip is an outcome](#skip-is-an-outcome).
+
+`docs-examples` parses every `python` fence with `compile`, every `bash` fence with
+`bash -n` — parsed, never executed — and runs the `python` fences that a ```result```
+block follows, diffing what they print against that block. Fences in any other language
+are reported as unchecked with a count, because silence there would read as full
+coverage. It answers the question no other gate does: not "is there a docstring?" but
+"is what the documentation claims still true?"
 
 `complexity` is the one task in this section that is Python-only: it runs `radon`, so it is
 registered in the `python` layer even though it reads like a neutral gate. It measures every
@@ -238,6 +247,9 @@ reader can tell "skipped deliberately" from "forgotten":
 
 - **`semgrep`** — no `all` names it. Upstream rhiza runs it on a weekly cadence, not per
   pull request.
+- **`complexity`** and **`docs-examples`** — adding either to `all` would fail builds in
+  repositories that changed nothing, so a repo opts in by naming it in its own CI, which
+  is what this one does.
 - **the bundle-owned sections** — none is a gate, as above.
 
 Anything else registered *is* in `all` for its layer.

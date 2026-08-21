@@ -2,8 +2,15 @@
 
 No test in this suite runs uv. The point of extracting the make layer into a package is
 that its logic becomes testable *without* provisioning a toolchain, so every test patches
-:mod:`rhiza_task.uv`'s three entry points and asserts on the argument vectors that would
-have been executed. Those vectors are the contract the make recipes expressed in shell.
+:mod:`rhiza_task.uv`'s four entry points -- ``uv``, ``uvx``, ``uv_run`` and ``tool`` -- and
+asserts on the argument vectors that would have been executed. Those vectors are the
+contract the make recipes expressed in shell.
+
+Four, not three: ``tool`` is the form rust.mk and go.mk added for a toolchain binary
+already on PATH, which uv neither provisions nor knows about. :mod:`rhiza_task.uv` explains
+why that is a fourth form rather than a variant of the other three, and the fixture below
+patches it alongside them -- so a count of three here would understate what this file
+stands in for by exactly the language layers it was extended to cover.
 """
 
 from __future__ import annotations

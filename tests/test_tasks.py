@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from rhiza_task.config import Config
-from rhiza_task.spec import Failed, Skip
+from rhiza_task.spec import Failed, Skip, lookup
 from rhiza_task.tasks import book as book_tasks
 from rhiza_task.tasks import extras, python, quality
 from rhiza_task.tasks.doctor import at_least, parse_version
@@ -947,3 +948,342 @@ class TestComplexity:
         self._radon(monkeypatch, None)
         with pytest.raises(Skip):
             python.complexity(cfg)
+
+
+class TestDocsExamples:
+    """``docs-examples``: the fence parser, the three checks, and the inventory.
+
+    Hermetic like the rest of the suite. ``bash`` and ``uv_run`` are both patched, so the
+    tests assert the argument vector each check *would* run -- ``bash -n`` over a throwaway
+    script, ``uv run python`` over a generated one -- rather than provisioning either. That
+    matters more here than elsewhere: this gate's whole job is to run other people's code,
+    and a test that really ran it would execute the repository's own documentation.
+    """
+
+    @staticmethod
+    def _docs(cfg: Config, name: str, text: str) -> None:
+        """Write one markdown file into the docs folder.
+
+        Args:
+            cfg: The resolved config.
+            name: File name, e.g. ``guide.md``.
+            text: The file's content.
+        """
+        folder = cfg.path("docs_folder")
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_text(text)
+
+    @staticmethod
+    def _bash(monkeypatch: pytest.MonkeyPatch, code: int, stderr: str = "") -> list[list[str]]:
+        """Patch out the ``bash -n`` probe and collect the vectors it would have run.
+
+        Args:
+            monkeypatch: pytest's patcher.
+            code: The exit status every probe reports.
+            stderr: The stderr every probe reports.
+
+        Returns:
+            The recorded argument vectors, appended to as the gate runs.
+        """
+        seen: list[list[str]] = []
+        monkeypatch.setattr(quality.shutil, "which", lambda _name: "/bin/bash")
+
+        def fake_run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            """Record the vector and report the canned outcome.
+
+            Args:
+                argv: The argument vector.
+                **_kwargs: Ignored.
+
+            Returns:
+                A completed process carrying the canned status and stderr.
+            """
+            seen.append(argv)
+            return subprocess.CompletedProcess(argv, code, "", stderr)
+
+        monkeypatch.setattr(quality.subprocess, "run", fake_run)
+        return seen
+
+    def test_dedents_a_fence_indented_inside_an_admonition(self) -> None:
+        """A fence indented by an admonition compiles, because the body is dedented.
+
+        Without the dedent every fence inside an mkdocs admonition or content tab is an
+        ``IndentationError``, which would be a finding against this checker rather than the
+        documentation -- and this repository's docs indent eight of them.
+        """
+        fences = quality._fences("docs/x.md", '!!! tip "t"\n\n    ```python\n    x = 1\n    ```\n')
+        assert [(f.line, f.language, f.code) for f in fences] == [(3, "python", "x = 1")]
+        assert quality._syntax_violations(fences) == []
+
+    def test_keeps_only_the_language_from_an_attributed_fence(self) -> None:
+        """``python title="x"`` is a python fence, and an unlabelled one carries no language.
+
+        The opening pattern is permissive for a reason worth pinning: were it to miss an
+        attributed fence, that fence's *closing* backticks would be read as the next opening
+        one and every language after it would be wrong.
+        """
+        fences = quality._fences("d.md", '```python title="a.py"\nx = 1\n```\n\n```\nplain\n```\n')
+        assert [f.language for f in fences] == ["python", ""]
+
+    def test_reports_a_python_fence_that_does_not_parse(self) -> None:
+        """A malformed python fence is a violation, and a mere fragment is not.
+
+        ``guards = (Guard("source_folder"),)`` in ``adding_a_task.md`` never imports
+        ``Guard``, so resolving names would report the documentation as broken when it is
+        only partial.
+        """
+        fences = quality._fences("d.md", "```python\nx = (1,\n```\n\n```python\ny = Undefined(1)\n```\n")
+        violations = quality._syntax_violations(fences)
+        assert len(violations) == 1
+        # Line 2, the offending code, not line 1 where the fence opens.
+        assert violations[0].startswith("d.md:2: python fence does not parse:")
+
+    def test_reports_a_shell_fence_that_does_not_parse(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """A non-zero ``bash -n`` is a violation, and the throwaway path is not in the message.
+
+        bash reports against the scratch file and its own line numbers, neither of which the
+        reader can act on; the fence's real location is the prefix instead.
+
+        Args:
+            monkeypatch: pytest's patcher.
+            tmp_path: Scratch directory for the throwaway script.
+        """
+        seen = self._bash(monkeypatch, 2, f"{tmp_path / 'fence.sh'}: line 2: syntax error\n")
+        fences = quality._fences("d.md", "```bash\nif true\n```\n")
+        violations = quality._shell_violations(fences, "/bin/bash", tmp_path)
+        assert seen[0][:2] == ["/bin/bash", "-n"]
+        assert violations == ["d.md:1: shell fence does not parse: fence: line 2: syntax error"]
+
+    def test_falls_back_to_the_exit_status_when_bash_says_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A failure with empty stderr still reports, rather than producing an empty message.
+
+        Args:
+            monkeypatch: pytest's patcher.
+            tmp_path: Scratch directory for the throwaway script.
+        """
+        self._bash(monkeypatch, 2, "")
+        fences = quality._fences("d.md", "```sh\nif true\n```\n")
+        violations = quality._shell_violations(fences, "/bin/bash", tmp_path)
+        assert violations == ["d.md:1: shell fence does not parse: exit 2"]
+
+    def test_runs_the_generated_script_through_the_project_environment(self, cfg: Config, recorder: Recorder) -> None:
+        """The fences run as ``uv run python <script>``, so imports see the project's deps.
+
+        A file rather than ``-c``: the echoed invocation stays one readable line, and the
+        script is what redirects its own stdout, keeping the vector shell-free.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        scratch = cfg.root / "_tests" / "docs-examples"
+        scratch.mkdir(parents=True, exist_ok=True)
+        quality._run_fences(cfg, scratch, ["print('hi')"])
+        call = recorder.find("python")
+        assert call.kind == "uv_run"
+        assert call.flags == ["_tests/docs-examples/fences.py"]
+        assert "sys.stdout = open(" in (scratch / "fences.py").read_text()
+
+    def test_treats_a_script_that_wrote_nothing_as_unrunnable(self, cfg: Config, recorder: Recorder) -> None:
+        """No captured stdout means the fences did not run, which is not a passing diff.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder, which records rather than runs the script.
+        """
+        scratch = cfg.root / "_tests" / "docs-examples"
+        scratch.mkdir(parents=True, exist_ok=True)
+        assert quality._run_fences(cfg, scratch, ["print('hi')"]) is None
+        assert recorder.tools() == ["python"]
+
+    def test_discards_stdout_left_by_an_earlier_run(self, cfg: Config, recorder: Recorder) -> None:
+        """Stale stdout is removed first, so a diff cannot pass against the previous run.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        scratch = cfg.root / "_tests" / "docs-examples"
+        scratch.mkdir(parents=True, exist_ok=True)
+        (scratch / "stdout.txt").write_text("last time's answer")
+        assert quality._run_fences(cfg, scratch, ["print('hi')"]) is None
+        assert recorder.tools() == ["python"]
+
+    @pytest.mark.parametrize(
+        ("printed", "expected"),
+        [
+            ("one", []),
+            ("two", ["stale"]),
+            (None, ["exited non-zero"]),
+        ],
+    )
+    def test_diffs_a_result_block_against_what_the_python_prints(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch, printed: str | None, expected: list[str]
+    ) -> None:
+        """A ``result`` block matching its fence passes; a stale or unrunnable one does not.
+
+        ``_run_fences`` is patched rather than run, so this asserts the diff and not the
+        subprocess -- which the two tests above already pin as a vector.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+            printed: What the python fences are made to print, or None for a failed run.
+            expected: Substrings the violations must contain.
+        """
+        monkeypatch.setattr(quality, "_run_fences", lambda *_args: printed)
+        fences = quality._fences("d.md", "```python\nprint('one')\n```\n\n```result\none\n```\n")
+        violations = quality._result_violations([fences], cfg, cfg.root)
+        assert len(violations) == len(expected)
+        for violation, fragment in zip(violations, expected, strict=True):
+            assert fragment in violation
+
+    def test_reports_a_result_block_with_no_python_above_it(self, cfg: Config) -> None:
+        """A ``result`` block that documents nothing runnable is a violation, not a pass.
+
+        Args:
+            cfg: The resolved config.
+        """
+        fences = quality._fences("d.md", "```result\nnothing produces this\n```\n")
+        assert quality._result_violations([fences], cfg, cfg.root) == [
+            "d.md:1: result block with no python fence above it"
+        ]
+
+    def test_a_prelude_fence_defines_names_the_later_one_uses(self, cfg: Config, recorder: Recorder) -> None:
+        """Every python fence above the block is concatenated, because the pair needs it.
+
+        ``README.md``'s first fence registers ``audit`` with ``@task`` and its second calls
+        ``lookup("audit")``; running the second alone raises. Asserted on the generated
+        script rather than on its output, which keeps the test hermetic.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        scratch = cfg.root / "_tests" / "docs-examples"
+        scratch.mkdir(parents=True, exist_ok=True)
+        quality._run_fences(cfg, scratch, ["V = 7", "print(V)"])
+        script = (scratch / "fences.py").read_text()
+        assert "V = 7" in script
+        assert script.index("V = 7") < script.index("print(V)")
+        assert recorder.tools() == ["python"]
+
+    def test_skips_when_the_docs_folder_holds_no_checkable_fence(
+        self, cfg: Config, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A tree of ``toml`` and unlabelled fences measured nothing, so it skips.
+
+        Passing would be the failure this gate exists to prevent: 100 percent docstring
+        coverage over documentation carrying nothing runnable already reads as green.
+
+        Args:
+            cfg: The resolved config.
+            capsys: pytest's output capture.
+        """
+        self._docs(cfg, "conf.md", "```toml\nx = 1\n```\n\n```\nplain\n```\n")
+        with pytest.raises(Skip, match="no checkable fence"):
+            quality.docs_examples(cfg)
+        assert "2 fence(s) not checkable: 1 (none), 1 toml" in capsys.readouterr().out
+
+    def test_counts_shell_fences_as_unchecked_when_bash_is_absent(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """No bash means the shell fences go uncounted as checked, and the gate says so.
+
+        A stock Windows runner has no bash, and Windows is in the matrix deliberately. That
+        is a fact about the machine, so it must not fail the gate -- the same reasoning as a
+        tool guard raising Skip.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        monkeypatch.setattr(quality.shutil, "which", lambda _name: None)
+        self._docs(cfg, "g.md", "```bash\nls\n```\n\n```python\nx = 1\n```\n")
+        quality.docs_examples(cfg)
+        out = capsys.readouterr().out
+        assert "bash not found: 1 shell fence(s) went unchecked" in out
+        assert "1 file(s), 2 fence(s): 1 checked" in out
+
+    def test_fails_on_a_broken_fence_and_names_it(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """One unparseable fence fails the gate, with its file and line in the output.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        monkeypatch.setattr(quality.shutil, "which", lambda _name: None)
+        self._docs(cfg, "g.md", "```python\nx = (1,\n```\n")
+        with pytest.raises(Failed, match="1 broken example"):
+            quality.docs_examples(cfg)
+        assert "docs/g.md:2: python fence does not parse" in capsys.readouterr().out
+
+    def test_passes_a_clean_tree_and_checks_the_shell_fences(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """With bash present every shell fence is probed, and a clean tree passes.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        seen = self._bash(monkeypatch, 0)
+        self._docs(cfg, "a.md", "```bash\nls\n```\n")
+        self._docs(cfg, "b.md", "```python\nx = 1\n```\n")
+        quality.docs_examples(cfg)
+        assert len(seen) == 1
+        assert "2 file(s), 2 fence(s): 2 checked" in capsys.readouterr().out
+
+    def test_is_guarded_on_the_docs_folder(self, cfg: Config) -> None:
+        """A repository with no docs tree skips through the guard, rather than failing.
+
+        Args:
+            cfg: The resolved config.
+        """
+        spec = lookup("docs-examples")
+        assert [guard.folder for guard in spec.guards] == ["docs_folder"]
+        with pytest.raises(Skip, match="docs_folder"):
+            spec.guards[0].check(cfg.root, cfg.folders)
+
+    def test_needs_install_because_the_examples_import_the_project(self) -> None:
+        """The executed half imports the project's own packages, as ``rhiza-test`` does."""
+        assert lookup("docs-examples").needs == ("install",)
+
+    def test_returns_the_captured_stdout_when_the_script_ran(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A script that wrote its stdout file has that text returned for diffing.
+
+        ``uv_run`` is patched with a stand-in that produces the *effect* the real script has
+        -- the redirected stdout file -- rather than running python, which keeps the test
+        hermetic while still covering the path the diff depends on.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+        """
+        scratch = cfg.root / "_tests" / "docs-examples"
+        scratch.mkdir(parents=True, exist_ok=True)
+
+        def fake_uv_run(*_args: object, **_kwargs: object) -> int:
+            """Write the stdout the redirected script would have written.
+
+            Args:
+                *_args: Ignored.
+                **_kwargs: Ignored.
+
+            Returns:
+                Zero, as a successful run does.
+            """
+            (scratch / "stdout.txt").write_text("captured\n")
+            return 0
+
+        monkeypatch.setattr(quality, "uv_run", fake_uv_run)
+        assert quality._run_fences(cfg, scratch, ["print('captured')"]) == "captured\n"

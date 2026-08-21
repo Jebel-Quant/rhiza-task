@@ -119,8 +119,11 @@ python-dotenv = "dotenv"
 # order -- the package configuring itself with the mechanism it sells.
 #
 # The floor is 100, not the shipped default of 90 and no longer the 95 it passed through:
-# the suite now covers all 1080 statements in `src/`, and a floor below what the suite
-# already achieves is a ratchet that never catches anything. At 100 a new branch arrives
+# the suite covers every statement in `src/` -- 1234 of them at the time of writing -- and a
+# floor below what the suite already achieves is a ratchet that never catches anything.
+# The figure is incidental to the argument and moves with every commit, which is why it is
+# written as "at the time of writing" rather than as a claim the next branch invalidates;
+# `rhiza-task test` prints the current total. At 100 a new branch arrives
 # with the test that exercises it or the gate goes red. It is enforced wherever `test`
 # runs -- the `gates` job's `rhiza-task all` in CI, and every local invocation -- which is
 # what makes it a gate rather than a note.

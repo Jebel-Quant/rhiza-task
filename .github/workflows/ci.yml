@@ -169,15 +169,40 @@ jobs:
       #
       # It is what turns the ceiling in config.py's `__post_init__` note from discipline into
       # a gate. That note commits to a number -- C (15) -- and until this step nothing read
-      # it back; `uvx radon cc src -a -s` was a command a human had to remember to run. The
-      # figure is currently 13, so there is real headroom, which is exactly when a gate is
-      # worth adding rather than after it has been crossed.
+      # it back; `uvx radon cc src -a -s` was a command a human had to remember to run.
+      #
+      # The figure the gate compares against that ceiling is the worst *block* radon reports,
+      # and radon's blocks include classes: the highest is currently the `Guard` class at
+      # C (14), one above `Guard.check` and `Config.__post_init__` at C (13). So the headroom
+      # is one, not the two settings' worth the `__post_init__` note's "roughly two more
+      # settings" might suggest -- that sentence is about how many *settings* fit before the
+      # flat form stops paying for itself, which is a different question from how much room
+      # the gate has left. Worth stating which number this tracks, because the class figure
+      # and the worst-function figure differ and only one of them fails the build.
       #
       # `!cancelled()` for the reason the ruff job's two halves have it: a complexity finding
       # and a gate failure are independent, and reporting one at a time costs a round trip.
       - name: rhiza-task complexity
         if: ${{ !cancelled() }}
         run: uv run rhiza-task complexity
+
+      # `docs-examples` is outside `all` for the same semver reason `complexity` is, and named
+      # here for the same reason: this is the mechanism a consumer would use to opt in.
+      #
+      # What it adds that no other gate here reaches: `docs-coverage` asks whether a docstring
+      # exists and markdownlint asks whether the markdown is well-formed, so the question
+      # "is what the documentation *claims* still true?" had one answer for `README.md` --
+      # pytest-rhiza's `test_readme_validation`, via `rhiza-test` -- and none at all for
+      # `docs/`, which holds the larger share of the fences and `getting_started.md` among
+      # them. That is the newcomer's first contact, and a stale command there renders
+      # perfectly right up to the moment it is run.
+      #
+      # `!cancelled()` for the reason the ruff job's two halves have it: a broken example and
+      # a failing gate are independent findings, and reporting one at a time costs a round
+      # trip per fix.
+      - name: rhiza-task docs-examples
+        if: ${{ !cancelled() }}
+        run: uv run rhiza-task docs-examples
 
   # The Rust and Go layers are 165 statements at 100% coverage, and every one of those
   # statements is covered by an *argument-vector assertion*: conftest.py patches uv.py's four
