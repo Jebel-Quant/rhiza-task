@@ -174,9 +174,24 @@ diffed** against the `python` fences above it, so an example that goes stale fai
 rather than quietly outdating — and the prelude is every earlier `python` fence in that
 file, because `adding_a_task.md`'s pair needs the first fence's `@task` before the second's
 `lookup` — that page holds the one `result` block in the tree, which is why the gate's
-summary line reads `1 diffed`. And fences in a language it cannot check (`toml`, `mermaid`,
-`makefile`, `yaml`, and those carrying no language) are **reported with a count** rather
+summary line reads `1 diffed`. And fences in a language it cannot check (`mermaid`,
+`makefile`, and those carrying no language) are **reported with a count** rather
 than passed over in silence, because a green line with no numbers reads as full coverage.
+
+`toml` and `yaml` used to be in that uncheckable list and are now parsed, which is worth
+knowing for two reasons beyond the count moving from 31 to 18. The `toml` half is
+in-process `tomllib` — stdlib at this package's `>=3.11` floor, so it is checked on every
+machine that can run the gate — and it covers the eleven fences quoting this repo's *own*
+`[tool.rhiza-task]` and `[tool.bumpversion]` settings, which is the class that goes stale
+when a setting is renamed. The `yaml` half is a **provisioned subprocess**
+(`uv run --no-project --with pyyaml`), deliberately not a dependency: `rhiza-task` is a
+published CLI, so a runtime dependency is an install cost every consumer pays on every
+`uvx` invocation, and two fences do not justify one. That makes yaml the second check
+after `bash -n` that can go *unavailable* on a working machine, and both follow the same
+rule — the fences are counted out of `checked` and named on their own `[INFO]` line, never
+assumed sound. Parsing is not validation: a fence that parses may still name a setting
+this package does not have, and for the workflow snippets actionlint already owns that
+question over the real files.
 
 ## The coverage floor is 100, and it is load-bearing
 
@@ -198,7 +213,7 @@ retire — a new `# pragma: no cover` should be argued for rather than added.
 
 ## Where the gates run
 
-`ci.yml` has eight jobs, and its comments explain each in detail. In short:
+`ci.yml` has nine jobs, and its comments explain each in detail. In short:
 
 - **`test`** — a 12-cell `pytest` matrix (3 OS × Python 3.11–3.14). **Windows is
   deliberate**, as the assertion that the shell dependency is gone, and the job carries a
@@ -220,6 +235,18 @@ retire — a new `# pragma: no cover` should be argued for rather than added.
   `rhiza-task all`, but against *this* repository — the package's own tree, with a manifest
   tuned to it — so the shipped defaults a consumer actually gets were the part going
   unexercised.
+- **`bundle-layer`** — the same argument carried past the language layers, which is where it
+  always led: `docker`, `presentation`, `marimo`, `lfs` and the GitHub helpers had no real
+  execution anywhere, so around eighteen shipped vectors rested on unit assertions alone.
+  One job rather than five, because docker, node, git-lfs and `gh` are all preinstalled on
+  `ubuntu-latest` and the language layers are separate only because each needs its own
+  toolchain. **Four vectors are deliberately absent and cannot be added**: `docker-run`
+  (`-it`), `presentation-serve`, `marimo` and `serve` each block forever by design, so a
+  step running one would hang to the timeout rather than report. `presentation-pdf` is
+  absent for a weaker reason — Marp renders PDF through headless Chrome, so it would
+  download a browser per run, and its vector differs from `presentation`'s by one flag the
+  suite already asserts. `lfs-pull` needs a remote holding LFS objects, and the fixture has
+  no remote.
 - **`lowest-deps`** — resolves `--resolution lowest-direct` to prove the manifest's floors
   are real.
 

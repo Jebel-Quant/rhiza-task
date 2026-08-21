@@ -6,6 +6,10 @@
 #
 # Its third job, semgrep, is not lifted: `rhiza-task semgrep` skips without
 # .rhiza/semgrep.yml and this repository ships none, exactly as pytest-rhiza does not.
+#
+# Two more jobs here are local rather than lifted, so the count does not reconcile with
+# upstream's: `advisories` and `link-check`. Both exist because nothing else asks their
+# question -- see each one's own comment.
 
 name: Weekly
 
@@ -49,6 +53,50 @@ jobs:
       # dependencies, so the CLI under test has to be the one in the tree.
       - name: Run the gates
         run: uv run rhiza-task test
+
+  # `rhiza-task security` is bandit, which is SAST: it lints the source this repository owns
+  # and never looks at what is installed. So nothing asked the *dependency* question, and
+  # tasks/python.py's `security` docstring explains at length why the answer is not to add
+  # pip-audit to that task -- doing so would put a gate in consumers' CI that the template
+  # they also follow says is not there. That argument is about the *shipped task*. It says
+  # nothing about this repository scanning its own lockfile in its own workflow, which is
+  # what this job does: no consumer inherits it, and no published gate changes.
+  #
+  # Weekly, and for the reason link-check below is weekly rather than the reason mutation is:
+  # an advisory published on Tuesday is not the Tuesday author's fault, so gating a pull
+  # request on it would fail builds for something the author cannot fix. A scheduled run is a
+  # notification instead.
+  #
+  # Deliberately *not* continue-on-error, unlike mutation. A surviving mutant is a prompt to
+  # write an assertion; a published advisory against a pinned dependency is a fact that wants
+  # someone to look. Red is the whole signal, and it blocks nothing. If an advisory ever lands
+  # with no fixed version available, the escape hatch is `--ignore-vuln <ID>` carrying its
+  # reason on the line above -- not continue-on-error, which would silence every future one
+  # too.
+  advisories:
+    name: dependency advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.16"
+          enable-cache: true
+
+      # The committed lockfile is the subject, so `--frozen`: resolving afresh would scan
+      # versions this repository has not pinned and miss the ones it has. `--all-extras
+      # --all-groups` because a vulnerable test-only dependency still executes in CI, and
+      # `--no-emit-project` drops rhiza-task itself, which is the thing being audited rather
+      # than an input to the audit.
+      - name: Export the locked dependency set
+        run: >
+          uv export --frozen --all-extras --all-groups --no-emit-project
+          --format requirements-txt -o requirements.txt
+
+      # `uvx`, not a dependency: this is the only place pip-audit is used, and provisioning it
+      # per run keeps it out of the manifest that `lowest-deps` has to resolve.
+      - name: Audit them against the advisory database
+        run: uvx pip-audit -r requirements.txt
 
   # The complement of the 100 coverage floor, which pyproject.toml is careful to say does
   # not claim what it looks like it claims: at 100 no statement is *unvisited*, and nothing

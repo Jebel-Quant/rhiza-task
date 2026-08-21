@@ -378,6 +378,166 @@ jobs:
       - name: rhiza-task rust:typecheck
         run: uv run rhiza-task rust:typecheck --root "$RUNNER_TEMP/demo-crate"
 
+  # The three jobs above exist because a vector that is well-formed and *wrong* passes every
+  # other gate here and breaks in the first consumer that runs it. That argument was never
+  # specific to the language layers, and cross-referencing every `rhiza-task <task>` in
+  # .github/ against the registry showed where else it applied: docker, presentation, marimo,
+  # lfs and the GitHub helpers -- around eighteen shipped vectors -- had no real execution
+  # anywhere, in the families a consumer reaches for after the core gates. This job is that
+  # gap closed. `bundle` is the suite's own word for them, from tests/test_bundle_tasks.py.
+  #
+  # One job rather than five, unlike the language layers: those are separate because each
+  # needs a different toolchain installed, whereas docker, node, git-lfs and gh are all
+  # preinstalled on ubuntu-latest, so five jobs would be five checkouts to say the same thing.
+  #
+  # Four vectors are deliberately *not* here, and the reason is structural rather than
+  # effort -- each one blocks forever by design, so a job running it would hang until the
+  # timeout rather than report anything:
+  #
+  #   docker-run           `docker run --rm -it`, an interactive terminal
+  #   presentation-serve   Marp's watching preview server
+  #   marimo               the Marimo editor, a headless server with no exit
+  #   book/serve           `python -m http.server`, already covered by rhiza_book.yml
+  #
+  # `presentation-pdf` is left out for a different and weaker reason: Marp renders PDF
+  # through headless Chrome, so the step would download a browser on every run. Its vector
+  # differs from `presentation`'s only by `--allow-local-files`, which is asserted in the
+  # suite. If it ever earns a real run, that is the trade to revisit.
+  #
+  # `lfs-pull` is left out because it needs a remote holding LFS objects; the fixture has no
+  # remote at all, and inventing one would test the fixture.
+  bundle-layer:
+    name: bundle tasks against a real toolchain
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The GitHub helpers are read-only queries, and each needs the scope for what it reads:
+      # `view-prs` pull-requests, `view-issues` issues, and `failed-workflows` and
+      # `workflow-status` the Actions API. GITHUB_TOKEN grants none of these from the
+      # workflow-level `contents: read`, so a missing line here is a 403 rather than a skip.
+      pull-requests: read
+      issues: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.16"
+          enable-cache: true
+
+      # One fixture for the four families that need a project, built to the shapes the tasks'
+      # guards actually look for: docker/Dockerfile, PRESENTATION.md, docs/notebooks/*.py, and
+      # a git repository for git-lfs to configure. `coverage_fail_under = 0` for the reason
+      # python-layer gives -- the subject is the vector, not the fixture's coverage.
+      - name: Build a throwaway project
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bundle/docker" "$RUNNER_TEMP/bundle/docs/notebooks" \
+                   "$RUNNER_TEMP/bundle/src/demo"
+          cd "$RUNNER_TEMP/bundle"
+          # src/demo exists because `marimo-validate` names `install` as a prerequisite, and
+          # `uv sync` builds the project: a manifest declaring hatchling with nothing for it to
+          # package fails the build, which blocks the task before its vector is ever reached.
+          # The other four families have no prerequisite and would not have noticed. Found by
+          # running this job's steps for real, which is the same way rust-layer learned that
+          # `cargo new crate` is rejected.
+          printf '"""A package for hatchling to build."""\n' > src/demo/__init__.py
+          cat > pyproject.toml <<'EOF'
+          [project]
+          name = "demo"
+          version = "0.1.0"
+          requires-python = ">=3.11"
+
+          [build-system]
+          requires = ["hatchling"]
+          build-backend = "hatchling.build"
+
+          [tool.rhiza-task]
+          coverage_fail_under = 0
+          EOF
+          # `ARG PYTHON_VERSION` on purpose: docker-build passes --build-arg whatever the
+          # layer, and a Dockerfile declaring no such ARG gets a warning. Declaring it is what
+          # asserts the flag is actually consumed rather than merely tolerated.
+          cat > docker/Dockerfile <<'EOF'
+          ARG PYTHON_VERSION=3.11
+          FROM alpine:3.22
+          RUN echo "built for python ${PYTHON_VERSION}"
+          EOF
+          # Marp needs front matter to treat the file as a deck rather than plain markdown.
+          cat > PRESENTATION.md <<'EOF'
+          ---
+          marp: true
+          ---
+
+          # Slide one
+
+          ---
+
+          # Slide two
+          EOF
+          # marimo-validate runs each notebook as a plain script and reads
+          # NOTEBOOK_OUTPUT_FOLDER, so a script that writes there is the smallest fixture that
+          # exercises the env-var half of the vector rather than just the exit status.
+          cat > docs/notebooks/demo.py <<'EOF'
+          import os
+          import pathlib
+
+          out = pathlib.Path(os.environ["NOTEBOOK_OUTPUT_FOLDER"])
+          out.mkdir(parents=True, exist_ok=True)
+          (out / "ran.txt").write_text("ok\n")
+          print("notebook ran")
+          EOF
+          git init --quiet .
+          git config user.email ci@example.com
+          git config user.name CI
+
+      # buildx with --load, against a real daemon. The vector's failure mode is a flag docker
+      # stopped accepting, which no stub can reject.
+      - name: rhiza-task docker-build
+        run: uv run rhiza-task docker-build --root "$RUNNER_TEMP/bundle"
+
+      # Immediately after, so the image it removes is one this run built. `docker rmi` is
+      # `check=False` in the task -- removing an image that was never built is the expected
+      # state of a clean target -- so this asserts the vector parses, not that it found work.
+      - name: rhiza-task docker-clean
+        run: uv run rhiza-task docker-clean --root "$RUNNER_TEMP/bundle"
+
+      # Resolves through the npx branch of marp_argv, which is the one a consumer without a
+      # global marp hits. The first real exercise of cfg.marp_package.
+      - name: rhiza-task presentation
+        run: uv run rhiza-task presentation --root "$RUNNER_TEMP/bundle"
+
+      - name: rhiza-task marimo-validate
+        run: uv run rhiza-task marimo-validate --root "$RUNNER_TEMP/bundle"
+
+      # git-lfs is preinstalled on ubuntu-latest. `lfs-install` is the one task in that module
+      # that raises Failed rather than Skip on a missing binary, so an image that dropped
+      # git-lfs would fail here loudly instead of skipping quietly -- which is the correct
+      # outcome and worth having somewhere.
+      - name: rhiza-task lfs-install, lfs-track, lfs-status
+        run: |
+          uv run rhiza-task lfs-install --root "$RUNNER_TEMP/bundle"
+          uv run rhiza-task lfs-track --root "$RUNNER_TEMP/bundle"
+          uv run rhiza-task lfs-status --root "$RUNNER_TEMP/bundle"
+
+      # Against the checkout, not the fixture: every one of these resolves the repository from
+      # the git remote, so a throwaway directory with no remote would test nothing. All are
+      # read-only queries.
+      #
+      # `whoami` runs `gh auth status --json hosts --template ...`, and `--json` on that
+      # subcommand is recent enough that this job is the only thing asserting the installed gh
+      # still has it.
+      - name: rhiza-task github helpers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run rhiza-task whoami
+          uv run rhiza-task view-prs
+          uv run rhiza-task view-issues
+          uv run rhiza-task failed-workflows
+          uv run rhiza-task workflow-status
+          uv run rhiza-task latest-release
+
   # The floors in pyproject.toml -- typer>=0.15, rich>=13.0, python-dotenv>=1.0 -- are a
   # claim, and `--frozen` everywhere else means nothing tests it: the lockfile resolves
   # typer 0.27.1 and rich 15.0.0, nine and two minor versions above what the manifest

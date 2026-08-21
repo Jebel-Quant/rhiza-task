@@ -266,6 +266,18 @@ def security(cfg: Config) -> None:
     Closing the gap belongs upstream, where both halves move together. Recorded here so
     the next reader does not have to rediscover which of the two it is.
 
+    What that argument covers is the *shipped task*, and it is worth being precise about the
+    limit, because the paragraph above used to be the only note on the subject and so read as
+    "nothing anywhere audits dependencies". This repository does audit its own: ``weekly.yml``
+    exports the committed lockfile and runs ``pip-audit`` over it on a schedule. Nothing about
+    that reaches a consumer -- no task name, no prerequisite of ``all``, nothing a
+    ``uvx rhiza-task`` invocation can find -- which is exactly why it is a workflow job and not
+    the two lines it would take to add here.
+
+    So the honest summary is that the gap is closed for this repository and open for consumers,
+    deliberately and in that order. If it is ever closed for consumers too, this is the place
+    that changes, and the note above is the argument that has to be answered first.
+
     Args:
         cfg: The resolved config.
     """
