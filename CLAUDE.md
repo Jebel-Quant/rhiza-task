@@ -219,8 +219,12 @@ file, because `adding_a_task.md`'s pair needs the first fence's `@task` before t
 `lookup`. There are **two** such blocks — that pair, and `layers.md`'s shadowing example,
 whose answers used to sit in trailing `# 'python:test'` comments until they were made a
 `result` block — so the gate's summary line reads `2 diffed`. That is every python fence in
-the tree that *produces output*; the remaining five define a task or bind a name and print
-nothing, so a `result` block on them would be ceremony rather than a check. One of them is
+the tree that *produces output*; the remaining **six** define a task, bind a name or quote a
+`Guard` fragment, and print nothing — so a `result` block on them would be ceremony rather
+than a check. Count them with `grep -rcE '^\s*```(python|py)\s*$' docs/*.md`, and note the
+leading `\s*`: two of the eight are **indented** inside a tabbed admonition
+(`adding_a_task.md:77` and `:86`), so a grep anchored at the line start misses them in
+silence. The gate's own `8 python` is the number to reconcile against. One of the six is
 also why a diffed block is not free: `adding_a_task.md`'s later fences sit *after* its
 `result` block, and moving one above would put a printing fence in the prelude — the
 assumption `_result_violations` documents and deliberately does not loosen.
@@ -364,8 +368,17 @@ rather than by a reader who remembers to — which is the whole reason
 `Config.__post_init__`'s note could say "roughly two more settings" and be held to it.
 `uvx radon cc src -a -s` remains how you read the figure by hand, and the gate reports the
 worst *block*, classes included — so the number to watch is now `_run_one`'s **12**, with
-`Config.load`'s B (9) behind it, no other C block anywhere, and no class above A (4). The
-tree average is A (3.23).
+`_report`'s B (10) in `tasks/fences.py` behind it, no other C block anywhere, and no class
+above `Guard`'s A (5). The tree average is A (3.23).
+
+**Every figure in this section is transcribed by hand and read back by nothing**, which is
+the one place this repository's "documentation should be falsifiable" argument does not
+hold: `docs-examples` diffs a `result` block and `test_doctests.py` evaluates a `>>>`, but a
+block score quoted in this file is discipline alone. It has already failed once — the edit
+that corrected the sum-vs-mean claim above simultaneously introduced three wrong figures
+here, all of them green on every gate. So re-run `uvx radon cc src -a -s` and reconcile
+before editing these numbers, and treat a disagreement between two statements in this file
+as the stronger signal: the `Guard` figure was wrong here while correct thirty lines above.
 
 When changing such code, update the comment with it. A stale comment is worse than none:
 `ci.yml` once asserted that `rhiza-task fmt` skipped for want of a pre-commit config, for
