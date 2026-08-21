@@ -538,6 +538,111 @@ jobs:
           uv run rhiza-task workflow-status
           uv run rhiza-task latest-release
 
+  # bundle-layer's argument, carried to the one family it stopped short of. Cross-referencing
+  # `rhiza-task list` against every `rhiza-task <task>` in .github/ showed the Testing extras
+  # bundle -- benchmark, stress, hypothesis-test, mutation -- was the remaining set with no
+  # real execution: `mutation` runs in weekly.yml, and the other three ran nowhere at all.
+  #
+  # They are the sharpest case for this kind of job rather than the mildest, because
+  # `benchmark` is the only vector in the package that pins the tools it provisions -- see its
+  # `withs=` tuple in src/rhiza_task/tasks/extras.py, which is deliberately not transcribed
+  # here: this comment sits beside the step and not beside the pin, so a copy would go stale
+  # on the next bump with nothing reading it back.
+  #
+  # Those pins exist in exactly one place -- the vector -- and are exact on purpose, since
+  # benchmark numbers only compare within a tool version. Nothing else installs them, so a
+  # yank or a release that stops importing on a newer Python is well-formed and *wrong*: it
+  # passes fmt, typecheck, test, complexity and the 100 floor, and breaks in the first
+  # consumer with a benchmarks folder. `--benchmark-histogram` is the flag that needs pygal,
+  # and this job is what asserts pygal alone is enough for it -- pytest-benchmark documents
+  # an extra that also pulls pygaljs, and the vector deliberately does not.
+  #
+  # A separate job rather than three more steps on python-layer, whose fixture comment says
+  # "anything more would be testing the fixture" and is right: these three need a benchmarks
+  # folder, a stress folder, marker registrations and a property test, which is four
+  # additions to a fixture whose point is that it has none.
+  #
+  # `mutation` is not here. mutmut re-runs the whole suite once per mutant, which is minutes
+  # on a real project and the reason weekly.yml runs it weekly and continue-on-error; a
+  # per-push copy would buy the same signal at the cost this repository already decided not
+  # to pay.
+  extras-layer:
+    name: testing-extras tasks against a real toolchain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.16"
+          enable-cache: true
+
+      # Built to the shapes the three guards look for: benchmarks/*.py, stress/*.py and
+      # test_*.py under the tests folder. `coverage_fail_under = 0` for the reason
+      # python-layer gives -- the subject is the vector, not the fixture's coverage.
+      - name: Build a throwaway project
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/extras/src/demo" "$RUNNER_TEMP/extras/tests/benchmarks" \
+                   "$RUNNER_TEMP/extras/tests/stress"
+          cd "$RUNNER_TEMP/extras"
+          printf '"""A package for hatchling to build."""\n\n\ndef add(a, b):\n    """Add."""\n    return a + b\n' \
+            > src/demo/__init__.py
+          # hypothesis is declared as a project dependency and *not* left to the task's own
+          # `--with`, which is the one thing running these steps for real taught. `stress`
+          # provisions only pytest and pytest-html, and pytest imports every test module
+          # during collection -- before `-m stress` deselects any of them -- so a property
+          # test importing hypothesis breaks collection for a gate that never wanted to run
+          # it. A real project with property tests declares hypothesis; the fixture has to
+          # as well, or it tests the fixture's omission instead of the vector.
+          #
+          # The markers are registered for the same reason: unregistered `stress` and
+          # `property` are warnings today, and PytestUnknownMarkWarning is the kind of thing
+          # a future pytest promotes to an error.
+          cat > pyproject.toml <<'EOF'
+          [project]
+          name = "demo"
+          version = "0.1.0"
+          requires-python = ">=3.11"
+
+          [build-system]
+          requires = ["hatchling"]
+          build-backend = "hatchling.build"
+
+          [dependency-groups]
+          test = ["pytest", "hypothesis"]
+
+          [tool.rhiza-task]
+          coverage_fail_under = 0
+
+          [tool.pytest.ini_options]
+          markers = ["stress: load and soak tests", "property: property-based tests"]
+          EOF
+          # One real benchmark, using pytest-benchmark's own fixture: `--benchmark-only`
+          # deselects everything else, so a fixture without this collects nothing and pytest
+          # exits 5, which the task reports as a failure rather than the skip it looks like.
+          printf 'from demo import add\n\n\ndef test_add_benchmark(benchmark):\n    assert benchmark(add, 1, 2) == 3\n' \
+            > tests/benchmarks/test_bench.py
+          printf 'import pytest\n\nfrom demo import add\n\n\n@pytest.mark.stress\ndef test_add_under_load():\n    assert all(add(i, 0) == i for i in range(10000))\n' \
+            > tests/stress/test_load.py
+          # `@given` is what hypothesis's own plugin marks, which is what the task's
+          # `-m "hypothesis or property"` selects -- so this asserts the marker expression,
+          # not just that pytest starts.
+          printf 'from hypothesis import given\nfrom hypothesis import strategies as st\n\nfrom demo import add\n\n\n@given(st.integers(), st.integers())\ndef test_add_commutes(a, b):\n    assert add(a, b) == add(b, a)\n' \
+            > tests/test_props.py
+
+      # Each asserts a different half of its vector: benchmark the two pins and the histogram
+      # flag, stress the marker selection and the pytest-html provision, hypothesis-test the
+      # `--ignore` of the benchmarks folder and the statistics and seed flags. All three run
+      # `install` first, so `uv lock --check` and `uv sync` are exercised against the fixture.
+      - name: rhiza-task benchmark
+        run: uv run rhiza-task benchmark --root "$RUNNER_TEMP/extras"
+
+      - name: rhiza-task stress
+        run: uv run rhiza-task stress --root "$RUNNER_TEMP/extras"
+
+      - name: rhiza-task hypothesis-test
+        run: uv run rhiza-task hypothesis-test --root "$RUNNER_TEMP/extras"
+
   # The floors in pyproject.toml -- typer>=0.15, rich>=13.0, python-dotenv>=1.0 -- are a
   # claim, and `--frozen` everywhere else means nothing tests it: the lockfile resolves
   # typer 0.27.1 and rich 15.0.0, nine and two minor versions above what the manifest

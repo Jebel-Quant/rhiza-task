@@ -160,8 +160,21 @@ def mutation(cfg: Config) -> None:
     uv_run("mutmut", "html", cwd=cfg.root, withs=("mutmut",))
     generated = cfg.root / "html"
     if generated.is_dir():
-        shutil.rmtree(out / "html", ignore_errors=True)
-        shutil.move(str(generated), str(out / "html"))
+        destination = out / "html"
+        shutil.rmtree(destination, ignore_errors=True)
+        # `shutil.move` is a rename within one filesystem and a recursive copy across two,
+        # and `_tests` can legitimately be a mount or a symlink -- so the copy path is
+        # reachable rather than theoretical. A copy that fails part-way leaves a partial
+        # destination *and* the source, and the next run's `is_dir()` check above would then
+        # relocate that leftover source as if it were its own report. Removing the partial
+        # destination is what keeps the outcomes to the two this task should have: the report
+        # moved, or nothing moved. The source is left alone deliberately -- `copytree` does
+        # not touch it on failure, and leaving it is what lets the next run try again.
+        try:
+            shutil.move(str(generated), str(destination))
+        except OSError:
+            shutil.rmtree(destination, ignore_errors=True)
+            raise
     uv_run("mutmut", "results", cwd=cfg.root, withs=("mutmut",))
 
     if run_status:
