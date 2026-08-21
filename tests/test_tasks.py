@@ -640,6 +640,50 @@ class TestMutation:
         assert not (moved / "stale.html").exists()
         assert not generated.exists()
 
+    def test_a_failed_relocation_leaves_no_partial_report(
+        self, cfg: Config, recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A move that fails part-way must not leave a half-written report behind.
+
+        ``shutil.move`` copies rather than renames when source and destination are on
+        different filesystems, and ``_tests`` can be a mount or a symlink. The failure that
+        matters is not the raise -- it is what the *next* run would then find: a partial
+        destination plus an untouched source, whose ``is_dir()`` check would relocate that
+        stale source as if it were a fresh report. So the partial destination goes, and the
+        source stays for the next run to retry.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+            monkeypatch: pytest's patcher.
+        """
+        generated = cfg.root / "html"
+        generated.mkdir()
+        (generated / "index.html").write_text("<html></html>")
+
+        def half_copied(source: str, destination: str) -> None:
+            """Create the destination, then fail -- what an interrupted copy leaves.
+
+            Args:
+                source: The generated report, which a real failure would not touch.
+                destination: The partial tree the cleanup has to remove.
+
+            Raises:
+                OSError: Always, standing in for a cross-device copy that dies part-way.
+            """
+            Path(destination).mkdir(parents=True)
+            (Path(destination) / "partial.html").write_text("half")
+            msg = "no space left on device"
+            raise OSError(msg)
+
+        monkeypatch.setattr(shutil, "move", half_copied)
+
+        with pytest.raises(OSError, match="no space left"):
+            extras.mutation(cfg)
+
+        assert not (cfg.root / "_tests" / "mutation" / "html").exists()
+        assert (generated / "index.html").is_file()
+
 
 class TestHypothesis:
     """test.mk's ``hypothesis-test``."""
