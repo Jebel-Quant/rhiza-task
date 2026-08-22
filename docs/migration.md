@@ -26,14 +26,14 @@ rewrite.
 Either invoke the CLI directly in CI and locally:
 
 ```bash
-uvx rhiza-task@1.1.0 all --strict
+uvx rhiza-task@1.2.0 all --strict
 ```
 
 …or keep `make test` working with a repo-owned `Makefile` that forwards — one rule:
 
 ```makefile
 # Repo-owned. Nothing syncs this file, and nothing overwrites it.
-RHIZA_TASK := rhiza-task@1.1.0
+RHIZA_TASK := rhiza-task@1.2.0
 
 .PHONY: test fmt typecheck all
 test fmt typecheck all:
@@ -131,7 +131,7 @@ order.
 Add `--strict` in CI once the migration is quiet:
 
 ```bash
-uvx rhiza-task@1.1.0 all --strict
+uvx rhiza-task@1.2.0 all --strict
 ```
 
 A skip in a consumer repository means a gate lost its subject, and `--strict` is what turns

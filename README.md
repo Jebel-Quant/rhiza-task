@@ -12,7 +12,7 @@ The rhiza developer tasks as a **pinned CLI** rather than a synced make layer �
 of task names across Python, Rust and Go**.
 
 ```bash
-uvx rhiza-task@1.1.0 test
+uvx rhiza-task@1.2.0 test
 ```
 
 📖 **[Documentation](https://jebel-quant.github.io/rhiza-task/)** — the task catalogue,
@@ -44,9 +44,9 @@ v1.3.3 and hope nobody edited them."
 Nothing to install. `uvx` provisions it per invocation:
 
 ```bash
-uvx rhiza-task@1.1.0 list          # what is available
-uvx rhiza-task@1.1.0 all           # every gate, as CI runs them
-uvx rhiza-task@1.1.0 test --strict # fail rather than skip when a gate measures nothing
+uvx rhiza-task@1.2.0 list          # what is available
+uvx rhiza-task@1.2.0 all           # every gate, as CI runs them
+uvx rhiza-task@1.2.0 test --strict # fail rather than skip when a gate measures nothing
 ```
 
 Task names are unchanged from the retired make layer, so a repo that wants `make test` to
