@@ -19,7 +19,7 @@ language layers this repository does not have.
 
 You should. An unpinned task layer can change under a green pull request without a commit
 touching your repository — which is the failure mode the whole package exists to remove.
-`rhiza-task@1.1.0` makes a bump a deliberate commit that carries whatever fixes it wants.
+`rhiza-task@1.2.0` makes a bump a deliberate commit that carries whatever fixes it wants.
 
 ### A gate says `skipped`. Is that bad?
 
@@ -30,7 +30,7 @@ folder. The reason is printed next to it.
 It *is* bad when the subject was supposed to be there. That is what `--strict` is for:
 
 ```bash
-uvx rhiza-task@1.1.0 all --strict
+uvx rhiza-task@1.2.0 all --strict
 ```
 
 In a consumer repository `--strict` is usually the right setting, because a skip means a
@@ -68,7 +68,7 @@ Two likely causes:
 ### How do I run the gates for another repository?
 
 ```bash
-uvx rhiza-task@1.1.0 all --root ../other-repo
+uvx rhiza-task@1.2.0 all --root ../other-repo
 ```
 
 ## Configuration
@@ -78,7 +78,7 @@ uvx rhiza-task@1.1.0 all --root ../other-repo
 Check what actually resolved, rather than what you wrote:
 
 ```bash
-uvx rhiza-task@1.1.0 print coverage_fail_under
+uvx rhiza-task@1.2.0 print coverage_fail_under
 ```
 
 The usual causes, in order of likelihood:
@@ -101,7 +101,7 @@ Move anything CI depends on into `rhiza.toml` or `[tool.rhiza-task]`.
 ### Why is an empty value not empty?
 
 ```bash
-RHIZA_CI_OS_MATRIX= uvx rhiza-task@1.1.0 ci-os-matrix   # still ["ubuntu-latest"]
+RHIZA_CI_OS_MATRIX= uvx rhiza-task@1.2.0 ci-os-matrix   # still ["ubuntu-latest"]
 ```
 
 That is make's `$(or ...)` rule, kept because the reusable workflows depend on it:

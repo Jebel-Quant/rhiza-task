@@ -24,7 +24,7 @@ hide:
 ## 📋 Overview
 
 ```bash
-uvx rhiza-task@1.1.0 test
+uvx rhiza-task@1.2.0 test
 ```
 
 There is nothing to install and nothing to sync. One command runs a project's gates, and
@@ -65,7 +65,7 @@ files at tag v1.3.3 and hope nobody edited them."
     Tasks, grouped by section, with prerequisites and a one-line description.
 
     ```bash
-    uvx rhiza-task@1.1.0 list
+    uvx rhiza-task@1.2.0 list
     ```
 
     [→ The task catalogue](tasks.md)
@@ -77,7 +77,7 @@ files at tag v1.3.3 and hope nobody edited them."
     The aggregate CI runs: format, deps, test, docs, security, licence, types.
 
     ```bash
-    uvx rhiza-task@1.1.0 all
+    uvx rhiza-task@1.2.0 all
     ```
 
     [→ Getting started](getting_started.md)
@@ -89,7 +89,7 @@ files at tag v1.3.3 and hope nobody edited them."
     Six configuration layers, collapsed to the one value a task will actually see.
 
     ```bash
-    uvx rhiza-task@1.1.0 print coverage_fail_under
+    uvx rhiza-task@1.2.0 print coverage_fail_under
     ```
 
     [→ Configuration](configuration.md)

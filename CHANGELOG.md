@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.2.0] - 2026-08-22
 
 ### ⚠️ Upgrade note
 
@@ -26,6 +26,36 @@ what a consumer should do instead:
 A repository that wants mutation testing runs mutmut directly: declare
 `[tool.mutmut] source_paths = [...]` and run `uvx --from mutmut mutmut run`. Nothing in
 rhiza-task reads or writes that table.
+
+This is a **minor** and not a major, which is a deliberate call rather than an oversight:
+the generated list below marks the removal `[**breaking**]`, and it is one — a task name
+that resolved now errors. It landed as a minor because the gate had not worked since mutmut
+3 shipped, so no consumer had a working invocation to lose. If you pin `rhiza-task` and
+invoke `mutation`, this release is breaking for you regardless of its number.
+
+### 🚀 Features
+
+- Let an empty pytest_rhiza run the checks from the project itself
+- [**breaking**] Remove the mutation task, and every trace of it
+
+### 🐛 Bug Fixes
+
+- Leave no partial report when mutation's relocation fails
+
+### 🚜 Refactor
+
+- Decompose Config.__post_init__ into per-setting validators
+
+### 📚 Documentation
+
+- Diff layers.md's shadowing example, and correct the radon claim
+- Correct three stale figures in CLAUDE.md's House style section
+- Quote only figures that cannot drift, and say which those are
+- Stop giving a total for uv.py's entry points, and name capture
+
+### ⚙️ Miscellaneous Tasks
+
+- Run the testing-extras vectors against a real toolchain
 
 ## [1.1.0] - 2026-08-21
 

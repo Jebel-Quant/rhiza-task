@@ -3,7 +3,7 @@
 What this replaces, per consumer repository: ``.rhiza/rhiza.mk`` (200 lines) and the ten
 fragments in ``.rhiza/make.d/`` (823 lines), synced at a template tag and excluded,
 shadowed or patched wherever a project disagreed with them. Here they are a dependency
-pin -- ``uvx rhiza-task@1.1.0 test`` -- so there is nothing to copy, nothing to exclude in
+pin -- ``uvx rhiza-task@1.2.0 test`` -- so there is nothing to copy, nothing to exclude in
 ``template.yml``, and nothing to drift.
 
 Sibling to ``pytest-rhiza``, which did the same for ``.rhiza/tests``.
@@ -23,4 +23,4 @@ __all__ = ["__version__"]
 
 # Kept in step with [project].version by bump-my-version, which needs a [[files]] entry
 # for this file but not for pyproject.toml itself.
-__version__ = "1.1.0"
+__version__ = "1.2.0"

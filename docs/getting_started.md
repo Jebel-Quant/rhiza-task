@@ -10,13 +10,13 @@ icon: material/rocket-launch
 project's dependencies:
 
 ```bash
-uvx rhiza-task@1.1.0 list          # what is available
-uvx rhiza-task@1.1.0 all           # every gate, as CI runs them
-uvx rhiza-task@1.1.0 test --strict # fail rather than skip when a gate measures nothing
+uvx rhiza-task@1.2.0 list          # what is available
+uvx rhiza-task@1.2.0 all           # every gate, as CI runs them
+uvx rhiza-task@1.2.0 test --strict # fail rather than skip when a gate measures nothing
 ```
 
 !!! tip "Pin the version"
-    `rhiza-task@1.1.0` rather than `rhiza-task`. The pin is the whole point of the
+    `rhiza-task@1.2.0` rather than `rhiza-task`. The pin is the whole point of the
     package — an unpinned task layer is a layer that can change under a green pull
     request without a commit touching your repository. Bumping it is then a deliberate
     commit that carries whatever the new version wants.
@@ -30,7 +30,7 @@ it would have to provision the runtime that every task already runs under.
 Start by asking what this repository has:
 
 ```bash
-uvx rhiza-task@1.1.0 list
+uvx rhiza-task@1.2.0 list
 ```
 
 ```text
@@ -56,7 +56,7 @@ other layers call things.
 Then run the aggregate:
 
 ```bash
-uvx rhiza-task@1.1.0 all
+uvx rhiza-task@1.2.0 all
 ```
 
 ## `run`, and the bare shorthand
@@ -64,9 +64,9 @@ uvx rhiza-task@1.1.0 all
 `rhiza-task <task>` is shorthand for `rhiza-task run <task>`:
 
 ```bash
-uvx rhiza-task@1.1.0 test          # shorthand
-uvx rhiza-task@1.1.0 run test      # the same thing
-uvx rhiza-task@1.1.0 run fmt test  # several, in order, prerequisites deduplicated
+uvx rhiza-task@1.2.0 test          # shorthand
+uvx rhiza-task@1.2.0 run test      # the same thing
+uvx rhiza-task@1.2.0 run fmt test  # several, in order, prerequisites deduplicated
 ```
 
 This is a compatibility contract rather than sugar. The reusable workflows and a
@@ -98,7 +98,7 @@ different bundles installed. But a skip is also how a gate silently stops measur
 anything — so `--strict` turns every skip into a failure:
 
 ```bash
-uvx rhiza-task@1.1.0 all --strict
+uvx rhiza-task@1.2.0 all --strict
 ```
 
 !!! note "Which one belongs in your CI"
@@ -145,7 +145,7 @@ rule:
 
 ```makefile
 # Repo-owned. Nothing syncs this file, and nothing overwrites it.
-RHIZA_TASK := rhiza-task@1.1.0
+RHIZA_TASK := rhiza-task@1.2.0
 
 .PHONY: test fmt typecheck all
 test fmt typecheck all:
@@ -167,11 +167,11 @@ same configuration the tasks read:
     enable-cache: true
 
 - name: Gates
-  run: uvx rhiza-task@1.1.0 all --strict
+  run: uvx rhiza-task@1.2.0 all --strict
 ```
 
 ```bash
-uvx rhiza-task@1.1.0 ci-os-matrix
+uvx rhiza-task@1.2.0 ci-os-matrix
 ```
 
 ```text
