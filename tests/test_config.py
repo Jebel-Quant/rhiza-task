@@ -493,6 +493,24 @@ def test_an_empty_toml_array_overrides_the_default_away(tmp_path: Path) -> None:
     assert Config.load(root=tmp_path).mkdocs_extra_packages == ()
 
 
+def test_an_empty_string_setting_survives_the_manifest(tmp_path: Path) -> None:
+    """``pytest-rhiza = ""`` must reach the config, not be defaulted back to the pin.
+
+    The scalar counterpart of the array case above, and the layer that makes the opt-out in
+    ``tasks/quality.py``'s ``_provider`` reachable at all: the empty string is how a
+    repository says "resolve the checks from my own environment", so a reader that dropped
+    it would leave that setting unspellable. The environment cannot say it -- that is the
+    empty-is-unset rule, pinned for ``mkdocs_extra_packages`` just below.
+
+    Args:
+        tmp_path: The repository root.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\nversion = "0.0.0"\n\n[tool.rhiza-task]\npytest-rhiza = ""\n'
+    )
+    assert Config.load(root=tmp_path).pytest_rhiza == ""
+
+
 def test_an_empty_env_value_leaves_the_default_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """An empty environment value must not be read as "no packages".
 

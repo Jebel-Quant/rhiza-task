@@ -227,6 +227,14 @@ class Config:
     ci_os_matrix: tuple[str, ...] = DEFAULT_CI_OS_MATRIX
 
     # Pinned to a tag rather than a branch: a gate that moves under you is not a gate.
+    #
+    # Set it **empty** and `rhiza-test` passes no `--with` at all, resolving pytest-rhiza
+    # from the project environment instead -- the way to try an unreleased check against a
+    # real subject without publishing one first. Like `mkdocs_extra_packages` above, that is
+    # a manifest-only spelling: `_from_environ` and `_from_env_file` drop an empty value as
+    # unset, and only TOML tells an empty string from an absent key. See
+    # `tasks/quality.py`'s `_provider`, which also records why `"."` is not the shorthand it
+    # looks like.
     pytest_rhiza: str = "pytest-rhiza @ git+https://github.com/Jebel-Quant/pytest-rhiza@v0.2.0"
 
     # Both are empty by default and filled in `_validate_layers`, because both depend on

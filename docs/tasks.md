@@ -141,6 +141,10 @@ run is derived from the language layer, not configured: the neutral ones, plus
 `test_pyproject` and `test_docstrings` for Python, `test_cargo_toml` for Rust,
 `test_go_module` for Go.
 
+*Which* pytest-rhiza runs them is configured, by
+[`pytest_rhiza`](configuration.md#environment-and-ci) — a pinned release by default, and the
+project environment's own copy when the setting is empty.
+
 ## Testing extras
 
 | task | needs | does |
