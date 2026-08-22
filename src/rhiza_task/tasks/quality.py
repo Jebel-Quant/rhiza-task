@@ -150,6 +150,9 @@ def rhiza_test(cfg: Config) -> None:
     the tag exists. It is a *local* improvement only: CI has no tags, so this check skips there
     regardless -- see that constant's own note.
 
+    The pin the checks are provisioned from is :func:`_provider`'s answer rather than the
+    setting itself, so a repository can spell "resolve them from my own environment".
+
     Args:
         cfg: The resolved config.
     """
@@ -172,7 +175,7 @@ def rhiza_test(cfg: Config) -> None:
         *cfg.rhiza_checks,
         *selection,
         cwd=cfg.root,
-        withs=(cfg.pytest_rhiza,),
+        withs=_provider(cfg),
         env={"RHIZA_DOCTEST_FOLDERS": cfg.source_folder},
     )
 
@@ -189,7 +192,8 @@ def test_pyproject(cfg: Config) -> None:
 
     A narrower, louder view of one module that ``rhiza-test`` also runs -- kept because it
     is what you want when that check is the thing you are fixing. The reporting flags are
-    python.mk's verbatim.
+    python.mk's verbatim, and the provider is :func:`_provider`'s, so the two gates agree on
+    where the checks come from.
 
     Args:
         cfg: The resolved config.
@@ -205,7 +209,7 @@ def test_pyproject(cfg: Config) -> None:
         "--durations=0",
         "--no-header",
         cwd=cfg.root,
-        withs=(cfg.pytest_rhiza,),
+        withs=_provider(cfg),
     )
 
 
@@ -312,6 +316,36 @@ def clean(cfg: Config) -> None:
         if ": gone]" in line and not line.startswith(("*", "+")):
             branch = line.strip().split()[0]
             _git(git, ["branch", "-D", branch], cfg.root)
+
+
+def _provider(cfg: Config) -> tuple[str, ...]:
+    """Return the ``--with`` arguments that provide pytest-rhiza, or nothing at all.
+
+    :attr:`~rhiza_task.config.Config.pytest_rhiza` is pinned by default, which is right for
+    a consumer: a gate should run the assertions of a known release rather than whatever the
+    checks repository's HEAD says today. **Empty means the opposite** -- omit ``--with``
+    entirely and let ``uv run`` resolve pytest-rhiza from the project environment, which is
+    how a repository tries an unreleased check against a real subject without publishing
+    something first. It is a real choice rather than an absent one, so it is honoured rather
+    than defaulted over.
+
+    Spelling it needs TOML, for the reason :func:`~rhiza_task.config._from_env_file` gives
+    about ``mkdocs-extra-packages``: only there does an empty value differ from an absent
+    key. ``pytest-rhiza = ""`` in ``[tool.rhiza-task]`` says it; ``RHIZA_PYTEST_RHIZA=``
+    cannot, and reads as unset.
+
+    ``pytest-rhiza = "."`` is the trap to avoid rather than the shorthand to reach for: uv
+    resolves it to a *cached built copy* which is not rebuilt on edit, so the checks pass
+    against a stale tree while looking like they ran against the working one. Empty leaves
+    the project environment to answer, which an editable install actually tracks.
+
+    Args:
+        cfg: The resolved config.
+
+    Returns:
+        The one-element pin, or an empty tuple when the setting is empty.
+    """
+    return (cfg.pytest_rhiza,) if cfg.pytest_rhiza.strip() else ()
 
 
 def _walk(root: Path) -> list[Path]:

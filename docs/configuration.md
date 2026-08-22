@@ -189,6 +189,25 @@ $(CURDIR))` cannot be spelled as a dataclass default, and keeping it empty keeps
 | `ci_os_matrix` | `("ubuntu-latest",)` | feeds `ci-os-matrix` |
 | `pytest_rhiza` | pinned to a tag | the `rhiza-test` provider — a gate that moves under you is not a gate |
 
+**Empty means "omit `--with` entirely."** The pin is right for a consumer, and wrong for the
+one case that wants the opposite: trying an unreleased check against a real subject, which
+otherwise means publishing something first. Set it empty and `rhiza-test` and
+`test-pyproject` pass no `--with` at all, so `uv run` answers from the project environment —
+where an editable path source, say, actually tracks the working tree:
+
+```toml
+[tool.rhiza-task]
+pytest-rhiza = ""
+```
+
+TOML only, for the same reason as `mkdocs-extra-packages = []` above: `RHIZA_PYTEST_RHIZA=`
+reads as unset, and only TOML tells an empty string from an absent key.
+
+`pytest-rhiza = "."` looks like the shorthand and is a trap. `uv run --with .` resolves to a
+**cached built copy** that is not rebuilt on edit, so a broken check goes uncaught while the
+gate looks like it ran against your tree — worse than the pin, which at least declares what
+it is.
+
 ### Detected, not configured
 
 | setting | default | what |

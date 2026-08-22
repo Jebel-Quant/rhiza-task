@@ -372,6 +372,36 @@ class TestQuality:
         assert not [f for f in call.flags if "test_cargo_toml" in f or "test_go_module" in f]
         assert call.kwargs["withs"] == (cfg.pytest_rhiza,)
 
+    def test_rhiza_test_omits_the_with_when_the_provider_is_empty(self, cfg: Config, recorder: Recorder) -> None:
+        """An empty ``pytest_rhiza`` drops ``--with`` rather than passing an empty spec.
+
+        The pin is right for a consumer and wrong for anyone testing an unreleased check
+        against a real subject: ``--with`` overrides whatever the project environment
+        resolved, so there was no way to run the working tree's own copy. Empty says so, and
+        ``uv run`` then answers from the project environment. Passing ``("",)`` through would
+        be the other reading, and it is the broken one -- ``uv run --with ''``.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        quality.rhiza_test(replace(cfg, pytest_rhiza=""))
+        assert recorder.find("pytest").kwargs["withs"] == ()
+
+    def test_rhiza_test_reads_whitespace_as_empty(self, cfg: Config, recorder: Recorder) -> None:
+        """``pytest-rhiza = " "`` means the same thing as ``""``.
+
+        A TOML value cannot be stripped on the way in -- :func:`_coerce` only sees the
+        environment layer -- so the setting arrives as written, and a spec of pure whitespace
+        is not a spec.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        quality.rhiza_test(replace(cfg, pytest_rhiza="  "))
+        assert recorder.find("pytest").kwargs["withs"] == ()
+
     def test_rhiza_test_tells_the_docstring_check_where_to_look(self, cfg: Config, recorder: Recorder) -> None:
         """``RHIZA_DOCTEST_FOLDERS`` carries ``source_folder`` into the checks.
 
@@ -1194,6 +1224,19 @@ class TestPyprojectStructure:
         for loud in ("--tb=long", "--showlocals", "-rA", "--durations=0", "--no-header"):
             assert loud in call.flags
         assert call.kwargs["withs"] == (cfg.pytest_rhiza,)
+
+    def test_omits_the_with_when_the_provider_is_empty(self, cfg: Config, recorder: Recorder) -> None:
+        """The narrower gate honours the same opt-out as ``rhiza-test``.
+
+        Two gates disagreeing about where the checks come from would mean a repository
+        pointing at its own tree still got the pinned copy from one of them.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        quality.test_pyproject(replace(cfg, pytest_rhiza=""))
+        assert recorder.find("pytest").kwargs["withs"] == ()
 
 
 class TestComplexity:
