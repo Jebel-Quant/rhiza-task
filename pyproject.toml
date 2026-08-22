@@ -20,7 +20,7 @@ classifiers = [
 
 # Three runtime dependencies, held down for the reason pytest-rhiza holds its four down:
 # this package is provisioned by `uvx` on every gate invocation in CI, so its resolve time
-# is paid per job. Everything a *task* needs -- pytest, ty, bandit, interrogate, mutmut,
+# is paid per job. Everything a *task* needs -- pytest, ty, bandit, interrogate, deptry,
 # zensical, prek -- is provisioned by the task itself through `uv run --with` / `uvx`,
 # exactly as the make recipes did, and so is deliberately absent here. tomllib is stdlib
 # from 3.11, which is why there is no tomli.

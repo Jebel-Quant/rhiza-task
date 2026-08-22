@@ -559,7 +559,7 @@ class TestPresentation:
         assert presentation_tasks.marp_argv(cfg) == ("marp", ())
 
     def test_npx_replaces_the_global_install(self, cfg: Config, present: set[str]) -> None:
-        """``npx --yes`` keeps the fragment's convenience without mutating the machine.
+        """``npx --yes`` keeps the fragment's convenience without the global install.
 
         Args:
             cfg: The resolved config.

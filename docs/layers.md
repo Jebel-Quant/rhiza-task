@@ -79,7 +79,7 @@ a repository carrying two manifests but wanting one gate set needs.
 ## Seeing the other layers
 
 `list` shows this repository's layers plus the language-neutral tasks — a Go module is not
-helped by being shown `mutation` and `marimo-validate`, and that is also what the make
+helped by being shown `benchmark` and `marimo-validate`, and that is also what the make
 layer showed, having synced exactly one fragment.
 
 `--all` answers the question the make layer could not:

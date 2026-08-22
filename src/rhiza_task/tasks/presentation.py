@@ -4,11 +4,11 @@ The fragment's ``require-marp`` does not check for Marp, it *installs* it:
 
     if ! command -v marp; then npm install -g @marp-team/marp-cli; fi
 
--- a global npm install, triggered by typing ``make presentation``, mutating a machine
+-- a global npm install, triggered by typing ``make presentation``, changing a machine
 outside the repository. :func:`marp_argv` keeps the property that made that acceptable (a
-consumer with Node but no Marp can still build slides) without the mutation: ``npx --yes``
-runs the CLI from npm's cache instead. The precedence is Marp on PATH first, so a
-deliberately installed or pinned Marp still wins.
+consumer with Node but no Marp can still build slides) without that side effect:
+``npx --yes`` runs the CLI from npm's cache instead. The precedence is Marp on PATH first,
+so a deliberately installed or pinned Marp still wins.
 
 :attr:`~rhiza_task.config.Config.marp_package` is what npx is given, unpinned by default
 because ``npm install -g @marp-team/marp-cli`` was unpinned too. Pin it to

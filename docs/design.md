@@ -28,15 +28,14 @@ Reading all ten make fragments back to back, **every recipe has the same three p
 So the model is declarative. A task is data — a name, a section, prerequisites, guards —
 plus a short body that assembles an argument vector.
 
-## The four that genuinely are not declarative
+## The three that genuinely are not declarative
 
-The escape hatch exists because exactly four recipes resisted the form, and it is worth
+The escape hatch exists because exactly three recipes resisted the form, and it is worth
 naming them so the exception stays bounded:
 
 | task | why |
 |---|---|
 | `test` | retry once on pytest exit **3** — the xdist teardown race — and never on 1, 2 or 4 |
-| `mutation` | run, render HTML, move the output, report the **first** status |
 | `doctor` | semantic version comparison, formerly an `awk` function inside a make recipe |
 | `book` | aggregate gates, copy reports, export notebooks, build, badge |
 
@@ -71,7 +70,7 @@ distinction is preserved rather than unified, because the make layer already got
 |---|---|---|
 | `uv <subcommand>` | uv itself | `venv`, `sync`, `lock --check` |
 | `uvx <tool>` | an isolated one-shot tool run | prek, deptry, bandit, semgrep, zensical, genbadge |
-| `uv run --with a --with b <tool>` | a tool run **against the project environment**, because it imports the project's own code | pytest, interrogate, mutmut, `ty`, mypy |
+| `uv run --with a --with b <tool>` | a tool run **against the project environment**, because it imports the project's own code | pytest, interrogate, hypothesis, `ty`, mypy |
 
 Rust and Go add a fourth: a toolchain binary already on `PATH`, because uv provisions
 neither `cargo` nor `go` and nothing here pretends otherwise. It shares the module's

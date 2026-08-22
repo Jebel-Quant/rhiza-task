@@ -124,7 +124,7 @@ addressable as `rhiza-task rust:test`.
 
 Reading all ten make fragments back to back, **every recipe has the same three parts**: a
 guard on a folder existing, a provision via `uv run --with` or `uvx`, and a long, mostly
-static argument list. So the model is declarative, with an escape hatch for the four
+static argument list. So the model is declarative, with an escape hatch for the three
 recipes that genuinely are not.
 
 [→ The design](design.md) · [→ Adding your own task](adding_a_task.md)

@@ -1,5 +1,32 @@
 # Changelog
 
+## [Unreleased]
+
+### ⚠️ Upgrade note
+
+**The `mutation` task is gone.** `rhiza-task mutation` now exits with the CLI's unknown-task
+error, and `make mutation` falls through the shim's `%:` catch-all to the same error. That is
+the intended outcome rather than a regression: the ecosystem no longer offers a mutation gate.
+
+It is a removal rather than a port, and the reasons are worth stating because they decide
+what a consumer should do instead:
+
+- **The task had been broken since mutmut 3 shipped.** Its vector passed
+  `--paths-to-mutate`, `--tests-dir` and the `html` subcommand, all three of which mutmut 3
+  removed, and it provisioned `mutmut` unpinned — so the breakage was time-triggered rather
+  than version-triggered, and reached every consumer at every pin with no sync involved.
+- **The replacement is not a flag rename.** mutmut 3 takes source paths from a
+  `[tool.mutmut]` table and offers no CLI path for them, so a port means either requiring
+  every consumer to declare that table or writing into their `pyproject.toml` — and the HTML
+  report the task relocated no longer exists, its successor being `export-cicd-stats` JSON.
+- **Nothing invoked it.** No `all` named it, and the guarded upstream workflow was unset in
+  every repository we could see, so the port would have been paid for here and verified
+  nowhere.
+
+A repository that wants mutation testing runs mutmut directly: declare
+`[tool.mutmut] source_paths = [...]` and run `uvx --from mutmut mutmut run`. Nothing in
+rhiza-task reads or writes that table.
+
 ## [1.1.0] - 2026-08-21
 
 ### ⚠️ Upgrade note
@@ -220,7 +247,7 @@ lines) with a pinned CLI, on the same principle as `pytest-rhiza` replacing
 
 - `core` + `python-core` gate set: install, test, typecheck, security, deps, license,
   docs-coverage, fmt, semgrep, rhiza-test, todos, clean, doctor, all
-- `tests` extras: benchmark, hypothesis-test, stress, mutation
+- `tests` extras: benchmark, hypothesis-test, stress
 - `book` / `marimo`: book, serve, marimo, marimo-validate
 - Not ported: `github.mk`'s seven `gh` wrappers (use `gh` directly), `install-uv`
   (it cannot be a task, since it provisions the runtime every task runs under — the shim

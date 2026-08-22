@@ -49,7 +49,7 @@ uvx rhiza-task@1.1.0 list
 
 The listing is generated from the same registry the runner uses, so help and behaviour
 cannot drift. By default it shows **this** repository's language layers plus the
-language-neutral tasks — a Go module is not helped by being shown `mutation` and
+language-neutral tasks — a Go module is not helped by being shown `benchmark` and
 `marimo-validate`. Add `--all` for the question the make layer could not answer: what the
 other layers call things.
 

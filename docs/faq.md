@@ -179,7 +179,7 @@ failures CI does not have.
 go-task is a genuinely better make, and its remote includes would attack the same root
 problem — but that feature is experimental and env-var-gated, and it would be the single
 load-bearing dependency of the whole multi-repo task layer, whereas `uvx pkg@version` is
-boring and already used ~15 times per repository. The four procedural recipes would also
+boring and already used ~15 times per repository. The three procedural recipes would also
 stay embedded shell in YAML.
 
 `just` and `poe` do not apply: a Justfile or a noxfile still has to be copied into every

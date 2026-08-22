@@ -61,7 +61,7 @@ keep working owns that `Makefile` itself and forwards each target to `uvx rhiza-
 | Rust | `install` `cargo-tools` `test` `coverage` `typecheck` `security` `deps` `license` `docs-coverage` `all` |
 | Go | `install` `go-tools` `test` `coverage` `typecheck` `security` `deps` `license` `docs-coverage` `all` |
 | Quality | `fmt` `semgrep` `rhiza-test` `test-pyproject` `todos` `complexity` `docs-examples` |
-| Testing extras | `benchmark` `hypothesis-test` `stress` `mutation` |
+| Testing extras | `benchmark` `hypothesis-test` `stress` |
 | Book | `book` `serve` `marimo` `marimo-validate` |
 | Dev | `doctor` `clean` |
 | GitHub Helpers | `view-prs` `view-issues` `failed-workflows` `workflow-status` `latest-release` `whoami` |
@@ -105,11 +105,11 @@ runs under. A runner shipping no uv adds an `astral-sh/setup-uv` step instead.
 
 Reading all ten make fragments back to back, **every recipe has the same three parts**: a
 guard on a folder existing, a provision via `uv run --with` or `uvx`, and a long, mostly
-static argument list. So the model is declarative, with an escape hatch for the four
+static argument list. So the model is declarative, with an escape hatch for the three
 recipes that genuinely are not: `test` (retry once on pytest exit 3, the xdist teardown
-race, never on 1/2/4), `mutation` (run/html/move/results, reporting the *first* status),
-`doctor` (semantic version comparison, formerly an awk function inside a make recipe) and
-`book` (aggregate gates, copy reports, export notebooks, build, badge).
+race, never on 1/2/4), `doctor` (semantic version comparison, formerly an awk function
+inside a make recipe) and `book` (aggregate gates, copy reports, export notebooks, build,
+badge).
 
 | module | what |
 |---|---|
@@ -226,7 +226,7 @@ Considered and rejected. go-task is a genuinely better make, and its **remote in
 would even attack the same root problem — but that feature is experimental and
 env-var-gated, and it would be the single load-bearing dependency of the whole multi-repo
 task layer, whereas `uvx pkg@version` is boring and already used ~15 times per repo. The
-four procedural recipes above would also stay embedded shell in YAML, improving the syntax
+three procedural recipes above would also stay embedded shell in YAML, improving the syntax
 *around* the mess without removing it — and keeping the Windows problem.
 
 `just` and `poe` don't apply: a Justfile or a noxfile still has to be copied into every
@@ -255,7 +255,7 @@ repeating it:
 | [Adding a Task](https://jebel-quant.github.io/rhiza-task/adding_a_task/) | guards, outcomes, and which of the four provisioning forms to reach for |
 | [Migrating from make](https://jebel-quant.github.io/rhiza-task/migration/) | the three steps, and the fragment-relocation trap that silently drops targets |
 | [FAQ](https://jebel-quant.github.io/rhiza-task/faq/) | the failure modes, and what each one actually means |
-| [Design](https://jebel-quant.github.io/rhiza-task/design/) | where the evidence came from — jointview, the repo the comments cite by name — and why exactly four recipes resisted the declarative form |
+| [Design](https://jebel-quant.github.io/rhiza-task/design/) | where the evidence came from — jointview, the repo the comments cite by name — and why exactly three recipes resisted the declarative form |
 | [API Reference](https://jebel-quant.github.io/rhiza-task/api/) | the modules, generated from the docstrings that carry the reasoning |
 | [Paper](https://jebel-quant.github.io/rhiza-task/paper/paper.pdf) | the argument written up long-form, compiled by `rhiza-task paper` into the book |
 
@@ -308,10 +308,11 @@ and is well-formed, and `interrogate` asks the same presence question at 100%. N
 evaluates a `>>>`. All three gates need the project environment, since the examples import
 the package: `uv run` rather than a bare interpreter.
 
-No test in the suite runs uv. Every task test patches the four entry points in `uv.py` —
-`uv`, `uvx`, `uv_run` and `tool` — and asserts on the argument vector that would have been
-executed, which is exactly what the make recipes expressed in `$$`-escaped shell and could
-not assert.
+No test in the suite runs uv. Every task test patches `uv.py`'s entry points — `uv`,
+`uvx`, `uv_run`, `tool`, and `capture` for the recipe that needs stdout back — and asserts
+on the argument vector that would have been executed, which is exactly what the make recipes
+expressed in `$$`-escaped shell and could not assert. No total is given here on purpose:
+`uv.py`'s public functions are the authority, and a count in prose is read back by nothing.
 
 [`CONTRIBUTING.md`](CONTRIBUTING.md) is the short version of all of this, and the place to
 start: how to run the gates without a `Makefile`, what the gates will hold you to, and the

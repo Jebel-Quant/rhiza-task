@@ -152,10 +152,11 @@ project environment's own copy when the setting is empty.
 | `benchmark` | `install` | run the performance benchmarks |
 | `hypothesis-test` | `install` | run the property-based tests |
 | `stress` | `install` | run the stress and load tests |
-| `mutation` | `install` | run mutation testing with mutmut |
 
-`mutation` is one of the four genuinely procedural recipes: it runs, renders HTML, moves
-the output and reports the **first** status rather than the last.
+No `all` names the three, and each is guarded on the folder convention it needs —
+`benchmarks/`, `stress/`, or any test file at all — so a project without one skips rather
+than fails. `book` is the one aggregate that does name them, which is how their reports
+reach the published book.
 
 ## Book
 
@@ -209,7 +210,7 @@ JetBrains server refuses to serve gitignored directories and `_book` is one.
 | `doctor` | — | check local prerequisites |
 | `clean` | — | remove build artifacts and stale local branches |
 
-`doctor` is the third procedural escape — it compares semantic versions, which used to be
+`doctor` is the second procedural escape — it compares semantic versions, which used to be
 an `awk` function inside a make recipe.
 
 ## Bundle-owned sections

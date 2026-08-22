@@ -540,8 +540,8 @@ jobs:
 
   # bundle-layer's argument, carried to the one family it stopped short of. Cross-referencing
   # `rhiza-task list` against every `rhiza-task <task>` in .github/ showed the Testing extras
-  # bundle -- benchmark, stress, hypothesis-test, mutation -- was the remaining set with no
-  # real execution: `mutation` runs in weekly.yml, and the other three ran nowhere at all.
+  # bundle -- benchmark, stress and hypothesis-test -- was the remaining set with no real
+  # execution: all three ran nowhere at all.
   #
   # They are the sharpest case for this kind of job rather than the mildest, because
   # `benchmark` is the only vector in the package that pins the tools it provisions -- see its
@@ -561,11 +561,6 @@ jobs:
   # "anything more would be testing the fixture" and is right: these three need a benchmarks
   # folder, a stress folder, marker registrations and a property test, which is four
   # additions to a fixture whose point is that it has none.
-  #
-  # `mutation` is not here. mutmut re-runs the whole suite once per mutant, which is minutes
-  # on a real project and the reason weekly.yml runs it weekly and continue-on-error; a
-  # per-push copy would buy the same signal at the cost this repository already decided not
-  # to pay.
   extras-layer:
     name: testing-extras tasks against a real toolchain
     runs-on: ubuntu-latest
