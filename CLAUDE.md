@@ -309,18 +309,17 @@ an integer in this sentence would be one more measured figure with nothing readi
   suite already asserts. `lfs-pull` needs a remote holding LFS objects, and the fixture has
   no remote.
 - **`extras-layer`** — the same argument again, and the family it had stopped short of. The
-  Testing extras bundle was the last set with no real execution: `mutation` runs in
-  `weekly.yml`, and `benchmark`, `stress` and `hypothesis-test` ran **nowhere**. It is the
-  sharpest case rather than the mildest, because `benchmark` is the only vector in the
-  package that *pins* what it provisions — exactly, because benchmark numbers only compare
-  within a tool version — and those pins exist in one place, the vector itself, with nothing
-  else installing them. `grep -n withs= src/rhiza_task/tasks/extras.py` is where to read
-  them; they are not copied here, for the reason the rule below gives. A separate job rather than
-  three steps on `python-layer`, whose fixture comment says anything more would be testing
-  the fixture and is right: these three need a benchmarks folder, a stress folder, marker
-  registrations and a property test. **`mutation` is deliberately absent**, and for a cost
-  reason rather than a structural one: mutmut re-runs the whole suite once per mutant, which
-  is why `weekly.yml` runs it weekly and `continue-on-error`.
+  Testing extras bundle was the last set with no real execution: `benchmark`, `stress` and
+  `hypothesis-test` ran **nowhere**. It is the sharpest case rather than the mildest, because
+  `benchmark` is the only vector in the package that *pins* what it provisions — exactly,
+  because benchmark numbers only compare within a tool version — and those pins exist in one
+  place, the vector itself, with nothing else installing them.
+  `grep -n withs= src/rhiza_task/tasks/extras.py` is where to read them; they are not copied
+  here, for the reason the rule below gives. A separate job rather than three steps on
+  `python-layer`, whose fixture comment says anything more would be testing the fixture and
+  is right: these three need a benchmarks folder, a stress folder, marker registrations and a
+  property test. Unlike `bundle-layer`, this job leaves no vector out — every task in the
+  section runs here.
 - **`lowest-deps`** — resolves `--resolution lowest-direct` to prove the manifest's floors
   are real.
 

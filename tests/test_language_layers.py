@@ -193,8 +193,8 @@ class TestResolution:
         Args:
             module: A Go module root.
         """
-        with pytest.raises(KeyError, match="unknown task: mutation"):
-            runner.run(["mutation"], Config.load(root=module))
+        with pytest.raises(KeyError, match="unknown task: benchmark"):
+            runner.run(["benchmark"], Config.load(root=module))
 
 
 class TestRustGates:

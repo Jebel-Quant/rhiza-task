@@ -276,10 +276,11 @@ directory. Testing that contract previously meant running it, which meant provis
 toolchain.
 
 The observation this package rests on is that the contract is not the execution --- it is
-the \emph{argument vector}. All tool invocations funnel through four functions, which
-differ in how the tool is provisioned: an isolated one-shot tool, a tool that must import
-the project's own code, a toolchain binary expected on \texttt{PATH}, and \texttt{uv}
-itself. A test fixture patches all four and records what would have run:
+the \emph{argument vector}. All tool invocations funnel through the public functions of a
+single module, which differ in how the tool is provisioned: an isolated one-shot tool, a tool
+that must import the project's own code, a toolchain binary expected on \texttt{PATH}, one
+whose \emph{stdout} is interpolated into a later argument, and \texttt{uv} itself. A test
+fixture patches every one of them and records what would have run:
 
 \begin{lstlisting}[language=Python]
 def test_passes_coverage_flags_when_source_exists(cfg, recorder):
@@ -367,8 +368,9 @@ conceal it.
 
 \paragraph{Statement coverage is not assertion quality.} A 100\,\% floor establishes that
 no statement is unvisited. It does not establish that any is meaningfully asserted, and once
-the suite reaches the floor the number can no longer ratchet. Mutation testing is the
-available signal; it is implemented as a task here, which is not the same as running it.
+the suite reaches the floor the number can no longer ratchet. No gate here measures
+assertion quality, so the property is held by review; the executed docstring and fenced
+examples narrow the gap only where the documentation makes a checkable claim.
 
 \paragraph{Complexity limits stated in prose decay.} Four blocks exceed a conventional
 cyclomatic-complexity threshold, each carrying a comment arguing why the flat form is

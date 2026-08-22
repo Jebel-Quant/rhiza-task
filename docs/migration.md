@@ -146,7 +146,7 @@ Considered and rejected.
 **go-task** is a genuinely better make, and its **remote includes** would even attack the
 same root problem. But that feature is experimental and env-var-gated, and it would become
 the single load-bearing dependency of the whole multi-repo task layer — whereas
-`uvx pkg@version` is boring and already used around fifteen times per repository. The four
+`uvx pkg@version` is boring and already used around fifteen times per repository. The three
 procedural recipes would also stay embedded shell inside YAML, improving the syntax
 *around* the mess without removing it, and keeping the Windows problem.
 

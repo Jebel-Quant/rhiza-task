@@ -7,10 +7,9 @@ Reading all ten make fragments back to back, every recipe has the same three par
 2. A **provision** -- ``uvx <tool>`` or ``uv run --with a --with b <tool>``.
 3. An **invocation** -- a long, mostly static argument list with a few substitutions.
 
-Only four recipes in the whole layer need more than that: ``test`` (retry on pytest exit
-3), ``mutation`` (run/html/move/results preserving the first status), ``doctor`` (version
-comparison) and ``book`` (a per-notebook export loop). So the model here is declarative,
-and the task body is the escape hatch those four use.
+Only three recipes in the whole layer need more than that: ``test`` (retry on pytest exit
+3), ``doctor`` (version comparison) and ``book`` (a per-notebook export loop). So the model
+here is declarative, and the task body is the escape hatch those three use.
 
 The split decides what is *data* -- reviewable, diffable, overridable from a consumer's
 ``pyproject.toml`` -- and what is code.

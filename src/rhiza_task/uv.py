@@ -6,7 +6,7 @@ Every recipe in the retired *Python* make layer used one of exactly three forms:
 * ``uvx <tool>`` -- an isolated one-shot tool run: prek, deptry, bandit, semgrep,
   zensical, genbadge.
 * ``uv run --with a --with b <tool>`` -- a tool run *against the project environment*,
-  because it imports the project's own code: pytest, interrogate, mutmut, ty, mypy.
+  because it imports the project's own code: pytest, interrogate, hypothesis, ty, mypy.
 
 The second and third are a real distinction that the make layer already gets right, so it
 is preserved here rather than unified.

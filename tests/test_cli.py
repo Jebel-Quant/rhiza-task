@@ -281,8 +281,15 @@ def test_list_shows_this_repository_s_layer(tmp_path: Path, monkeypatch: pytest.
     """A Go module is shown Go's gates, not Python's testing extras.
 
     The make layer got this for free by syncing exactly one language fragment; a CLI
-    carrying all three has to decide, and showing a Go developer ``mutation`` and
-    ``marimo-validate`` would be showing them tasks that cannot run.
+    carrying all three has to decide, and showing a Go developer ``benchmark`` and
+    ``hypothesis-test`` would be showing them tasks that cannot run.
+
+    The absence is asserted on the *section* rather than on a task name, because every task
+    in that section is also a prerequisite of ``book`` -- which is language-neutral, so its
+    ``needs`` cell names them in a Go module too. A bare ``"benchmark" not in stdout`` reads
+    like the same claim and is false for a reason that has nothing to do with layers.
+    ``COLUMNS`` is set because the check is on rendered text: at a narrower width rich wraps
+    the section cell and the two-word name never appears whole.
 
     Args:
         tmp_path: The repository root.
@@ -290,15 +297,16 @@ def test_list_shows_this_repository_s_layer(tmp_path: Path, monkeypatch: pytest.
     """
     (tmp_path / "go.mod").write_text("module example.com/demo\n\ngo 1.23\n")
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("COLUMNS", "200")
 
     result = runner.invoke(cli.app, ["list"])
     assert result.exit_code == 0
     assert "go-tools" in result.stdout
-    assert "mutation" not in result.stdout
+    assert "Testing extras" not in result.stdout
     assert "fmt" in result.stdout  # the neutral tasks answer everywhere
 
     every = runner.invoke(cli.app, ["list", "--all"])
-    assert "mutation" in every.stdout
+    assert "Testing extras" in every.stdout
     assert "cargo-tools" in every.stdout
 
 

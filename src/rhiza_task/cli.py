@@ -61,7 +61,7 @@ def list_tasks(
 ) -> None:
     """Show the available tasks, grouped by section.
 
-    A Go module is not helped by being shown ``mutation`` and ``marimo-validate``, so the
+    A Go module is not helped by being shown ``benchmark`` and ``marimo-validate``, so the
     default is this repository's own layers plus the language-neutral tasks -- which is
     what the make layer showed, having synced exactly one language fragment. ``--all`` is
     for the question the make layer could not answer: what the other layers call things.
