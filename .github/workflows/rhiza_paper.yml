@@ -125,22 +125,59 @@ jobs:
 
       # An orphan `paper` branch holding only the current PDF, so the latest build has a
       # stable URL that outlives the 30-day artifact retention.
+      #
+      # Built with plumbing rather than by checking the branch out, and that is the whole
+      # point of the step's shape: **the workspace must survive it.** This used to run
+      # `git checkout -b paper origin/paper`, which replaces the checked-out tree with a
+      # branch holding one PDF -- and a *local* composite action's post phase re-reads its
+      # definition from the workspace. So the job pushed the PDF and then died on:
+      #
+      #     Can't find 'action.yml' ... under '.github/actions/setup-tectonic'.
+      #     Did you forget to run actions/checkout before running your local action?
+      #
+      # The cost was not only a red run: the post step that failed was the tectonic bundle
+      # cache *save*, so the cache never populated and every run paid the cold fetch. The
+      # PR build was green throughout, because this step is gated on `push` and a
+      # `pull_request` run therefore never swapped the tree out.
+      #
+      # `hash-object`, `mktree` and `commit-tree` write the blob, the tree and the commit
+      # straight into the object database and push the resulting SHA at the branch ref.
+      # Nothing is checked out, no index is touched, and the same three commands handle the
+      # branch existing and not existing -- the second case is just a commit with no parent,
+      # which is what "orphan" means. A worktree would also keep the workspace, but the
+      # orphan half of it needs `git worktree add --orphan`, i.e. git >= 2.42, and this
+      # needs no version floor at all.
       - name: Push the PDF to the paper branch
         if: ${{ steps.check_tex.outputs.tex_present == 'true' && github.event_name == 'push' }}
+        env:
+          PDF_PATH: ${{ steps.pdf.outputs.pdf_path }}
+          PDF_FILE: ${{ steps.pdf.outputs.pdf_file }}
+          # commit-tree reads the identity from the environment, so there is no `git config`
+          # here either -- that would be one more write to the checkout this step exists to
+          # leave alone.
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
         run: |
-          pdf_file="${{ steps.pdf.outputs.pdf_file }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          cp "${{ steps.pdf.outputs.pdf_path }}" "/tmp/${pdf_file}"
-          git fetch origin paper 2>/dev/null || true
-          if git show-ref --verify --quiet refs/remotes/origin/paper; then
-            git checkout -b paper origin/paper
+          set -euo pipefail
+
+          blob=$(git hash-object -w "$PDF_PATH")
+          tree=$(printf '100644 blob %s\t%s\n' "$blob" "$PDF_FILE" | git mktree)
+
+          # Explicit refspec: `git fetch origin paper` alone relies on the remote's
+          # configured refspec to populate the tracking ref, and actions/checkout narrows
+          # that to the ref it checked out.
+          git fetch --quiet origin '+refs/heads/paper:refs/remotes/origin/paper' 2>/dev/null || true
+
+          if parent=$(git rev-parse --verify --quiet refs/remotes/origin/paper); then
+            if [ "$(git rev-parse "${parent}^{tree}")" = "$tree" ]; then
+              echo "paper branch already carries this PDF; nothing to push"
+              exit 0
+            fi
+            commit=$(git commit-tree "$tree" -p "$parent" -m "Update $PDF_FILE [skip ci]")
           else
-            git checkout --orphan paper
-            git rm -rf --quiet . || true
-            git reset
+            commit=$(git commit-tree "$tree" -m "Update $PDF_FILE [skip ci]")
           fi
-          cp "/tmp/${pdf_file}" "${pdf_file}"
-          git add "${pdf_file}"
-          git diff --staged --quiet || git commit -m "Update ${pdf_file} [skip ci]"
-          git push origin paper
+
+          git push origin "$commit:refs/heads/paper"
