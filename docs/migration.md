@@ -120,6 +120,8 @@ any change that is not a straight port:
 |---|---|
 | `lfs-install` | configures the repository and **reports** how to install the binary, rather than downloading one |
 | `presentation` | reaches Marp through `npx --yes` |
+| `paper` | compiles with [tectonic](https://tectonic-typesetting.github.io/) — one binary, no TeX-distribution package list, but a cold cache needs the network |
+| `paper-clean` | deletes the artifacts in Python rather than delegating, so it needs no toolchain and keeps a committed PDF that no `.tex` claims |
 
 And one that is not a change so much as a name losing its special status: `paper.mk`
 preferred a file called `basanos.tex` — one downstream repository's paper, named in a

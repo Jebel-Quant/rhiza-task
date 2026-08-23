@@ -4,7 +4,7 @@
 producing gates, copies their output into the docs tree, exports every notebook, builds
 the site, and generates a coverage badge.
 
-The one artefact it does *not* copy is the paper's PDF. latexmk writes it beside its
+The one artefact it does *not* copy is the paper's PDF. tectonic writes it beside its
 source, and ``paper_folder`` is already inside ``docs_dir``, so the site build finds it
 where it lies -- a prerequisite plus a ``nav`` entry, and no plumbing.
 
@@ -23,16 +23,17 @@ from pathlib import Path
 from ..config import Config
 from ..spec import Failed, Guard, Skip, task
 from ..uv import uv_run, uvx
+from .paper import AUX_SUFFIXES
 
 
 # `paper` is a prerequisite for the same reason the other four are: it produces something
 # the book publishes, and the book should be one command. It needs no copy step, unlike the
-# `_tests/` tree -- latexmk writes the PDF beside its source, and `paper_folder` defaults to
+# `_tests/` tree -- tectonic writes the PDF beside its source, and `paper_folder` defaults to
 # `docs/paper`, which is already inside `docs_dir`. So the build picks it up as an asset and
 # mkdocs.yml only has to name it in `nav`.
 #
 # Safe to add because a *skipped* prerequisite does not block a dependent -- only FAILED and
-# BLOCKED do (see `_run_one`) -- so a repository with no paper, or no latexmk, still builds
+# BLOCKED do (see `_run_one`) -- so a repository with no paper, or no tectonic, still builds
 # its book. Under `--strict` a skip becomes a failure and would block `book`, which is worth
 # knowing but is not new: `benchmark` and `stress` guard on folders most repositories do not
 # have, so `--strict book` already required a repo that has all of them.
@@ -168,27 +169,24 @@ def marimo_validate(cfg: Config) -> None:
     print(f"[SUCCESS] all {len(notebooks)} notebook(s) valid")
 
 
-LATEX_ARTIFACTS = (".aux", ".fdb_latexmk", ".fls", ".log", ".out", ".toc", ".bbl", ".blg", ".synctex.gz")
-"""What latexmk leaves beside the document, mirroring .gitignore's list for the same folder.
-
-Matched as name suffixes rather than through :attr:`~pathlib.PurePath.suffix`, because
-``.synctex.gz`` is two extensions and ``suffix`` would report only ``.gz``.
-"""
-
-
 def _prune_latex_artifacts(cfg: Config, output: Path) -> None:
-    """Remove latexmk's auxiliary files from the built site, keeping the PDF and the source.
+    """Remove the paper's auxiliary files from the built site, keeping the PDF and the source.
 
     The paper's source sits inside ``docs_dir`` so that its PDF needs no copy step, and the
-    price is that everything *else* latexmk leaves beside it is copied into the site too.
-    ``paper.log`` is the one that matters: some 20 KB of build trace which records absolute
-    paths from whichever machine ran the build.
+    price is that everything *else* the build leaves beside it is copied into the site too.
+    ``paper.log`` is the one that matters, and the one ``rhiza-task paper`` deliberately asks
+    tectonic to keep: some 20 KB of build trace which records absolute paths from whichever
+    machine ran the build.
 
     mkdocs would answer this with ``exclude_docs``. zensical does not implement it -- the
     note in ``docs/mkdocs-base.yml`` records that an excluded page is still written -- and
-    deleting them at the source would defeat latexmk's incremental rebuild, which reads
-    ``.aux`` and ``.fdb_latexmk`` to decide what to redo. So they are pruned here, from the
-    output, where nothing reads them again.
+    deleting them at the source would throw away the log the run was asked to keep. So they
+    are pruned here, from the output, where nothing reads them again.
+
+    The suffix list is :data:`~rhiza_task.tasks.paper.AUX_SUFFIXES`, shared with
+    ``paper-clean`` rather than restated: one list, two callers, and the difference between
+    them is only whether the PDF goes with it -- which is the difference between publishing a
+    build and discarding one.
 
     Scoped to the paper folder rather than swept over the whole site: ``.log`` and ``.out``
     are not LaTeX-specific names, and a consumer with a genuine ``debug.log`` under ``docs/``
@@ -210,7 +208,7 @@ def _prune_latex_artifacts(cfg: Config, output: Path) -> None:
     if not published.is_dir():
         return
     for path in sorted(published.iterdir()):
-        if path.is_file() and path.name.endswith(LATEX_ARTIFACTS):
+        if path.is_file() and path.name.endswith(AUX_SUFFIXES):
             path.unlink(missing_ok=True)
 
 
@@ -415,14 +413,14 @@ def book_nav(cfg: Config) -> None:
     The gap this closes, and it is a published one rather than a hypothetical: zensical
     reports ``No issues found`` for a nav entry whose page does not exist *and* for one whose
     asset does not exist. So `- Paper: paper/paper.pdf` survived a build in which
-    ``rhiza-task paper`` had skipped for want of latexmk, and the site deployed with a 404 in
+    ``rhiza-task paper`` had skipped for want of an engine, and the site deployed with a 404 in
     its own navigation, green the whole way. Every other gate here asks about the source; this
     is the only one that asks whether what was *published* holds together.
 
     **Not a prerequisite of** :func:`book`, deliberately. Half the nav entries in a repository
     like this one resolve only after the gates that produce them have run -- the two
-    ``reports/`` pages need a ``_tests/`` tree, the paper needs a LaTeX distribution -- and a
-    repository with no latexmk must keep building its book, which is exactly what a *skipped*
+    ``reports/`` pages need a ``_tests/`` tree, the paper needs tectonic -- and a
+    repository without it must keep building its book, which is exactly what a *skipped*
     prerequisite buys. Making that a failure would break every consumer that documents a
     paper it cannot compile locally. So this is a separate gate, named by ``rhiza_book.yml``
     on the ref it deploys, where the entries are supposed to be complete and a dangling one is

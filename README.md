@@ -70,12 +70,15 @@ keep working owns that `Makefile` itself and forwards each target to `uvx rhiza-
 | Paper | `paper` `paper-clean` |
 | Presentation | `presentation` `presentation-pdf` `presentation-serve` |
 
-The last five sections are bundle-owned fragments. None is a gate — no `all` names them,
-no workflow invokes them — so each is guarded on the CLI it wraps and **skips** when that
-tool is absent, with `--strict` for a caller who wants the hard failure instead. Two
-changed behaviour on purpose, and say so in their module docstring: `lfs-install`
-configures the repository and reports how to install the binary rather than downloading
-one; `presentation` reaches Marp through `npx --yes`.
+The last five sections are bundle-owned fragments. None is a gate — no `all` names them —
+so each is guarded on the CLI it wraps and **skips** when that tool is absent, with
+`--strict` for a caller who wants the hard failure instead. Three changed behaviour on
+purpose, and say so in their module docstring: `lfs-install` configures the repository and
+reports how to install the binary rather than downloading one; `presentation` reaches Marp
+through `npx --yes`; `paper` compiles with [tectonic](https://tectonic-typesetting.github.io/)
+rather than a TeX distribution's driver, which makes `paper-clean` the one task here guarded
+on no tool at all — it deletes the artifacts itself, so a machine that cannot build the paper
+can still tidy up after one.
 
 ### Three layers, one set of names
 

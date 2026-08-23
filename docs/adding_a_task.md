@@ -84,7 +84,7 @@ A guard is the first of the three parts every recipe has. Two forms:
 === "A binary must be on PATH"
 
     ```python
-    Guard(tool="latexmk", reason="latexmk not found; install a LaTeX distribution")
+    Guard(tool="tectonic", reason="tectonic not found; install it")
     ```
 
     The `reason` is what the user sees on the `skipped` line, so make it actionable.
@@ -106,7 +106,7 @@ right:
 |---|---|---|
 | `uvx("my-auditor", ...)` | an isolated one-shot tool | linters, scanners, formatters |
 | `uv_run("pytest", ..., withs=("pytest-cov",))` | the tool **imports your project's code** | pytest, mypy, interrogate |
-| `tool("cargo", "clippy", ...)` | a toolchain binary already on `PATH` | `cargo`, `go`, `latexmk`, `npx` |
+| `tool("cargo", "clippy", ...)` | a toolchain binary already on `PATH` | `cargo`, `go`, `tectonic`, `npx` |
 | `uv("sync", "--frozen", ...)` | uv itself | `venv`, `sync`, `lock --check` |
 
 All four take `cwd=` and echo the command they run, so `$ cargo clippy` is printed the same

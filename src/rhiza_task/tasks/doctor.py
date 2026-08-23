@@ -6,10 +6,23 @@ program comparing dotted versions component by component, and ``check_tool``, wh
 five positional arguments including a *quoted shell command to eval* for extracting the
 version. The escaping is such that the awk field references appear as ``\\$$i``.
 
-The change of substance is which tools are required. doctor.mk requires GNU make, because
-the whole task layer was make; here make is optional -- a repo may keep a Makefile that
-forwards to the CLI, but every task is reachable without one. Requiring a tool the layer no
-longer needs is how a diagnostic starts lying about its own prerequisites.
+The change of substance is which tools it asks about at all. doctor.mk probes GNU make,
+because the whole task layer was make. It is not probed here, and neither is anything else
+beyond uv and git -- the two a process running ``uvx rhiza-task`` genuinely cannot do
+without.
+
+That is a design boundary rather than a short list. **Optionality is what
+:class:`~rhiza_task.spec.Guard` is for**: docker, gh, git-lfs, tectonic and marp are each
+declared as a precondition on the task that wraps them, and a missing one reports itself on
+the ``skipped`` line of the gate that wanted it, with the install URL in its ``reason``. A
+diagnostic that also enumerated them would answer the same question one indirection further
+from where it matters, and would need updating every time a bundle gained a tool.
+
+So this task has one tier, not two: everything it names is required, and a miss is a
+failure. ``make`` was the last inhabitant of the optional tier -- reported as a warning for
+the sake of a repo-owned Makefile forwarding to the CLI -- and the tier went with it. If a
+genuinely optional *core* prerequisite ever appears, that is an edit here rather than a
+mechanism to keep warm for it.
 """
 
 from __future__ import annotations
@@ -29,7 +42,6 @@ from ..spec import Failed, task
 
 GREEN = "\033[32m"
 RED = "\033[31m"
-YELLOW = "\033[33m"
 RESET = "\033[0m"
 
 VERSION_RE = re.compile(r"(\d+(?:\.\d+)+)")
@@ -39,24 +51,25 @@ VERSION_RE = re.compile(r"(\d+(?:\.\d+)+)")
 class Tool:
     """A prerequisite, its minimum version, and where to get it.
 
+    Every entry is required; see the module docstring for why there is no optional tier.
+
     Attributes:
         name: Executable name.
         minimum: Lowest acceptable dotted version.
         url: Install instructions, printed when it is missing.
-        required: When False, a miss is reported but does not fail the task.
     """
 
     name: str
     minimum: str
     url: str
-    required: bool = True
 
 
+# uv because a process launched by `uvx rhiza-task` runs *because* uv exists, and git because
+# `clean` and the release flow drive it directly. Nothing else belongs here: see the module
+# docstring on why the bundle CLIs are guards rather than entries.
 TOOLS = (
     Tool("uv", "0.4.0", "https://docs.astral.sh/uv/getting-started/installation/"),
     Tool("git", "2.0.0", "https://git-scm.com"),
-    # Optional: only a repo-owned forwarding Makefile needs it, and that is a convenience.
-    Tool("make", "3.8.0", "https://www.gnu.org/software/make/", required=False),
 )
 
 
@@ -107,8 +120,7 @@ def doctor(cfg: Config) -> None:
         path = shutil.which(tool.name)
         if path is None:
             _report(tool, "missing", ok=False, note=f"install: {tool.url}")
-            if tool.required:
-                failed.append(tool.name)
+            failed.append(tool.name)
             continue
 
         output = subprocess.run(  # noqa: S603  # nosec B603
@@ -119,15 +131,15 @@ def doctor(cfg: Config) -> None:
         ).stdout
         version = parse_version(output)
         if not version:
+            # Not assumed fine. A tool that prints no parseable version is a tool this
+            # diagnostic cannot vouch for, and saying nothing would be the same as passing.
             _report(tool, "unknown", ok=False, note=f"required >= {tool.minimum}")
-            if tool.required:
-                failed.append(tool.name)
+            failed.append(tool.name)
         elif at_least(version, tool.minimum):
             _report(tool, ".".join(map(str, version)), ok=True, note=f">= {tool.minimum}")
         else:
             _report(tool, ".".join(map(str, version)), ok=False, note=f"< {tool.minimum}")
-            if tool.required:
-                failed.append(tool.name)
+            failed.append(tool.name)
 
     print(f"\n[INFO] python {cfg.python_version} (from .python-version or config)")
     if failed:
@@ -143,11 +155,5 @@ def _report(tool: Tool, version: str, ok: bool, note: str) -> None:
         ok: Whether it satisfies the requirement.
         note: Trailing detail.
     """
-    if ok:
-        mark, colour = "[ OK ]", GREEN
-    elif tool.required:
-        mark, colour = "[FAIL]", RED
-    else:
-        mark, colour = "[WARN]", YELLOW
-    optional = "" if tool.required else " (optional)"
-    print(f"{colour}{mark}{RESET} {tool.name:<8} {version:<10} {note}{optional}")
+    mark, colour = ("[ OK ]", GREEN) if ok else ("[FAIL]", RED)
+    print(f"{colour}{mark}{RESET} {tool.name:<8} {version:<10} {note}")

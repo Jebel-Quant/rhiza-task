@@ -25,14 +25,13 @@ _site
 
 # LaTeX build artifacts
 docs/paper/*.aux
-docs/paper/*.fdb_latexmk
-docs/paper/*.fls
-docs/paper/*.log
-docs/paper/*.out
-docs/paper/*.toc
-docs/paper/*.pdf
 docs/paper/*.bbl
 docs/paper/*.blg
+docs/paper/*.log
+docs/paper/*.out
+docs/paper/*.pdf
+docs/paper/*.synctex.gz
+docs/paper/*.toc
 
 # temp file used by Junie
 .output.txt

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from rhiza_task.config import Config
-from rhiza_task.spec import Failed, Skip
+from rhiza_task.spec import REGISTRY, Failed, Skip
 from rhiza_task.tasks import book as book_tasks
 from rhiza_task.tasks import doctor as doctor_module
 from rhiza_task.tasks import quality
@@ -32,7 +32,6 @@ class TestDoctor:
         versions = {
             "uv": "uv 0.9.2 (abc 2026-01-01)",
             "git": "git version 2.39.5",
-            "make": "GNU Make 4.4.1",
         }
         monkeypatch.setattr(doctor_module.shutil, "which", lambda name: f"/fake/{name}" if name in versions else None)
 
@@ -55,7 +54,7 @@ class TestDoctor:
     def test_passes_when_everything_is_current(
         self, cfg: Config, tools: dict[str, str], capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """All three tools present and recent enough.
+        """Every tool present and recent enough.
 
         Args:
             cfg: The resolved config.
@@ -77,25 +76,33 @@ class TestDoctor:
         with pytest.raises(Failed, match="uv"):
             doctor_module.doctor(cfg)
 
-    def test_missing_make_only_warns(
-        self, cfg: Config, tools: dict[str, str], capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """GNU make is optional now, because no task needs it.
+    def test_probes_nothing_a_guard_already_owns(self) -> None:
+        """The diagnostic and the guards partition the question; they must not overlap.
 
-        doctor.mk requires GNU make, which was honest while the task layer *was* make.
-        Requiring a tool the layer no longer uses is how a diagnostic starts lying about
-        its own prerequisites -- only the convenience shim needs it.
+        ``doctor`` answers "can this machine run the CLI at all", so it names uv and git and
+        fails on a miss. Every other binary the package reaches for -- docker, gh, git-lfs,
+        tectonic, marp -- is a precondition on the one task that wraps it, and reports itself
+        on that task's ``skipped`` line with an install URL in its ``reason``. Listing one of
+        them here too would answer the same question one indirection further from where it
+        matters, and would need updating whenever a bundle gained a tool.
 
-        Args:
-            cfg: The resolved config.
-            tools: The faked tool versions.
-            capsys: pytest's output capture.
+        The assertion is disjointness rather than a transcribed list, so a new guard tool
+        needs no edit here and a *duplicated* one fails.
         """
-        del tools["make"]
-        doctor_module.doctor(cfg)
-        out = capsys.readouterr().out
-        assert "[WARN]" in out
-        assert "(optional)" in out
+        named = {tool.name for tool in doctor_module.TOOLS}
+        guarded = {guard.tool for spec in REGISTRY.values() for guard in spec.guards if guard.tool}
+        assert guarded, "no task guards on a tool; this test would pass vacuously"
+        assert named.isdisjoint(guarded)
+
+    def test_probing_make_would_be_a_regression(self) -> None:
+        """doctor.mk required GNU make, and this package has no make layer to require it for.
+
+        Kept as its own case because it is the correction, not a corollary: make was carried
+        over as an *optional* entry for the sake of a repo-owned Makefile forwarding to the
+        CLI, warned about on every clean run, and no task in the registry needs it. A guard
+        would not catch its return, since nothing guards on make either.
+        """
+        assert "make" not in {tool.name for tool in doctor_module.TOOLS}
 
     def test_fails_when_a_required_tool_is_absent(self, cfg: Config, tools: dict[str, str]) -> None:
         """A missing git is reported with its install URL and fails.

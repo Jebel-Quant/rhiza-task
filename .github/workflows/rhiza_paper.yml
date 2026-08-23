@@ -2,8 +2,8 @@
 # carries no circularity to remove -- upstream's version never calls rhiza-task at all, it
 # reimplements the recipe in shell. Two things change as a result:
 #
-#   * The compile step calls `uv run rhiza-task paper` instead of inlining `latexmk`, so the
-#     workflow and a local `rhiza-task paper` cannot drift. This repository's dogfood
+#   * The compile step calls `uv run rhiza-task paper` instead of inlining the engine, so
+#     the workflow and a local `rhiza-task paper` cannot drift. This repository's dogfood
 #     position is that its own gates run through the CLI under test.
 #   * Upstream's "prefer basanos.tex, else the first *.tex" step is gone with it. That was a
 #     named preference for one downstream repository's paper, living in a template every
@@ -13,8 +13,10 @@
 #     whatever PDF the task produced instead.
 #
 # The `tex_present` guard is kept even though `rhiza-task paper` skips on its own: the task
-# skipping is cheap, but installing TeX Live first is not. So the guard is about the apt-get,
-# not about the gate.
+# skipping is cheap, but installing the engine first is not. So the guard is about the
+# apt-get, not about the gate. tectonic is one package where a TeX distribution was four, so
+# the guard buys less than it did -- kept because it costs nothing and still skips an install
+# for a consumer with no paper.
 #
 # This note used to add "and this repository ships no docs/paper", which was the guard's
 # original motivation and is no longer true: docs/paper/paper.tex arrived with the paper
@@ -83,19 +85,40 @@ jobs:
           version: "0.11.16"
           enable-cache: true
 
-      - name: Install TeX Live
+      # The same single package as rhiza_book.yml, deliberately: that workflow produces the
+      # copy of the PDF inside the book and this one the artifact and the `paper` branch, so
+      # they must compile the one document with the same engine. Under a TeX distribution
+      # this meant keeping two package lists in step; tectonic resolves what the document
+      # cites from its own bundle, fetched over the network on a cold cache.
+      - name: Install tectonic
         if: ${{ steps.check_tex.outputs.tex_present == 'true' }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            texlive-latex-extra \
-            texlive-fonts-recommended \
-            texlive-bibtex-extra \
-            latexmk
+          sudo apt-get install -y tectonic
 
-      # `rhiza-task paper` guards on latexmk being present and on the paper folder
-      # existing, chooses the root document, and runs latexmk with -bibtex so the
-      # references converge. Everything this step used to spell out lives there.
+      # tectonic's whole model is fetching what the document cites out of a web bundle and
+      # caching it, so the cache is where the trade against a provisioned distribution is
+      # actually settled: warm, the install is one apt package and the compile is offline for
+      # everything it has seen before; cold, it is a network round trip per file the document
+      # needs. Keyed on the sources because that is what determines the fetch set, with a
+      # prefix restore so editing the paper reuses the previous run's files instead of
+      # refetching the preamble's packages from scratch.
+      #
+      # ~/.cache/Tectonic is the XDG location tectonic uses on Linux; the macOS and Windows
+      # paths differ, which does not matter here because both jobs are ubuntu-only.
+      - name: Cache the tectonic bundle
+        if: ${{ steps.check_tex.outputs.tex_present == 'true' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/Tectonic
+          key: tectonic-${{ runner.os }}-${{ hashFiles('docs/paper/**/*.tex') }}
+          restore-keys: |
+            tectonic-${{ runner.os }}-
+
+      # `rhiza-task paper` guards on tectonic being present and on the paper folder
+      # existing, chooses the root document, and runs tectonic over it -- which reruns the
+      # TeX pass and bibtex until the references converge on its own, so there is no flag
+      # here saying so. Everything this step used to spell out lives there.
       - name: Compile the paper
         if: ${{ steps.check_tex.outputs.tex_present == 'true' }}
         run: uv run rhiza-task paper

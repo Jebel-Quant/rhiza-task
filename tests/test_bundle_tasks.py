@@ -478,7 +478,11 @@ class TestPaper:
         assert paper_tasks.main_document(repo / "docs" / "paper").name == "main.tex"
 
     def test_compiles_in_the_paper_folder(self, repo, recorder: Recorder, present: set[str], papers) -> None:
-        """Run latexmk with the folder as cwd, so its aux files land beside the source.
+        """Run tectonic with the folder as cwd, so its output lands beside the source.
+
+        The vector is the document and one flag, which is the point of the engine change:
+        convergence and bibtex are tectonic's own loop, so neither is asked for, and there is
+        no interaction mode to pin because tectonic never prompts.
 
         Args:
             repo: The repository root.
@@ -486,13 +490,28 @@ class TestPaper:
             present: The installed-tool set.
             papers: The paper-writing helper.
         """
-        present.add("latexmk")
+        present.add("tectonic")
         papers("main.tex")
         state = runner.run(["paper"], Config.load(root=repo))
         assert state.results[0].status is Status.OK
-        call = recorder.find("latexmk")
-        assert call.flags == ["-pdf", "-bibtex", "-interaction=nonstopmode", "main.tex"]
+        call = recorder.find("tectonic")
+        assert call.flags == ["--keep-logs", "main.tex"]
         assert call.kwargs["cwd"] == repo / "docs" / "paper"
+
+    def test_skips_without_tectonic(self, repo, recorder: Recorder, present: set[str], papers) -> None:
+        """No engine on the machine is a skip, not a failure -- and runs nothing.
+
+        Args:
+            repo: The repository root.
+            recorder: The uv recorder.
+            present: The installed-tool set, left empty.
+            papers: The paper-writing helper.
+        """
+        papers("main.tex")
+        state = runner.run(["paper"], Config.load(root=repo))
+        assert state.results[0].status is Status.SKIPPED
+        assert "tectonic not found" in state.results[0].detail
+        assert recorder.calls == []
 
     def test_skips_a_folder_with_no_tex(self, repo, recorder: Recorder, present: set[str]) -> None:
         """An adopted-but-unused bundle skips rather than failing.
@@ -502,38 +521,81 @@ class TestPaper:
             recorder: The uv recorder.
             present: The installed-tool set.
         """
-        present.add("latexmk")
+        present.add("tectonic")
         (repo / "docs" / "paper").mkdir(parents=True)
         state = runner.run(["paper"], Config.load(root=repo))
         assert state.results[0].status is Status.SKIPPED
         assert recorder.calls == []
 
-    def test_clean_skips_without_a_paper_folder(self, cfg: Config, recorder: Recorder, present: set[str]) -> None:
+    def test_clean_skips_without_a_paper_folder(self, cfg: Config, recorder: Recorder) -> None:
         """Cleaning a folder that does not exist reports that rather than failing.
 
         Args:
             cfg: The resolved config.
             recorder: The uv recorder.
-            present: The installed-tool set.
         """
-        present.add("latexmk")
         with pytest.raises(Skip, match="paper_folder"):
             paper_tasks.paper_clean(cfg)
         assert recorder.calls == []
 
-    def test_clean_tolerates_an_unbuilt_paper(self, repo, recorder: Recorder, present: set[str], papers) -> None:
-        """``latexmk -C || true``.
+    def test_clean_needs_no_tool(self, repo, recorder: Recorder, present: set[str], papers) -> None:
+        """The engine has no clean subcommand, so this one is Python and runs nothing.
+
+        ``present`` is left empty deliberately: a machine that cannot compile the paper can
+        still tidy up after one, which delegating to a driver never allowed.
 
         Args:
             repo: The repository root.
             recorder: The uv recorder.
-            present: The installed-tool set.
+            present: The installed-tool set, left empty.
             papers: The paper-writing helper.
         """
-        present.add("latexmk")
+        folder = repo / "docs" / "paper"
+        papers("main.tex")
+        for name in ("main.pdf", "main.log", "main.aux", "main.synctex.gz"):
+            (folder / name).write_text("x")
+
+        state = runner.run(["paper-clean"], Config.load(root=repo))
+
+        assert state.results[0].status is Status.OK
+        assert recorder.calls == []
+        assert sorted(p.name for p in folder.iterdir()) == ["main.tex"]
+
+    def test_clean_keeps_a_pdf_no_document_claims(self, repo, recorder: Recorder, papers) -> None:
+        """A committed figure has no ``.tex`` of its own and must survive the clean.
+
+        The reason the sweep is scoped by document stem: an extension sweep would delete
+        checked-in artwork, which no rebuild brings back.
+
+        Args:
+            repo: The repository root.
+            recorder: The uv recorder.
+            papers: The paper-writing helper.
+        """
+        folder = repo / "docs" / "paper"
+        papers("main.tex")
+        (folder / "main.pdf").write_text("x")
+        (folder / "diagram.pdf").write_text("x")
+
+        paper_tasks.paper_clean(Config.load(root=repo))
+
+        assert sorted(p.name for p in folder.iterdir()) == ["diagram.pdf", "main.tex"]
+
+    def test_clean_tolerates_an_unbuilt_paper(self, repo, recorder: Recorder, papers) -> None:
+        """Cleaning what was never built removes nothing and is still a success.
+
+        What paper.mk bought with ``|| true``, and here it falls out of there being no tool
+        to fail.
+
+        Args:
+            repo: The repository root.
+            recorder: The uv recorder.
+            papers: The paper-writing helper.
+        """
         papers("main.tex")
         paper_tasks.paper_clean(Config.load(root=repo))
-        assert recorder.find("latexmk").kwargs["check"] is False
+        assert recorder.calls == []
+        assert (repo / "docs" / "paper" / "main.tex").is_file()
 
 
 class TestPresentation:
