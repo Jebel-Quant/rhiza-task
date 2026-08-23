@@ -9,6 +9,7 @@ hide:
 **The rhiza developer tasks, as a pinned CLI** — not a synced make layer.
 
 [![PyPI](https://img.shields.io/pypi/v/rhiza-task.svg)](https://pypi.org/project/rhiza-task/)
+[![Downloads](https://static.pepy.tech/personalized-badge/rhiza-task?period=total&units=international_system&left_color=grey&right_color=blue&left_text=downloads)](https://pepy.tech/project/rhiza-task)
 [![Python](https://img.shields.io/pypi/pyversions/rhiza-task.svg)](https://pypi.org/project/rhiza-task/)
 [![CI](https://github.com/Jebel-Quant/rhiza-task/actions/workflows/ci.yml/badge.svg)](https://github.com/Jebel-Quant/rhiza-task/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Jebel-Quant/rhiza-task/blob/main/LICENSE)

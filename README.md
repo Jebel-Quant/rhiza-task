@@ -1,12 +1,31 @@
 # rhiza-task
 
 [![PyPI](https://img.shields.io/pypi/v/rhiza-task.svg)](https://pypi.org/project/rhiza-task/)
+[![Downloads](https://static.pepy.tech/personalized-badge/rhiza-task?period=total&units=international_system&left_color=grey&right_color=blue&left_text=downloads)](https://pepy.tech/project/rhiza-task)
 [![Python](https://img.shields.io/pypi/pyversions/rhiza-task.svg)](https://pypi.org/project/rhiza-task/)
 [![CI](https://github.com/Jebel-Quant/rhiza-task/actions/workflows/ci.yml/badge.svg)](https://github.com/Jebel-Quant/rhiza-task/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Docs](https://img.shields.io/badge/docs-jebel--quant.github.io-blue)](https://jebel-quant.github.io/rhiza-task/)
+
+<!--
+The downloads badge counts `uvx rhiza-task` runs, and that is the point of having it rather
+than an aside: this package is invoked far more often than it is installed into a project, so
+a counter that missed uv would report a small fraction of its use. It does not miss it --
+`uv` is by a wide margin the dominant installer here, and pip is a rounding error. Check it
+rather than believing this comment:
+
+  curl -sS 'https://sql-clickhouse.clickhouse.com/?user=demo&default_format=TabSeparatedWithNames' \
+    --data-binary "SELECT installer, sum(count) FROM pypi.pypi_downloads_per_day_by_version_by_installer_by_type \
+                   WHERE project='rhiza-task' GROUP BY installer ORDER BY 2 DESC"
+
+Two things about the choice of service. It is pepy rather than shields because shields has no
+PyPI *total* endpoint -- `img.shields.io/pypi/dt/...` 404s, and only `dm`/`dw`/`dd` exist -- so
+a total means one more third-party service than the badge row already depends on. And what
+either service counts is *file downloads*, which for a CI-invoked CLI is closer to a count of
+pipeline runs than of people; mirror traffic is excluded, but a re-run is not.
+-->
 
 The rhiza developer tasks as a **pinned CLI** rather than a synced make layer — **one set
 of task names across Python, Rust and Go**.
