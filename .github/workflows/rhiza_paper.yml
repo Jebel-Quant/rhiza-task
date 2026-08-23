@@ -30,16 +30,25 @@
 
 name: "(RHIZA) PAPER"
 
+# The paths list has to name the *action* as well as the workflow, and that is not
+# housekeeping: `.github/actions/setup-tectonic` is where the engine version, its checksum
+# and the bundle cache live, so a change there decides whether this workflow works -- and
+# without this entry, editing it triggers nothing. Two commits proved that in a row: the
+# fix that pinned the cache path merged and ran no paper build at all, so the thing it
+# fixed had to be checked by hand with `workflow_dispatch`. A path that can break a
+# workflow belongs in that workflow's filter.
 on:
   push:
     branches: [main]
     paths:
       - 'docs/paper/**'
       - '.github/workflows/rhiza_paper.yml'
+      - '.github/actions/setup-tectonic/**'
   pull_request:
     paths:
       - 'docs/paper/**'
       - '.github/workflows/rhiza_paper.yml'
+      - '.github/actions/setup-tectonic/**'
   workflow_dispatch:
 
 concurrency:
