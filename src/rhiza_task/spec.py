@@ -104,7 +104,7 @@ class Guard:
     what github.mk's ``require-gh`` was: a target whose whole body is
     ``command -v gh >/dev/null || exit 1``, declared as a prerequisite of every helper.
     The five bundle-owned fragments are mostly wrappers over a CLI nobody can assume is
-    installed -- gh, docker, git-lfs, latexmk, marp -- so the check is declared once here
+    installed -- gh, docker, git-lfs, tectonic, marp -- so the check is declared once here
     rather than repeated as the first three lines of a dozen task bodies.
 
     A missing tool is a :class:`Skip`, not a failure, which is a deliberate change from

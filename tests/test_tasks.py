@@ -659,7 +659,7 @@ class TestBook:
         """The book publishes the paper's PDF, so building the book must compile it.
 
         Asserted on the registry rather than on a vector, because there is no vector: the
-        PDF needs no copy step. latexmk writes it beside its source and ``paper_folder`` is
+        PDF needs no copy step. tectonic writes it beside its source and ``paper_folder`` is
         inside ``docs_dir``, so the only two moving parts are this prerequisite and the
         ``nav`` entry in ``mkdocs.yml`` -- and this is the half a test can hold.
         """
@@ -668,7 +668,7 @@ class TestBook:
         assert "paper" in spec.needs
 
     def test_prunes_latex_artifacts_but_keeps_the_pdf(self, cfg: Config, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The published site carries the paper's PDF and source, not latexmk's scratch files.
+        """The published site carries the paper's PDF and source, not the build's scratch files.
 
         ``paper.log`` is the one that matters: it records absolute paths from the machine
         that built it, and publishing it to Pages is a leak of build environment rather than
@@ -960,7 +960,7 @@ extra:
     def test_fails_naming_the_missing_asset(self, cfg: Config, capsys: pytest.CaptureFixture[str]) -> None:
         """The published 404 this gate exists for: a nav entry whose asset was never written.
 
-        This is the paper's case exactly. ``rhiza-task paper`` skips without latexmk, the
+        This is the paper's case exactly. ``rhiza-task paper`` skips without tectonic, the
         build succeeds, zensical reports ``No issues found``, and the site deploys with a
         dead entry in its own navigation -- so the assertion is that the *name* reaches the
         operator, not merely that the count is wrong.
@@ -1005,7 +1005,7 @@ extra:
         """``book`` must not need this gate.
 
         Half the nav entries here resolve only after the gates that produce them have run,
-        and a repository with no latexmk must still build its book -- which is what a skipped
+        and a repository with no tectonic must still build its book -- which is what a skipped
         prerequisite buys. Wiring this into ``book`` would turn that into a failure for every
         consumer documenting a paper it cannot compile, so the omission is the design and a
         test holds it.

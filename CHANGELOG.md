@@ -1,5 +1,55 @@
 # Changelog
 
+<!--
+The Unreleased section below holds an upgrade note written when the change landed, because
+git-cliff files a strictness increase wherever its commit type puts it and never writes one.
+At release time `git-cliff --prepend` inserts the new version's section *above* this heading:
+fold the note into that section, delete this heading and this comment, and restore the
+`# Changelog` title, which --prepend eats.
+-->
+
+## [Unreleased]
+
+### ⚠️ Upgrade note
+
+**`rhiza-task paper` compiles with [tectonic](https://tectonic-typesetting.github.io/), and
+no longer with a TeX distribution's driver.** A machine that could build the paper before and
+has no tectonic will now report `skipped  paper  tectonic not found` instead of producing a
+PDF — a machine that previously succeeded, so this is breaking even though the gate reports it
+as a skip rather than a failure. [Install tectonic](https://tectonic-typesetting.github.io/en-US/install.html)
+— `brew install tectonic`, `cargo install tectonic`, or a release binary; note that Ubuntu does
+not package it, which is what CI here installs a pinned tarball for — or pin `rhiza-task<1.3`.
+
+What the trade buys, and what it costs:
+
+- **One binary instead of a distribution plus a package list.** The old install asked each
+  workflow to name the TeX packages the document happened to cite, and this repository carried
+  two such lists — one per workflow, compiling the same document, with nothing checking that
+  they agreed. tectonic resolves what the document cites from its own bundle, so there is no
+  list to diverge.
+- **The argument vector is the document and one flag.** Convergence and bibtex are tectonic's
+  own loop rather than a driver's, and there is no interaction mode to pin because tectonic
+  never prompts. `--keep-logs` is the flag, kept because tectonic writes only the PDF by
+  default and the log is what you upload when a CI compile fails.
+- **A cold cache needs the network**, where a provisioned distribution did not. The cache is
+  per-machine and survives between runs, so it is a first-run cost; both workflows here now
+  cache it.
+
+**`rhiza-task paper-clean` no longer guards on a tool, and no longer sweeps by extension.**
+tectonic has no clean subcommand, so the task deletes the artifacts itself — which makes it the
+one task in the section that works on a machine that cannot build the paper at all. It removes
+the PDF and auxiliary files **belonging to the folder's top-level `.tex` documents**, so a
+committed `diagram.pdf` with no `diagram.tex` now survives a clean that would previously have
+been the driver's business. If you relied on `paper-clean` clearing every `.pdf` in the folder,
+it no longer does.
+
+**`rhiza-task doctor` no longer probes for GNU make**, and has no optional tier left. It names
+uv and git, and a miss is a failure. `doctor.mk` required make because the whole task layer was
+make; this package has none, and nothing in the registry needs it. Every other binary the
+package reaches for — docker, gh, git-lfs, tectonic, marp — is a `Guard` on the task that wraps
+it and reports itself on that task's `skipped` line with an install URL, which is where an
+optional prerequisite belongs. `Tool.required` is gone from `rhiza_task.tasks.doctor` with it.
+
 ## [1.2.0] - 2026-08-22
 
 ### ⚠️ Upgrade note

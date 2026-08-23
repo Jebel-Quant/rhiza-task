@@ -46,7 +46,7 @@ What skips is outside `all`, and for three different reasons worth separating:
 - `semgrep` has no `.rhiza/semgrep.yml`. This is the genuine "not rhiza-managed" case.
 - `presentation` has no `PRESENTATION.md`, and `marimo-validate` no `docs/notebooks`. These
   skip for want of a *subject*, which any consumer that has not adopted the bundle shares.
-- `paper` skips on a machine without `latexmk` — a fact about the machine, not about this
+- `paper` skips on a machine without `tectonic` — a fact about the machine, not about this
   repository.
 
 So a registry-wide `--strict` would assert that this is a consumer carrying every bundle,

@@ -1,0 +1,85 @@
+# The paper engine, installed once and defined once.
+#
+# Two workflows compile docs/paper: rhiza_paper.yml produces the artifact and the `paper`
+# branch, rhiza_book.yml the copy inside the published book. They must use the *same* engine
+# -- that argument is why the TeX distribution this replaced kept a four-package list in each
+# file, and the hazard was that nothing checked the two lists agreed. Pinning a release
+# tarball trades that list for a version and a checksum, which would be the same hazard twice
+# over if each workflow carried its own copy. So they carry none: this is the one place the
+# version, the URL and the digest exist.
+#
+# Why a pinned tarball rather than a package manager or the upstream installer:
+#
+#   * `apt-get install tectonic` does not work -- tectonic is packaged for Debian but not for
+#     Ubuntu noble, which is what ubuntu-latest is. That is what the first attempt at this
+#     did, and `E: Unable to locate package tectonic` is how it failed.
+#   * The upstream one-liner pipes a fetched script into a shell. Every action in this
+#     repository is pinned to a commit SHA; fetching an unpinned script and executing it is
+#     the opposite of that, and dependabot cannot see it either.
+#   * `cargo install tectonic` compiles for minutes per run and pulls system libraries.
+#
+# The pin is also load-bearing beyond supply chain: a typesetting engine's output moves
+# between versions, so an unpinned engine would let the PDF on the `paper` branch and the one
+# inside the book differ for no reason anybody could see in a diff.
+#
+# musl rather than gnu deliberately: the musl build is statically linked, so it depends on no
+# libssl or fontconfig the runner image happens to ship. The pin is therefore x86_64 Linux
+# only, and the step below refuses anything else rather than downloading a tarball for the
+# wrong machine.
+#
+# To bump: change VERSION, download the matching -x86_64-unknown-linux-musl.tar.gz, and put
+# its sha256 in SHA256. Nothing else moves.
+name: Set up tectonic
+description: Install a pinned tectonic release and restore its bundle cache.
+
+runs:
+  using: composite
+  steps:
+    - name: Install tectonic
+      shell: bash
+      env:
+        VERSION: "0.17.0"
+        SHA256: "8533d07f9ccbd7a65824b9e0459041bca34af1eb33daba48f59215593753a3b7"
+      run: |
+        set -euo pipefail
+
+        if [ "$RUNNER_OS" != "Linux" ] || [ "$(uname -m)" != "x86_64" ]; then
+          echo "::error::setup-tectonic pins an x86_64 Linux build; this runner is $RUNNER_OS/$(uname -m)."
+          exit 1
+        fi
+
+        archive="$RUNNER_TEMP/tectonic.tar.gz"
+        # %40 is the '@' in the tag `tectonic@<version>`: the repository releases several
+        # crates from one tag namespace, so the CLI's tags are not bare versions.
+        url="https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%40${VERSION}/tectonic-${VERSION}-x86_64-unknown-linux-musl.tar.gz"
+        curl --proto '=https' --tlsv1.2 -fsSL --retry 3 --retry-connrefused -o "$archive" "$url"
+
+        # Checked before anything is unpacked, let alone executed. `--strict` so a malformed
+        # digest line is an error rather than a silently skipped check.
+        echo "${SHA256}  ${archive}" | sha256sum --check --strict -
+
+        mkdir -p "$RUNNER_TEMP/tectonic-bin"
+        tar -xzf "$archive" -C "$RUNNER_TEMP/tectonic-bin" tectonic
+        chmod +x "$RUNNER_TEMP/tectonic-bin/tectonic"
+        # Absolute path here because GITHUB_PATH only takes effect in the *next* step, and a
+        # version that prints is the proof the download is a working binary for this runner.
+        "$RUNNER_TEMP/tectonic-bin/tectonic" --version
+        echo "$RUNNER_TEMP/tectonic-bin" >> "$GITHUB_PATH"
+
+    # tectonic's whole model is fetching what the document cites out of a web bundle and
+    # caching it, so the cache is where the trade against a provisioned distribution is
+    # actually settled: warm, the compile is offline for everything it has seen before; cold,
+    # it is a network round trip per file the document needs. Keyed on the sources because
+    # that is what determines the fetch set, and on the engine version because a bundle is
+    # fetched into a version's own cache layout. The prefix restore means editing the paper
+    # reuses the previous run's files instead of refetching the preamble's packages.
+    #
+    # ~/.cache/Tectonic is the XDG location tectonic uses on Linux; the macOS and Windows
+    # paths differ, which does not matter while the step above accepts only Linux.
+    - name: Cache the tectonic bundle
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/Tectonic
+        key: tectonic-0.17.0-${{ runner.os }}-${{ hashFiles('docs/paper/**/*.tex') }}
+        restore-keys: |
+          tectonic-0.17.0-${{ runner.os }}-

@@ -66,8 +66,10 @@ jobs:
       # this OS". `list` executes config resolution, layer detection and the registry walk;
       # `doctor` then resolves binaries for real -- `shutil.which` (uv.exe on Windows), a
       # real subprocess, `cfg.root` path handling -- which is the layer the suite stubs.
-      # Neither provisions anything, and `make` is optional in `doctor`'s TOOLS, so its
-      # absence on the runners is reported rather than fatal.
+      # Neither provisions anything. `doctor`'s TOOLS names only uv and git -- both present
+      # on all three runners, uv from the setup step above and git from the image -- so this
+      # step asserts the probe machinery works rather than tolerating a miss. It used to also
+      # name make, optionally, which meant the step passed whether or not that half worked.
       #
       # `!cancelled()` for the reason the ruff job's two halves have it: a broken CLI and a
       # failing test are independent findings, and reporting one at a time costs a round

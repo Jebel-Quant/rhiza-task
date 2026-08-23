@@ -71,31 +71,29 @@ jobs:
           restore-keys: |
             mkdocs-plugin-${{ runner.os }}-
 
-      # TeX Live, and only on the ref `deploy` will publish. `book` names `paper` as a
-      # prerequisite and a *skipped* prerequisite does not block a dependent, so without
-      # latexmk this job built a site whose `Paper: paper/paper.pdf` nav entry pointed at a
+      # The paper engine, and only on the ref `deploy` will publish. `book` names `paper` as a
+      # prerequisite and a *skipped* prerequisite does not block a dependent, so without an
+      # engine this job built a site whose `Paper: paper/paper.pdf` nav entry pointed at a
       # file nothing had written -- and published it. That is what 404ed:
       # https://jebel-quant.github.io/rhiza-task/paper/paper.pdf, on a run that was green,
       # because every gate here passes when the paper is absent.
       #
-      # Scoped to the default branch rather than run everywhere because the apt-get is the
+      # Scoped to the default branch rather than run everywhere because the install is the
       # expensive half and a branch book is downloaded from the run page, not visited. A
       # branch build therefore still carries the dangling entry; the condition mirrors
-      # `deploy`'s exactly, so the ref that publishes is the ref that has latexmk. (The
+      # `deploy`'s exactly, so the ref that publishes is the ref that has the engine. (The
       # fork exclusion is the job's own `if`, so it is not repeated here.)
       #
-      # The same four packages as rhiza_paper.yml, deliberately: two workflows compiling one
-      # document against different TeX package sets is a divergence neither would catch --
-      # that one produces the PDF on the `paper` branch, this one the copy inside the book.
-      - name: Install TeX Live (publishing refs only)
+      # One tool where this used to be a distribution and a four-package list, and that is the
+      # point of tectonic rather than a saving: the list asked each workflow to name the TeX
+      # packages the document happens to cite, and two workflows compiling one document
+      # against different package sets is a divergence neither would catch. tectonic resolves
+      # what the document cites from its own bundle. The local action is shared with
+      # rhiza_paper.yml so the engine version cannot diverge either, which matters because
+      # that workflow publishes the same document's PDF on the `paper` branch.
+      - name: Set up tectonic (publishing refs only)
         if: ${{ github.ref_name == github.event.repository.default_branch }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            texlive-latex-extra \
-            texlive-fonts-recommended \
-            texlive-bibtex-extra \
-            latexmk
+        uses: ./.github/actions/setup-tectonic
 
       # `book` depends on `test`, so this step also produces the `_tests/` tree it folds in
       # as docs/reports -- the coverage XML the badge step reads, and the HTML report and
@@ -109,13 +107,13 @@ jobs:
 
       # The gate on what was *published* rather than on what was built. zensical reports
       # `No issues found` for a nav entry whose page is missing and for one whose asset is
-      # missing, so the TeX install above fixes one instance of the 404 and this catches the
-      # class: any nav target that did not make it into `_book/`.
+      # missing, so the engine install above fixes one instance of the 404 and this catches
+      # the class: any nav target that did not make it into `_book/`.
       #
       # Same condition as the install above and as `deploy`, for a reason that is the whole
       # design of the gate: several nav entries here resolve only once the gates that produce
       # them have run -- the two `reports/` pages need a `_tests/` tree, the paper needs
-      # latexmk -- so on a branch a dangling entry is the machine's shape, and on the ref
+      # tectonic -- so on a branch a dangling entry is the machine's shape, and on the ref
       # that publishes it is a defect. `book-nav` is deliberately not a prerequisite of
       # `book` for the same reason; a test in tests/test_tasks.py holds that.
       - name: Check every nav entry resolves (publishing refs only)

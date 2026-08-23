@@ -173,16 +173,16 @@ exports every Marimo notebook to `docs/notebooks/*.html`, builds the site with
 [zensical](https://github.com/squidfunk/zensical), and generates a coverage badge. It
 skips entirely without a `mkdocs.yml`.
 
-`paper` is a prerequisite but needs no copy step, unlike `_tests/`: latexmk writes the PDF
+`paper` is a prerequisite but needs no copy step, unlike `_tests/`: tectonic writes the PDF
 beside its source, and `paper_folder` (default `docs/paper`) is already inside `docs_dir`,
 so the site build picks it up as an asset and `mkdocs.yml` only names it in `nav`. A
-repository with no paper — or no latexmk — still builds its book, because a *skipped*
+repository with no paper — or no tectonic — still builds its book, because a *skipped*
 prerequisite does not block a dependent; only a failed one does. Under `--strict` that skip
 becomes a failure and would block `book`, which is worth knowing but is not specific to
 `paper`: `benchmark` and `stress` guard on folders most repositories do not have.
 
 `book-nav` is the other side of that permissiveness, and deliberately **not** a prerequisite
-of `book`. Skipping a producer is what lets a repository without latexmk still build its
+of `book`. Skipping a producer is what lets a repository without tectonic still build its
 book — and the cost is that `mkdocs.yml` can name a target the build never wrote. zensical
 does not catch it: it reports `No issues found` for a nav entry whose page is missing *and*
 for one whose asset is missing, so such a site builds green and publishes a 404 in its own
@@ -212,6 +212,12 @@ JetBrains server refuses to serve gitignored directories and `_book` is one.
 
 `doctor` is the second procedural escape — it compares semantic versions, which used to be
 an `awk` function inside a make recipe.
+
+It names **uv and git, and nothing else**, and a miss is a failure rather than a warning.
+Every other binary the package reaches for — docker, gh, git-lfs, tectonic, marp — is a
+`Guard` on the one task that wraps it, and reports itself on that task's `skipped` line with
+an install URL. `doctor.mk` also probed GNU make, which was honest while the task layer *was*
+make; nothing here needs it, so it is not probed at all.
 
 ## Bundle-owned sections
 
@@ -257,7 +263,21 @@ tool is absent, with `--strict` for a caller who wants the hard failure instead.
 | task | does |
 |---|---|
 | `paper` | compile the LaTeX paper to PDF |
-| `paper-clean` | remove the latexmk build artifacts |
+| `paper-clean` | remove the LaTeX build artifacts |
+
+**The engine is [tectonic](https://tectonic-typesetting.github.io/), not a TeX
+distribution's driver.** One binary to install instead of a distribution plus the list of
+packages a document happens to cite, because tectonic resolves what the document cites from
+its own bundle and caches it. So the vector is the document and one flag: convergence and
+bibtex are the engine's own loop, and there is no interaction mode to pin because tectonic
+never prompts. The cost is that a cold cache needs the network, where a provisioned
+distribution did not.
+
+`paper-clean` follows from that: tectonic has no clean subcommand, so the task is plain
+Python and guards on no tool at all — the one task in this section that works on a machine
+which cannot build the paper. It removes the PDF and the auxiliary files **belonging to the
+folder's top-level `.tex` documents**, so a committed `diagram.pdf` with no `diagram.tex`
+survives.
 
 `paper.mk` preferred a file called `basanos.tex` — one downstream repository's paper, named
 in a template every consumer synced. That is now two conventional names, `main.tex` and

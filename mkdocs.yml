@@ -39,11 +39,11 @@ nav:
   # the normal path produces both together.
   #
   # What differs from the two above is a toolchain rather than a build order. The reports
-  # need only the gates, which any runner can run; this needs latexmk, and a *skipped*
-  # prerequisite does not block `book` -- so a runner with no LaTeX distribution published
-  # this entry pointing at a file nothing had written, on a green run. It did, and 404ed,
-  # until rhiza_book.yml installed TeX Live on the ref it deploys. So the entry resolves in
-  # the published book and on a machine with latexmk, and dangles anywhere else -- a branch
+  # need only the gates, which any runner can run; this needs tectonic, and a *skipped*
+  # prerequisite does not block `book` -- so a runner with no TeX engine published this
+  # entry pointing at a file nothing had written, on a green run. It did, and 404ed, until
+  # rhiza_book.yml installed the engine on the ref it deploys. So the entry resolves in the
+  # published book and on a machine with tectonic, and dangles anywhere else -- a branch
   # book, or a bare checkout.
   - Paper: paper/paper.pdf
 
