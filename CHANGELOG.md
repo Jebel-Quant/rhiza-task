@@ -1,14 +1,6 @@
 # Changelog
 
-<!--
-The Unreleased section below holds an upgrade note written when the change landed, because
-git-cliff files a strictness increase wherever its commit type puts it and never writes one.
-At release time `git-cliff --prepend` inserts the new version's section *above* this heading:
-fold the note into that section, delete this heading and this comment, and restore the
-`# Changelog` title, which --prepend eats.
--->
-
-## [Unreleased]
+## [1.3.0] - 2026-08-23
 
 ### ⚠️ Upgrade note
 
@@ -49,6 +41,18 @@ make; this package has none, and nothing in the registry needs it. Every other b
 package reaches for — docker, gh, git-lfs, tectonic, marp — is a `Guard` on the task that wraps
 it and reports itself on that task's `skipped` line with an install URL, which is where an
 optional prerequisite belongs. `Tool.required` is gone from `rhiza_task.tasks.doctor` with it.
+
+### 🚀 Features
+
+- Compile the paper with tectonic, and stop probing for make
+
+### 🐛 Bug Fixes
+
+- *(ci)* Install tectonic from a pinned release, not from apt
+
+### 📚 Documentation
+
+- Add a total-downloads badge, and record what it counts
 
 ## [1.2.0] - 2026-08-22
 
