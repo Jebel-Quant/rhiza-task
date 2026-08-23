@@ -66,6 +66,17 @@ runs:
         "$RUNNER_TEMP/tectonic-bin/tectonic" --version
         echo "$RUNNER_TEMP/tectonic-bin" >> "$GITHUB_PATH"
 
+        # Pin where the bundle is cached instead of inferring it. tectonic resolves its cache
+        # through platform conventions -- ~/Library/Caches/Tectonic on macOS, an XDG path on
+        # Linux -- and caching a *guessed* path fails silently in the one direction that
+        # matters: actions/cache warns `Path Validation Error: Path(s) specified in the action
+        # for caching do(es) not exist` and saves nothing, while the job stays green and every
+        # run refetches the bundle. That is exactly what the first attempt at this did.
+        # TECTONIC_CACHE_DIR removes the inference; GITHUB_ENV so the compile step, which is
+        # in the calling workflow, sees it.
+        mkdir -p "$RUNNER_TEMP/tectonic-cache"
+        echo "TECTONIC_CACHE_DIR=$RUNNER_TEMP/tectonic-cache" >> "$GITHUB_ENV"
+
     # tectonic's whole model is fetching what the document cites out of a web bundle and
     # caching it, so the cache is where the trade against a provisioned distribution is
     # actually settled: warm, the compile is offline for everything it has seen before; cold,
@@ -74,12 +85,12 @@ runs:
     # fetched into a version's own cache layout. The prefix restore means editing the paper
     # reuses the previous run's files instead of refetching the preamble's packages.
     #
-    # ~/.cache/Tectonic is the XDG location tectonic uses on Linux; the macOS and Windows
-    # paths differ, which does not matter while the step above accepts only Linux.
+    # The path is the one the step above *told* tectonic to use, not one inferred from the
+    # platform -- see the comment there for why that distinction cost a release.
     - name: Cache the tectonic bundle
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ~/.cache/Tectonic
+        path: ${{ runner.temp }}/tectonic-cache
         key: tectonic-0.17.0-${{ runner.os }}-${{ hashFiles('docs/paper/**/*.tex') }}
         restore-keys: |
           tectonic-0.17.0-${{ runner.os }}-
