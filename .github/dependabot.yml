@@ -37,6 +37,27 @@ updates:
     commit-message:
       prefix: "build"
 
+  # The composite action in .github/actions/setup-tectonic, which pins actions/cache by SHA
+  # like every workflow does. It needs its own entry because `directory: /` above covers
+  # .github/workflows and not composite actions nested below .github/actions -- so without
+  # this, that one SHA would be the only unwatched action pin in the repository, which is
+  # exactly the silent rot the header describes.
+  #
+  # Its *other* pin, the tectonic tarball, is not something dependabot can move; see the
+  # note at the foot of this file.
+  - package-ecosystem: github-actions
+    directory: /.github/actions/setup-tectonic
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+    groups:
+      actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+
   # pyproject.toml and uv.lock. The floors here (`typer>=0.15`, `rich>=13.0`,
   # `python-dotenv>=1.0`) are asserted by ci.yml's `lowest-deps` job and the ceiling by
   # weekly.yml's `dep-compat`, so both ends of every range already have a gate -- what was
@@ -60,7 +81,7 @@ updates:
     commit-message:
       prefix: "build"
 
-# Two pins dependabot cannot reach, and both are reviewed by hand. Recorded here rather
+# Three pins dependabot cannot reach, and all are reviewed by hand. Recorded here rather
 # than only at the call sites, because this is the file a reader consults to learn what is
 # and is not automated -- and silence here would read as "everything is covered".
 #
@@ -75,6 +96,13 @@ updates:
 #     the action. It must stay equal to the uv that rhiza_release.yml builds and publishes
 #     with, for the reason ci.yml's first job records: a gate that passes on one uv and a
 #     release built on another is a resolver difference nothing would catch.
+#   * `VERSION` and `SHA256` in .github/actions/setup-tectonic/action.yml, which pin the
+#     paper engine as a release tarball plus its digest. There is no ecosystem that reads a
+#     version out of a shell variable, and the pin is not only supply chain: a typesetting
+#     engine's output moves between versions, and rhiza_paper.yml and rhiza_book.yml compile
+#     the same document, so an engine bump is a deliberate act that should be looked at
+#     rather than merged on a Monday. Bump both fields together -- a stale digest fails the
+#     checksum step, which is the intended failure mode.
 #
 # The remaining .pre-commit-config.yaml hook revs are unautomated for the same
 # no-such-ecosystem reason, but carry no cross-file pairing, so `prek autoupdate` is a

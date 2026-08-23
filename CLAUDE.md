@@ -76,6 +76,24 @@ checks are forge-API queries about the *remote* repository, so a local task coul
 pre-push signal the way `bandit` or `pytest` do — it would restate what the workflow already
 reported, while costing a public task name on a released package.
 
+### The one local composite action
+
+`.github/actions/setup-tectonic/` is the first and only `uses: ./` in this repository, and it
+exists for a reason worth stating rather than copying: **two workflows compile the same
+document.** `rhiza_paper.yml` publishes the PDF as an artifact and on the `paper` branch,
+`rhiza_book.yml` the copy inside the book, and a typesetting engine's output moves between
+versions — so a version skew between them would show up as two different PDFs of one paper,
+with nothing to catch it. The distribution this replaced had the same hazard in a worse form:
+a four-package apt list in each file, kept in step by hand.
+
+So the action is where the engine's version, URL and sha256 live, exactly once. Two things
+follow. `apt-get install tectonic` is **not** the alternative — tectonic is packaged for
+Debian but not for Ubuntu noble, which is what `ubuntu-latest` is, and a first attempt at
+this failed exactly there. And the composite action needs its **own** `dependabot.yml`
+entry, because `directory: /` covers `.github/workflows` and not actions nested below
+`.github/actions`; without it the `actions/cache` SHA inside would be the only unwatched
+action pin in the repository.
+
 ## The layering invariant
 
 The import graph is strictly layered, and nothing enforces it:

@@ -47,7 +47,7 @@ SECTION = "Paper"
 
 HAVE_TECTONIC = Guard(
     tool="tectonic",
-    reason="tectonic not found; install it (brew install tectonic, cargo install tectonic)",
+    reason="tectonic not found; see https://tectonic-typesetting.github.io/en-US/install.html",
 )
 
 PREFERRED = ("main.tex", "paper.tex")

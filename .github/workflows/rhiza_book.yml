@@ -84,39 +84,16 @@ jobs:
       # `deploy`'s exactly, so the ref that publishes is the ref that has the engine. (The
       # fork exclusion is the job's own `if`, so it is not repeated here.)
       #
-      # One package where this used to be four, and that is the point of tectonic rather than
-      # a saving: the distribution install asked each workflow to name the TeX packages the
-      # document happens to cite, and two workflows compiling one document against different
-      # package sets is a divergence neither would catch. tectonic resolves what the document
-      # cites from its own bundle, so there is no set to diverge. It does fetch that bundle
-      # over the network on a cold cache, which a provisioned distribution did not.
-      - name: Install tectonic (publishing refs only)
+      # One tool where this used to be a distribution and a four-package list, and that is the
+      # point of tectonic rather than a saving: the list asked each workflow to name the TeX
+      # packages the document happens to cite, and two workflows compiling one document
+      # against different package sets is a divergence neither would catch. tectonic resolves
+      # what the document cites from its own bundle. The local action is shared with
+      # rhiza_paper.yml so the engine version cannot diverge either, which matters because
+      # that workflow publishes the same document's PDF on the `paper` branch.
+      - name: Set up tectonic (publishing refs only)
         if: ${{ github.ref_name == github.event.repository.default_branch }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y tectonic
-
-      # tectonic's whole model is fetching what the document cites out of a web bundle and
-      # caching it, so the cache is where the trade against a provisioned distribution is
-      # actually settled: warm, the install is one apt package and the compile is offline for
-      # everything it has seen before; cold, it is a network round trip per file the document
-      # needs. Keyed on the sources because that is what determines the fetch set, with a
-      # prefix restore so editing the paper reuses the previous run's files instead of
-      # refetching the preamble's packages from scratch.
-      #
-      # ~/.cache/Tectonic is the XDG location tectonic uses on Linux; the macOS and Windows
-      # paths differ, which does not matter here because both jobs are ubuntu-only.
-      #
-      # Same condition as the install above, so a branch build neither restores nor saves a
-      # cache for a paper it never compiles.
-      - name: Cache the tectonic bundle (publishing refs only)
-        if: ${{ github.ref_name == github.event.repository.default_branch }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/Tectonic
-          key: tectonic-${{ runner.os }}-${{ hashFiles('docs/paper/**/*.tex') }}
-          restore-keys: |
-            tectonic-${{ runner.os }}-
+        uses: ./.github/actions/setup-tectonic
 
       # `book` depends on `test`, so this step also produces the `_tests/` tree it folds in
       # as docs/reports -- the coverage XML the badge step reads, and the HTML report and

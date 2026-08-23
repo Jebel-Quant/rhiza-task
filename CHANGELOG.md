@@ -16,8 +16,9 @@ fold the note into that section, delete this heading and this comment, and resto
 no longer with a TeX distribution's driver.** A machine that could build the paper before and
 has no tectonic will now report `skipped  paper  tectonic not found` instead of producing a
 PDF — a machine that previously succeeded, so this is breaking even though the gate reports it
-as a skip rather than a failure. Install tectonic (`brew install tectonic`, `apt-get install
-tectonic`, `cargo install tectonic`), or pin `rhiza-task<1.3`.
+as a skip rather than a failure. [Install tectonic](https://tectonic-typesetting.github.io/en-US/install.html)
+— `brew install tectonic`, `cargo install tectonic`, or a release binary; note that Ubuntu does
+not package it, which is what CI here installs a pinned tarball for — or pin `rhiza-task<1.3`.
 
 What the trade buys, and what it costs:
 
