@@ -87,8 +87,8 @@ and wins when both are present.
 value a task will actually see:
 
 ```bash
-uvx rhiza-task@1.3.0 print coverage_fail_under
-uvx rhiza-task@1.3.0 print COVERAGE_FAIL_UNDER   # either spelling
+uvx rhiza-task@1.3.1 print coverage_fail_under
+uvx rhiza-task@1.3.1 print COVERAGE_FAIL_UNDER   # either spelling
 ```
 
 Field names are the lowercased make variables, so the mapping to what a consumer already
@@ -100,7 +100,7 @@ In the two string-valued layers, an empty value **leaves the layer below it alon
 than resolving to `""`:
 
 ```bash
-RHIZA_CI_OS_MATRIX= uvx rhiza-task@1.3.0 ci-os-matrix   # still the default
+RHIZA_CI_OS_MATRIX= uvx rhiza-task@1.3.1 ci-os-matrix   # still the default
 ```
 
 That is make's `$(or ...)` rule, and the reusable workflows depend on it: `rhiza_ci.yml`
@@ -228,7 +228,7 @@ layers = ["rust"]
 ```
 
 ```bash
-RHIZA_LAYERS=rust uvx rhiza-task@1.3.0 test
+RHIZA_LAYERS=rust uvx rhiza-task@1.3.1 test
 ```
 
 ## No `+=` successor, and none needed

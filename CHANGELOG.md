@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.1] - 2026-08-23
+
+### 🐛 Bug Fixes
+
+- *(ci)* Keep the workspace when pushing to the paper branch
+- *(ci)* Pin tectonic's cache path instead of inferring it
+- *(ci)* Run the paper workflow when its action changes
+
 ## [1.3.0] - 2026-08-23
 
 ### ⚠️ Upgrade note
