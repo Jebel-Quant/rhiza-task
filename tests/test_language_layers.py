@@ -182,7 +182,10 @@ class TestResolution:
         """
         monkeypatch.setattr(rust_tasks, "have", lambda _: True)
         state = runner.run(["rust:test", "test"], Config.load(root=crate))
-        assert [r.name for r in state.results] == ["install", "cargo-tools", "test"]
+        # `setup` leads because every layer's `install` names it -- the repo-owned
+        # environment hook, which skips here since the crate ships none. Spelled out rather
+        # than sliced off, so that a prerequisite silently disappearing still fails this.
+        assert [r.name for r in state.results] == ["setup", "install", "cargo-tools", "test"]
         # One `test`, not two: `install` and `cargo-tools` ran once each, and the two
         # spellings of the gate itself resolved to the same registry key.
         assert [c.flags[0] for c in recorder.calls if c.tool == "cargo"] == ["fetch", "nextest", "test"]

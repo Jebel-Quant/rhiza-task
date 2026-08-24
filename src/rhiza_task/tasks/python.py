@@ -46,7 +46,10 @@ test failed.
 MAX_ATTEMPTS = 2
 
 
-@task("install", "create the venv and sync dependencies", section="Python", layer="python")
+# `setup` first, and in all three layers: a native library needed to *build* a wheel has to
+# be on the machine before `uv sync`, not after it. See tasks/setup.py for why the hook is
+# anchored on `install` rather than run by the workflows.
+@task("install", "create the venv and sync dependencies", section="Python", layer="python", needs=("setup",))
 def install(cfg: Config) -> None:
     """Create ``.venv`` if absent, sync from the lock file, install the git hooks.
 

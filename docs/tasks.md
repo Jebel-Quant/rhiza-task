@@ -209,6 +209,34 @@ JetBrains server refuses to serve gitignored directories and `_book` is one.
 |---|---|---|
 | `doctor` | — | check local prerequisites |
 | `clean` | — | remove build artifacts and stale local branches |
+| `setup` | — | run the repository's own environment setup hook |
+
+`setup` runs a repo-owned `local-setup.sh` at the repository root, and **every layer's
+`install` names it as a prerequisite** — so it reaches local `make test`, CI and a
+devcontainer through one insertion point rather than a step in each workflow.
+
+It is the seam for a native binary a project needs before its gates can run: graphviz for a
+docs plugin, `libpq` for psycopg, pandoc. rhiza's template owns every configuration file in a
+managed repository, so before this there was nowhere to put that step — and the workaround
+that was documented, shadowing `install` in `local.mk`, never ran. The Makefile shim forwards
+the *goal* to this CLI, so `install` resolves here rather than in make, and CI invokes the CLI
+directly without going through make at all.
+
+Deliberately **not** a `system-packages = [...]` setting. `graphviz` is spelled the same on
+apt and brew; `libgl1-mesa-glx` is not, and a list cannot express "download this tarball" —
+which is what rhiza itself does for tectonic. The hook is a script, so platform detection
+stays with the people who know which platforms they build on, and this package acquires no
+apt/brew/winget logic — the rule `lfs-install` states.
+
+A hook that exists but is not executable **fails**, with the `chmod` hint — a provisioning
+step someone wrote and believed was running is exactly what must not pass quietly.
+
+An absent hook, by contrast, **succeeds**; it does not skip. That is deliberate and is the
+one place in this package where "nothing happened" is not a `skipped`. `Skip` means work was
+asked for and did not happen, which is why `--strict` promotes it to a failure. Nothing is
+asked for by a repository that declares no hook — and since most declare none, skipping would
+fail every `--strict` invocation on the common case, `book --strict` included, five
+prerequisites down. The `[INFO] no local-setup.sh` line is what keeps that outcome legible.
 
 `doctor` is the second procedural escape — it compares semantic versions, which used to be
 an `awk` function inside a make recipe.
