@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.4.0] - 2026-08-25
+
+### 🚀 Features
+
+- Run a repo-owned setup hook as part of install
+
+### 🐛 Bug Fixes
+
+- Do not ask an executable question Windows cannot answer
+- Reach both executable-check branches without patching os.name
+
 ## [1.3.1] - 2026-08-23
 
 ### 🐛 Bug Fixes
