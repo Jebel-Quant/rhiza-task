@@ -31,8 +31,12 @@ to be spelled the same on apt and brew; ``libgl1-mesa-glx`` is not, and a list c
 would be a schema this package then had to keep honest across three package managers, for the
 subset of needs that happen to be a package name.
 
-The hook is POSIX shell by name and by nature. A Windows consumer needs their own mechanism;
-this task is not it.
+The hook is POSIX shell by name and by nature, and Windows is where that shows. The
+executable check is skipped there -- ``os.access(X_OK)`` reports every existing file as
+executable, so asking would be a guard that guarantees nothing -- and the OS refusing to run
+a ``.sh`` is reported as a failure with the reason attached rather than as a traceback. A
+project that must provision on Windows needs its own arrangement; this task will tell you
+clearly that it could not.
 """
 
 from __future__ import annotations
@@ -83,6 +87,17 @@ def setup(cfg: Config) -> None:
     if not hook.is_file():
         print(f"[INFO] no {HOOK}; nothing to provision")
         return
-    if not os.access(hook, os.X_OK):
+    # POSIX-only, because `os.access(X_OK)` cannot answer this on Windows: there is no
+    # execute bit, so it reports *every* existing file as executable and the check would
+    # pass vacuously. Asking anyway is worse than not asking -- it reads like a guard while
+    # guaranteeing nothing. What covers Windows is the OSError below.
+    if os.name == "posix" and not os.access(hook, os.X_OK):
         raise Failed(1, f"{HOOK} is not executable -- run `chmod +x {HOOK}`")
-    tool(str(hook), cwd=cfg.root)
+    try:
+        tool(str(hook), cwd=cfg.root)
+    except OSError as exc:
+        # Not a Windows special case, though it is how Windows arrives: the OS refuses to
+        # execute the file at all. A malformed shebang on POSIX raises ENOEXEC through the
+        # same path. Either way an unhandled OSError would surface as a traceback, which is
+        # a poor way to learn that a provisioning script cannot start.
+        raise Failed(1, f"could not run {HOOK}: {exc}") from exc

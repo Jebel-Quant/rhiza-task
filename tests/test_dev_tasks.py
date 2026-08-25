@@ -479,20 +479,80 @@ class TestSetupHook:
         assert [(r.name, r.status) for r in state.results] == [("setup", Status.OK), ("install", Status.OK)]
         assert not state.failed
 
-    def test_a_hook_that_cannot_run_fails_rather_than_skipping(self, cfg: Config, recorder: Recorder) -> None:
+    def test_a_hook_that_cannot_run_fails_rather_than_skipping(
+        self, cfg: Config, recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """The asymmetry that is the whole point: a forgotten ``chmod`` must not pass quietly.
 
         Skipping here would recreate the silent-green failure the hook exists to remove --
         the author wrote provisioning, believed it ran, and nothing said otherwise.
 
+        ``os.name`` is pinned rather than assumed: the suite runs on Windows too, where
+        ``chmod`` cannot clear an execute bit that does not exist, so the unpinned version of
+        this test passed on POSIX and failed on all four Windows cells.
+
         Args:
             cfg: The resolved config.
             recorder: The uv recorder.
+            monkeypatch: pytest's patcher.
         """
+        monkeypatch.setattr(setup_tasks.os, "name", "posix")
         self._write(cfg, executable=False)
         with pytest.raises(Failed, match="chmod"):
             setup_tasks.setup(cfg)
         assert recorder.calls == []
+
+    def test_the_executable_check_is_not_asked_on_windows(
+        self, cfg: Config, recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Windows has no execute bit, so the check would pass vacuously; it is not made.
+
+        ``os.access(X_OK)`` reports *every* existing file as executable there, which is why
+        this cannot be one code path with a platform-independent check: a guard that always
+        passes reads like protection while providing none. The hook is attempted instead, and
+        the OS's refusal is what reports it.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+            monkeypatch: pytest's patcher.
+        """
+        monkeypatch.setattr(setup_tasks.os, "name", "nt")
+        hook = self._write(cfg, executable=False)
+        setup_tasks.setup(cfg)
+        assert recorder.find(str(hook)).kind == "tool"
+
+    def test_a_hook_the_os_refuses_to_start_fails_with_the_reason(
+        self, cfg: Config, recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An OSError is reported as a failure, not raised as a traceback.
+
+        How Windows arrives at a `.sh`, and how POSIX arrives at a malformed shebang
+        (ENOEXEC). Either way the script cannot start, and a traceback is a poor way to learn
+        that a provisioning step never began.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+            monkeypatch: pytest's patcher.
+        """
+        self._write(cfg, executable=True)
+
+        def refuse(*_args: str, **_kwargs: object) -> int:
+            """Stand in for an OS that will not execute the file.
+
+            Args:
+                *_args: Ignored.
+                **_kwargs: Ignored.
+
+            Raises:
+                OSError: Always.
+            """
+            raise OSError("Exec format error")
+
+        monkeypatch.setattr(setup_tasks, "tool", refuse)
+        with pytest.raises(Failed, match=r"could not run local-setup\.sh: Exec format error"):
+            setup_tasks.setup(cfg)
 
     def test_runs_the_hook_from_the_repository_root(self, cfg: Config, recorder: Recorder) -> None:
         """An absolute path, so it runs whatever the caller's working directory was.
