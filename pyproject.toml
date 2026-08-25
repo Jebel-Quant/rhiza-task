@@ -47,6 +47,12 @@ quality = "rhiza_task.tasks.quality"
 extras = "rhiza_task.tasks.extras"
 book = "rhiza_task.tasks.book"
 doctor = "rhiza_task.tasks.doctor"
+# `setup` is bound here like any other module, but it is the one whose *absence* would be
+# invisible: an unresolvable prerequisite is skipped rather than an error (see runner.py),
+# so an unbound entry point would leave every `install` silently running no hook at all --
+# the failure this task exists to remove. rhiza's own test_bundle_cli_targets.py asserts the
+# pinned CLI still lists it.
+setup = "rhiza_task.tasks.setup"
 # The five bundle-owned fragments `.rhiza/make.d/` kept because nothing here answered for
 # their targets. One module per bundle, so which bundle owns a task stays as legible as it
 # was when each was a file the template synced.

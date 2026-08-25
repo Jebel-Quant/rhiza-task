@@ -38,7 +38,7 @@ that renames it is still a crate. This is the flat analogue of python.mk's
 """
 
 
-@task("install", "install the toolchain and fetch dependencies", section="Rust", layer="rust")
+@task("install", "install the toolchain and fetch dependencies", section="Rust", layer="rust", needs=("setup",))
 def install(cfg: Config) -> None:
     """Materialise the pinned toolchain, fetch dependencies, install the git hooks.
 

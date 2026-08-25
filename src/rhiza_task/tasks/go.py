@@ -55,7 +55,7 @@ MANIFEST = Guard(file="go.mod", reason="no go.mod")
 """What every Go gate is guarded on: the module file, not a source folder."""
 
 
-@task("install", "install the toolchain and download dependencies", section="Go", layer="go")
+@task("install", "install the toolchain and download dependencies", section="Go", layer="go", needs=("setup",))
 def install(cfg: Config) -> None:
     """Download the module's dependencies and install the git hooks.
 

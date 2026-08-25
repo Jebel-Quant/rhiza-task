@@ -8,10 +8,12 @@ from pathlib import Path
 import pytest
 
 from rhiza_task.config import Config
+from rhiza_task.runner import Status, run
 from rhiza_task.spec import REGISTRY, Failed, Skip
 from rhiza_task.tasks import book as book_tasks
 from rhiza_task.tasks import doctor as doctor_module
 from rhiza_task.tasks import quality
+from rhiza_task.tasks import setup as setup_tasks
 
 from .conftest import Recorder
 
@@ -421,3 +423,173 @@ class TestHookInstall:
         quality.install_hooks(cfg)
         assert recorder.find("prek").flags == ["install", "-c", ".pre-commit-config.yaml"]
         assert recorder.find("prek").kwargs["check"] is False
+
+
+class TestSetupHook:
+    """The repo-owned environment hook, and the reason it hangs off ``install``."""
+
+    def _write(self, cfg: Config, *, executable: bool) -> Path:
+        """Write a hook into the throwaway repository.
+
+        Args:
+            cfg: The resolved config.
+            executable: Whether to set the execute bit.
+
+        Returns:
+            The hook's path.
+        """
+        hook = cfg.root / setup_tasks.HOOK
+        hook.write_text("#!/usr/bin/env bash\napt-get install -y graphviz\n")
+        hook.chmod(0o755 if executable else 0o644)
+        return hook
+
+    def test_no_hook_succeeds_rather_than_skipping(
+        self, cfg: Config, recorder: Recorder, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """An absent hook is the absence of a request, so it is not a skip.
+
+        Deliberately not ``Skip``: ``--strict`` promotes a skip to a failure so CI can assert
+        a gate measured something, and most repositories need no native provisioning -- so
+        skipping here would fail every ``--strict`` run on the common case. See
+        ``test_strict_does_not_fail_a_repository_that_needs_no_provisioning``.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+            capsys: pytest's output capture.
+        """
+        setup_tasks.setup(cfg)
+        assert recorder.calls == []
+        assert "nothing to provision" in capsys.readouterr().out
+
+    def test_strict_does_not_fail_a_repository_that_needs_no_provisioning(
+        self, cfg: Config, recorder: Recorder
+    ) -> None:
+        """The regression this asymmetry exists to prevent, asserted through the runner.
+
+        ``--strict`` is what CI uses to demand that a gate did its work. If an absent hook
+        skipped, every ``--strict`` invocation would fail on a repository that simply has no
+        native dependencies -- and ``install`` would be reported ``blocked`` behind it.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        state = run(["install"], Config.load(root=cfg.root, strict=True))
+        assert [(r.name, r.status) for r in state.results] == [("setup", Status.OK), ("install", Status.OK)]
+        assert not state.failed
+
+    def test_a_hook_that_cannot_run_fails_rather_than_skipping(
+        self, cfg: Config, recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The asymmetry that is the whole point: a forgotten ``chmod`` must not pass quietly.
+
+        Skipping here would recreate the silent-green failure the hook exists to remove --
+        the author wrote provisioning, believed it ran, and nothing said otherwise.
+
+        Both the platform flag and ``os.access`` are pinned rather than assumed, because the
+        suite runs on Windows too and neither holds there: ``chmod`` cannot clear an execute
+        bit that does not exist, and ``os.access`` answers True regardless. Relying on the
+        filesystem passed on POSIX and failed on all four Windows cells.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+            monkeypatch: pytest's patcher.
+        """
+        monkeypatch.setattr(setup_tasks, "CHECKS_EXECUTABLE_BIT", True)
+        monkeypatch.setattr(setup_tasks.os, "access", lambda *_a, **_k: False)
+        self._write(cfg, executable=False)
+        with pytest.raises(Failed, match="chmod"):
+            setup_tasks.setup(cfg)
+        assert recorder.calls == []
+
+    def test_the_executable_check_is_not_asked_on_windows(
+        self, cfg: Config, recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Windows has no execute bit, so the check would pass vacuously; it is not made.
+
+        ``os.access(X_OK)`` reports *every* existing file as executable there, which is why
+        this cannot be one code path with a platform-independent check: a guard that always
+        passes reads like protection while providing none. The hook is attempted instead, and
+        the OS's refusal is what reports it.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+            monkeypatch: pytest's patcher.
+        """
+        monkeypatch.setattr(setup_tasks, "CHECKS_EXECUTABLE_BIT", False)
+        hook = self._write(cfg, executable=False)
+        setup_tasks.setup(cfg)
+        assert recorder.find(str(hook)).kind == "tool"
+
+    def test_a_hook_the_os_refuses_to_start_fails_with_the_reason(
+        self, cfg: Config, recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An OSError is reported as a failure, not raised as a traceback.
+
+        How Windows arrives at a `.sh`, and how POSIX arrives at a malformed shebang
+        (ENOEXEC). Either way the script cannot start, and a traceback is a poor way to learn
+        that a provisioning step never began.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+            monkeypatch: pytest's patcher.
+        """
+        self._write(cfg, executable=True)
+
+        def refuse(*_args: str, **_kwargs: object) -> int:
+            """Stand in for an OS that will not execute the file.
+
+            Args:
+                *_args: Ignored.
+                **_kwargs: Ignored.
+
+            Raises:
+                OSError: Always.
+            """
+            raise OSError("Exec format error")
+
+        monkeypatch.setattr(setup_tasks, "tool", refuse)
+        with pytest.raises(Failed, match=r"could not run local-setup\.sh: Exec format error"):
+            setup_tasks.setup(cfg)
+
+    def test_runs_the_hook_from_the_repository_root(self, cfg: Config, recorder: Recorder) -> None:
+        """An absolute path, so it runs whatever the caller's working directory was.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        hook = self._write(cfg, executable=True)
+        setup_tasks.setup(cfg)
+        call = recorder.find(str(hook))
+        assert call.kind == "tool"
+        assert call.kwargs["cwd"] == cfg.root
+
+    @pytest.mark.parametrize("layer", ["python", "rust", "go"])
+    def test_every_layers_install_names_it(self, layer: str) -> None:
+        """The wiring, per layer -- one insertion point is only enough if all three have it.
+
+        Asserted on the registry rather than on a run, because the failure this guards
+        against is a layer added later without the prerequisite: an unresolvable one is
+        skipped rather than an error, so it would go unnoticed at runtime.
+
+        Args:
+            layer: The language layer.
+        """
+        assert "setup" in REGISTRY[f"{layer}:install"].needs
+
+    def test_the_hook_precedes_the_dependency_sync(self, cfg: Config, recorder: Recorder) -> None:
+        """A native library needed to *build* a wheel has to be there before ``uv sync``.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        self._write(cfg, executable=True)
+        run(["install"], cfg)
+        tools = recorder.tools()
+        assert tools.index(str(cfg.root / setup_tasks.HOOK)) < tools.index("sync")
