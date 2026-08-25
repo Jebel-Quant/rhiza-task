@@ -57,6 +57,20 @@ can be used, and there is nothing a project could express by moving it. It sits 
 repository.
 """
 
+CHECKS_EXECUTABLE_BIT = os.name == "posix"
+"""Whether this platform has an execute bit worth asking about.
+
+Windows does not. ``os.access(path, os.X_OK)`` reports *every* existing file as executable
+there, so the check below would pass vacuously -- a guard that reads like protection while
+guaranteeing nothing, which is worse than not asking. What covers Windows instead is the
+``OSError`` handler: the OS refuses to start the script, and that is reported with its reason.
+
+Named rather than inlined as ``os.name == "posix"`` so the assumption is visible at module
+level, and so a test can reach *both* branches on either platform. Patching ``os.name`` to
+get there is not an option -- it is read by :mod:`pathlib` at import, and forcing it makes
+``Path`` unconstructible.
+"""
+
 
 @task("setup", "run the repository's own environment setup hook", section="Dev")
 def setup(cfg: Config) -> None:
@@ -87,11 +101,7 @@ def setup(cfg: Config) -> None:
     if not hook.is_file():
         print(f"[INFO] no {HOOK}; nothing to provision")
         return
-    # POSIX-only, because `os.access(X_OK)` cannot answer this on Windows: there is no
-    # execute bit, so it reports *every* existing file as executable and the check would
-    # pass vacuously. Asking anyway is worse than not asking -- it reads like a guard while
-    # guaranteeing nothing. What covers Windows is the OSError below.
-    if os.name == "posix" and not os.access(hook, os.X_OK):
+    if CHECKS_EXECUTABLE_BIT and not os.access(hook, os.X_OK):
         raise Failed(1, f"{HOOK} is not executable -- run `chmod +x {HOOK}`")
     try:
         tool(str(hook), cwd=cfg.root)

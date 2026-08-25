@@ -487,16 +487,18 @@ class TestSetupHook:
         Skipping here would recreate the silent-green failure the hook exists to remove --
         the author wrote provisioning, believed it ran, and nothing said otherwise.
 
-        ``os.name`` is pinned rather than assumed: the suite runs on Windows too, where
-        ``chmod`` cannot clear an execute bit that does not exist, so the unpinned version of
-        this test passed on POSIX and failed on all four Windows cells.
+        Both the platform flag and ``os.access`` are pinned rather than assumed, because the
+        suite runs on Windows too and neither holds there: ``chmod`` cannot clear an execute
+        bit that does not exist, and ``os.access`` answers True regardless. Relying on the
+        filesystem passed on POSIX and failed on all four Windows cells.
 
         Args:
             cfg: The resolved config.
             recorder: The uv recorder.
             monkeypatch: pytest's patcher.
         """
-        monkeypatch.setattr(setup_tasks.os, "name", "posix")
+        monkeypatch.setattr(setup_tasks, "CHECKS_EXECUTABLE_BIT", True)
+        monkeypatch.setattr(setup_tasks.os, "access", lambda *_a, **_k: False)
         self._write(cfg, executable=False)
         with pytest.raises(Failed, match="chmod"):
             setup_tasks.setup(cfg)
@@ -517,7 +519,7 @@ class TestSetupHook:
             recorder: The uv recorder.
             monkeypatch: pytest's patcher.
         """
-        monkeypatch.setattr(setup_tasks.os, "name", "nt")
+        monkeypatch.setattr(setup_tasks, "CHECKS_EXECUTABLE_BIT", False)
         hook = self._write(cfg, executable=False)
         setup_tasks.setup(cfg)
         assert recorder.find(str(hook)).kind == "tool"
