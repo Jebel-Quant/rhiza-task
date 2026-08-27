@@ -281,26 +281,32 @@ jobs:
         if: ${{ !cancelled() }}
         run: uv run rhiza-task test-pyproject
 
-      # The maintainability ceiling, and it is here rather than in `rhiza-task complexity`
-      # on purpose. That task is shipped: adding an MI floor to it would tighten a gate for
-      # every consumer on upgrade, which is a `feat:` and a new setting, to answer a finding
-      # about one module in this repository (#153). A step in this repo's own CI costs
-      # neither.
+      # The accumulation ceiling, and it is here rather than in `rhiza-task complexity`
+      # on purpose. That task is shipped: tightening it would fail every consumer's build on
+      # upgrade to answer a question about this repository. A step in this repo's own CI
+      # costs them nothing.
       #
-      # The ceiling is **no module worse than B**, not "config.py reaches A". config.py sits
-      # just under the A threshold, and the blocks holding it there -- `Config.load`'s layer
-      # walk, `_coerce`'s flat dispatch on value shape -- are the flat forms this repo
-      # prefers on purpose; splitting them to move a composite metric two points would be
-      # exactly the shape-over-substance trade that got test-layout parity dropped as a
-      # score. What was worth fixing is that the figure was read back by nothing.
+      # What it measures, and why not the obvious thing. `complexity` gates the worst
+      # *block* at 15; nothing gated *accumulation* -- a module whose blocks are each
+      # defensible and collectively a lot. #153 filled that hole with `radon mi -n C`, and
+      # #156 is what that cost: MI counts length, comments count as length, and dense
+      # comments are this repo's stated house style -- so writing the note that explained
+      # the ceiling ate a quarter of its headroom, 1.78 points for 19 lines of prose. A gate
+      # the convention erodes is one people raise rather than heed.
       #
-      # `radon mi -n C` prints the modules at C or worse and says nothing when there are
-      # none, so the emptiness *is* the assertion; radon has no failing exit code of its own.
-      - name: no module below the maintainability ceiling
+      # The measurement that settled it: MI ranked `config.py` B and `fences.py` A, while
+      # fences.py has *more* blocks at rank B or worse and the same total complexity. So MI's
+      # verdict was not a complexity verdict, and replacing it loses nothing -- this counts
+      # blocks at CC >= 6 per module, which no amount of prose can move.
+      #
+      # The ceiling is 6, one above the current worst. A module reaching it is the point to
+      # decompose rather than to raise the number, which is the rule CLAUDE.md already
+      # states for a block's own ceiling.
+      - name: no module above the complexity-accumulation ceiling
         if: ${{ !cancelled() }}
         run: |
-          worse=$(uvx radon mi src -n C)
-          test -z "$worse" || { echo "::error::below the B ceiling:"; echo "$worse"; exit 1; }
+          uvx radon cc src --json --output-file "$RUNNER_TEMP/cc.json"
+          uv run python "$GITHUB_WORKSPACE/.github/scripts/accumulation_ceiling.py" "$RUNNER_TEMP/cc.json"
 
   # The Rust and Go layers are 165 statements at 100% coverage, and every one of those
   # statements is covered by an *argument-vector assertion*: conftest.py patches uv.py's four
@@ -343,8 +349,35 @@ jobs:
   # folder settings, so what runs here is the *shipped defaults* -- which is precisely what a
   # consumer gets, and what this repository's own manifest overrides.
   python-layer:
-    name: python tasks against a real toolchain
-    runs-on: ubuntu-latest
+    name: python tasks against a real toolchain (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    # Windows is here and not on the other layer jobs, and #158 is where that was reasoned
+    # out rather than left implicit. The precedent is #148: a vector that was well-formed,
+    # unit-asserted and unrunnable on Windows shipped in a release, and what caught it was a
+    # consumer's red matrix. Layer jobs exist to find exactly that, and until now they all
+    # looked at one platform -- so the class of bug they guard against was guarded on Linux
+    # only.
+    #
+    # This job is the cheapest place to fix that and the most exposed: it needs no docker, no
+    # `gh`, no git-lfs, no cargo, no go -- just uv and a scratch project -- and `test` and
+    # `coverage` are the vectors that touch paths hardest. The other layer jobs stay
+    # Linux-only *deliberately*, each for a reason of its own: docker and git-lfs behave
+    # differently enough on a Windows runner to be testing the runner, and cargo and go would
+    # each need their own toolchain install per cell. That is a decision, and it is written
+    # here rather than inferred from the absence of a matrix.
+    #
+    # `shell: bash` for the whole job, which is git-bash on Windows and is fine *here* --
+    # unlike the setup-hook smoke in the `test` job, where the runner's default shell is the
+    # thing under test, because git-bash puts its own `usr/bin` on PATH. Nothing in this job
+    # asks a question about PATH; the heredoc fixture and `test -s` just need a POSIX shell.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
@@ -356,10 +389,18 @@ jobs:
       # would be testing the fixture. `coverage_fail_under = 0` because the subject is the
       # vector, not the fixture's coverage -- leaving the shipped default would fail this job
       # on a fixture detail and teach nothing about the vector.
+      #
+      # `${RUNNER_TEMP//\\//}` is not noise. On Windows that variable is a backslash path
+      # (`D:\a\_temp`), and the two consumers read it differently: bash treats backslashes
+      # as literal characters while Python's `Path` wants them as separators, so the same
+      # string means two things in one step. Rewriting to forward slashes gives
+      # `D:/a/_temp`, which bash and Python-on-Windows both read the same way, and which is
+      # a no-op on Linux.
       - name: Build a throwaway Python project
         run: |
-          mkdir -p "$RUNNER_TEMP/pyproj/src/demo" "$RUNNER_TEMP/pyproj/tests"
-          cd "$RUNNER_TEMP/pyproj"
+          proj="${RUNNER_TEMP//\\//}/pyproj"
+          mkdir -p "$proj/src/demo" "$proj/tests"
+          cd "$proj"
           cat > pyproject.toml <<'EOF'
           [project]
           name = "demo"
@@ -382,7 +423,7 @@ jobs:
       # `--root` addresses the scratch project, as the two layer jobs do. A vector that uv or
       # pytest rejects fails here, which is the whole point: no stub can reject one.
       - name: rhiza-task test
-        run: uv run rhiza-task test --root "$RUNNER_TEMP/pyproj"
+        run: uv run rhiza-task test --root "${RUNNER_TEMP//\\//}/pyproj"
 
       # `coverage` is not `test` with a flag -- it runs its own vector, writing the Cobertura
       # XML the book and any badge generator read. It ran nowhere until #152, so a vector
@@ -391,9 +432,14 @@ jobs:
       # failure this step is for, and an exit status cannot see it.
       - name: rhiza-task coverage
         run: |
-          uv run rhiza-task coverage --root "$RUNNER_TEMP/pyproj"
-          test -s "$RUNNER_TEMP/pyproj/_tests/coverage.xml"
+          proj="${RUNNER_TEMP//\\//}/pyproj"
+          uv run rhiza-task coverage --root "$proj"
+          test -s "$proj/_tests/coverage.xml"
 
+  # Linux-only, deliberately: a Windows cell would need its own Go toolchain install and
+  # would be asking a question about the runner rather than about the vector. `python-layer`
+  # above carries the cross-platform half of this argument, and #158 records why the split
+  # falls there.
   go-layer:
     name: go tasks against a real toolchain
     runs-on: ubuntu-latest
@@ -423,6 +469,7 @@ jobs:
       - name: rhiza-task go:test
         run: uv run rhiza-task go:test --root "$RUNNER_TEMP/gomod"
 
+  # Linux-only, for the same reason go-layer is: see the note there and #158.
   rust-layer:
     name: cargo tasks against a real toolchain
     runs-on: ubuntu-latest
@@ -477,6 +524,9 @@ jobs:
   #
   # `lfs-pull` is left out because it needs a remote holding LFS objects; the fixture has no
   # remote at all, and inventing one would test the fixture.
+  # Linux-only, deliberately: docker, git-lfs and `gh` all behave differently enough on a
+  # Windows runner that a second cell would be reporting on the runner rather than on the
+  # vector. See #158, and `python-layer` for where the cross-platform line is drawn.
   bundle-layer:
     name: bundle tasks against a real toolchain
     runs-on: ubuntu-latest
@@ -675,6 +725,7 @@ jobs:
   # "anything more would be testing the fixture" and is right: these three need a benchmarks
   # folder, a stress folder, marker registrations and a property test, which is four
   # additions to a fixture whose point is that it has none.
+  # Linux-only, for the same reason the layer jobs above are: see #158.
   extras-layer:
     name: testing-extras tasks against a real toolchain
     runs-on: ubuntu-latest

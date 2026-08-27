@@ -198,6 +198,23 @@ nothing, but a module switching to `from subprocess import run` binds the functi
 own namespace and slips the guard in silence — which is why `test_uv.py` pins the import
 *form* as well as the guard itself.
 
+**#157 is the third instalment of the same mistake, and where it was finally derived.** The
+guard's own scope was written down by hand — `("run", "call")`, accurate for what `src/`
+called that week — which is #116's tuple of twelve module names wearing a different hat.
+`SUBPROCESS_ENTRY_POINTS` now comes from `subprocess.__all__`, minus three *properties*
+rather than three names: the ints (`PIPE`, `DEVNULL`, `STDOUT`), the exception types, and
+`CompletedProcess`, which the tests construct themselves. What is left starts a process, and
+a starter this package begins using is covered before anyone notices they had to.
+
+`os` is the door that stays open, because it cannot be closed the same way: every module uses
+it for paths, so stubbing its attributes would break the suite rather than protect it. So the
+guarantee is asserted from the other side — `test_uv.py` walks `src/`'s **AST** (not a grep;
+a docstring naming `os.system` is not a call) and fails on any `os.system`, `os.popen`,
+`exec*` or `spawn*`. **bandit does not already cover this**, which is the assumption worth
+checking rather than repeating: `B605` reports a literal `os.system` at LOW severity and
+`security` runs `bandit -ll`, so a planted one passes that gate today. Verified by planting
+one.
+
 This is the point of the package rather than a shortcut: the make recipes expressed their
 contract as shell, and the vectors are that contract made assertable without provisioning a
 toolchain. So a new task's test asserts *what it would run*, not that running it works.
@@ -336,7 +353,21 @@ an integer in this sentence would be one more measured figure with nothing readi
   asks whether fences parse, markdownlint whether the markdown is well-formed, and neither
   follows a link.
 - **`python-layer`**, **`go-layer`** and **`rust-layer`** — the three layers' vectors against
-  a *real* toolchain, on a throwaway project built in `$RUNNER_TEMP`. These exist because
+  a *real* toolchain, on a throwaway project built in `$RUNNER_TEMP`. **`python-layer` runs on
+  Windows as well as Linux; the others do not, and that is a decision rather than an
+  omission** — see #158 and the comment on the job. The precedent is #148: a vector that was
+  well-formed, unit-asserted and unrunnable on Windows shipped in a release, and a consumer's
+  red matrix caught it rather than anything here. Layer jobs exist to catch exactly that, so
+  all of them looking at one platform meant the class of bug was guarded on Linux only.
+  `python-layer` is the cheapest place to fix that and the most exposed — no docker, no `gh`,
+  no cargo, no go, just uv and a scratch project, and `test` and `coverage` are the vectors
+  that touch paths hardest. The rest stay Linux-only: docker and git-lfs on a Windows runner
+  are more runner than vector, and cargo and go would each need a toolchain install per cell.
+
+  One thing to keep if that job is edited: `${RUNNER_TEMP//\//}`. On Windows that variable
+  is a backslash path, and bash reads backslashes as literal characters where Python's `Path`
+  reads them as separators — so the raw value means two different things inside one step.
+  Rewriting to forward slashes is understood identically by both, and is a no-op on Linux. These exist because
   those layers' coverage is entirely argument-vector assertions, so a vector that is
   well-formed and *wrong* passes every other gate here and breaks in the first consumer that
   runs it. The Python one was added last and is the least obvious: `gates` already runs
@@ -449,17 +480,23 @@ lone method of 5 scores its class 6, and adding a second of 1 scores it **4**, n
 *down* rather than up. Prefer a module-level function when it needs no `self` or when
 laziness matters, as `_clauses` does; not to dodge a class score that works the other way.
 
-**Maintainability has a ceiling too, and it is a ceiling rather than a target.** `config.py`
-ranks B where every other module is A, and #153 is where that was argued out: the blocks
-holding it there are `Config.load`'s six-layer walk and `_coerce`'s dispatch on value shape,
-both flat on purpose, and splitting them to move a composite metric two points is the
-shape-over-substance trade this file declines elsewhere. So the rule is **no module worse
-than B**, enforced by a `radon mi -n C` step in `ci.yml`'s `gates` job — not by an MI floor
-in `rhiza-task complexity`, because that task is shipped and tightening it would fail every
-consumer's build on upgrade to settle a question about one module here. Note the direction
-the metric runs before chasing it: writing the paragraph that explains all this into
-`config.py` moved its figure *down*, because radon's MI counts length, and dense comments
-are the house style two sections up.
+**Accumulation has a ceiling too, and it is one metric replacing another.** `complexity`
+gates the worst *block*; nothing gated a module whose blocks are each defensible and
+collectively a lot. #153 filled that with `radon mi -n C`, and #156 is the correction: MI
+counts length, comments count as length, and dense comments are the house style two sections
+up — so writing the note that explained the ceiling moved the figure **down**, 1.78 points
+for 19 lines of prose with no branch touched. A gate the convention erodes is one people
+raise rather than heed.
+
+The measurement that settled it is the part worth keeping, because it says MI was not merely
+fragile here but wrong: it ranked `config.py` B and `tasks/fences.py` A, while fences.py
+carries *more* blocks at rank B or worse and the same total complexity. So the ceiling is now
+a count of blocks at CC ≥ 6 per module — `.github/scripts/accumulation_ceiling.py`, run from
+the `gates` job, prose-insensitive by construction. **A module reaching the ceiling is the
+point to decompose, not the point to raise the number**, which is the same rule this section
+already states for a block's own figure. The lesson generalises past radon: when a gate and
+the convention it runs beside pull in opposite directions, one of them is measuring the wrong
+thing, and it is worth finding out which before adjusting either.
 
 Unlike the layering invariant above, this one **is** gated: `rhiza-task complexity` fails on
 any block above `complexity_max`, which `pyproject.toml` leaves at the shipped 15, and

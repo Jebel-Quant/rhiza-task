@@ -35,24 +35,24 @@ them was a bundle contributing something it owned, which the task body can now *
 by asking whether the contributing task is registered. See ``tasks/python.py``'s ``deps``
 and ``license``.
 
-**This module is the one that ranks B on maintainability, and that is deliberate** -- see
-issue #153. The blocks holding it there are ``Config.load``'s six-layer walk and
-``_coerce``'s dispatch on value shape, both of which are flat by choice: the walk *is* the
-precedence order this docstring spends thirty lines explaining, and reading it as a sequence
-of ``raw.update`` calls is the point. Splitting either to move a composite metric two points
-would be the shape-over-substance trade this repo declines elsewhere.
+**This module used to be the one that ranks B on maintainability** -- see issues #153 and
+#156, which are worth reading together because the second corrects the first. The blocks
+that put it there are ``Config.load``'s six-layer walk and ``_coerce``'s dispatch on value
+shape, both flat by choice: the walk *is* the precedence order this docstring spends thirty
+lines explaining, and reading it as a sequence of ``raw.update`` calls is the point.
 
-What was worth fixing is that the figure was read back by nothing. **The ceiling is now no
-module worse than B**, enforced by a step in ``ci.yml``'s ``gates`` job rather than by an MI
-floor in ``rhiza-task complexity`` -- that task is shipped, so tightening it would fail
-consumers' builds on upgrade to settle a question about one module here. A third block
-joining these two is the point to decompose rather than to lower the ceiling.
+#153 recorded that as deliberate and gated the rank so the figure was read back by something.
+#156 found the gate was measuring the wrong thing. radon's MI counts length and comments
+count as length, so **writing the note that explained the ceiling moved the figure down** --
+1.78 points for 19 lines of prose, with no branch added or removed. Worse, MI's verdict did
+not agree with any measure of complexity: it ranked this module B and ``tasks/fences.py`` A,
+while fences.py carries *more* blocks at rank B or worse and the same total.
 
-One measured thing worth knowing before anyone tries to chase A here: **writing the
-paragraph above moved the figure down.** radon's MI is a function of length as well as
-branching, so prose in a module counts against it -- and dense comments are this repo's
-house style, stated as such. That is a reason to hold a ceiling rather than a target, and
-a reason not to read the rank as a verdict on the module.
+So the ceiling is now an accumulation count -- blocks at CC >= 6, per module -- in
+``.github/scripts/accumulation_ceiling.py``, run from ``ci.yml``'s ``gates`` job. It measures
+what MI was standing in for and no amount of prose can move it. The rank of this module is no
+longer gated at all, which is the honest outcome: it was never the complexity signal it
+looked like.
 """
 
 from __future__ import annotations

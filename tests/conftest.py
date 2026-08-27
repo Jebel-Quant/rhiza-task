@@ -56,14 +56,85 @@ UV_ENTRY_POINTS = ("uv", "uvx", "uv_run", "tool")
 """The four entry points returning an exit status. ``capture`` returns stdout, so it needs a
 different stand-in and is handled separately."""
 
-SUBPROCESS_ENTRY_POINTS = ("run", "call")
-"""The two ways this package reaches a process without going through :mod:`rhiza_task.uv`.
+
+def _process_starters() -> tuple[str, ...]:
+    """Derive subprocess's process-starting API from the module rather than from our usage.
+
+    ``("run", "call")`` was the hand-written pair this replaces, and it was accurate: those
+    are the two functions ``src/`` calls today. Accurate-by-inspection is the property that
+    failed twice already -- #116's missing ``capture``, #151's four direct users -- and the
+    cure this file already applies to the module list is to derive it. See #157.
+
+    The derivation is over :data:`subprocess.__all__`, so the *inclusion* side needs no
+    maintenance: a starter this package begins using, or one the stdlib adds, is patched
+    without anyone noticing they had to. Three kinds of public name are excluded, and each
+    exclusion is a property rather than a name -- ``DEVNULL``/``PIPE``/``STDOUT`` are ints,
+    the errors are exception types, and ``CompletedProcess`` is a result container the tests
+    themselves construct. What is left starts a process.
+
+    Returns:
+        Every public subprocess name that starts a process, sorted.
+    """
+    starters = []
+    for name in subprocess.__all__:
+        obj = getattr(subprocess, name)
+        if isinstance(obj, int) or obj is subprocess.CompletedProcess:
+            continue
+        if isinstance(obj, type) and issubclass(obj, BaseException):
+            continue
+        starters.append(name)
+    return tuple(sorted(starters))
+
+
+SUBPROCESS_ENTRY_POINTS = _process_starters()
+"""Every way :mod:`subprocess` starts a process, derived rather than listed.
 
 ``uv.py`` is not the only door. Four task modules import :mod:`subprocess` directly, because
 what they run is not a uv form at all: ``tasks/quality.py``'s ``_git``, ``tasks/doctor.py``'s
-version probe, ``tasks/fences.py``'s ``bash -n`` and ``tasks/go.py``'s cobertura pipe. Between
-them they use exactly these two functions, which is why the guard below can be a pair of names
-rather than a wrapper each module has to adopt.
+version probe, ``tasks/fences.py``'s ``bash -n`` and ``tasks/go.py``'s cobertura pipe.
+"""
+
+OS_PROCESS_STARTERS = frozenset(
+    {
+        "system",
+        "popen",
+        "execl",
+        "execle",
+        "execlp",
+        "execlpe",
+        "execv",
+        "execve",
+        "execvp",
+        "execvpe",
+        "spawnl",
+        "spawnle",
+        "spawnlp",
+        "spawnlpe",
+        "spawnv",
+        "spawnve",
+        "spawnvp",
+        "spawnvpe",
+        "posix_spawn",
+        "posix_spawnp",
+        "fork",
+        "forkpty",
+    }
+)
+"""The other door, and the one no guard here can close by patching.
+
+:mod:`os` cannot be stubbed the way :mod:`subprocess` can -- every module in ``src/`` uses it
+for paths and the environment, so replacing its attributes would break the suite rather than
+protect it. So this set is not patched; ``test_uv`` asserts ``src/`` does not *reach* for any
+of it, which is the same guarantee arrived at from the other side.
+
+**bandit does not cover this**, which is worth stating because it looks like it should:
+``B605`` reports ``os.system`` with a literal command at LOW severity, and ``security`` runs
+``bandit -ll``. Checked rather than assumed -- an ``os.system("echo hi")`` planted in ``src/``
+passes that gate today.
+
+Listed, unlike the set above, because :mod:`os` offers no property that separates these from
+``os.path.join``. It is a list of the *stdlib's* API rather than of this repo's usage, so it
+does not drift when this package changes -- which was the whole complaint in #157.
 """
 
 
