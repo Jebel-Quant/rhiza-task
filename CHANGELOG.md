@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.1] - 2026-08-27
+
+### 📝 Note
+
+**`setup` now runs `local-setup.sh` on Windows**, handed to git-bash's `sh` rather than
+exec'd. It is a patch because it can only improve on an already-red job — `install` names
+`setup`, so a hook on a `windows-latest` leg failed every gate before this — but a hook that
+never started now executes there. A hook that assumed it would only ever run on POSIX should
+be read once before upgrading.
+
+### 🐛 Bug Fixes
+
+- Run the setup hook through sh where the platform cannot exec it
+
 ## [1.4.0] - 2026-08-25
 
 ### 🚀 Features
