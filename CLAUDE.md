@@ -353,7 +353,21 @@ an integer in this sentence would be one more measured figure with nothing readi
   asks whether fences parse, markdownlint whether the markdown is well-formed, and neither
   follows a link.
 - **`python-layer`**, **`go-layer`** and **`rust-layer`** — the three layers' vectors against
-  a *real* toolchain, on a throwaway project built in `$RUNNER_TEMP`. These exist because
+  a *real* toolchain, on a throwaway project built in `$RUNNER_TEMP`. **`python-layer` runs on
+  Windows as well as Linux; the others do not, and that is a decision rather than an
+  omission** — see #158 and the comment on the job. The precedent is #148: a vector that was
+  well-formed, unit-asserted and unrunnable on Windows shipped in a release, and a consumer's
+  red matrix caught it rather than anything here. Layer jobs exist to catch exactly that, so
+  all of them looking at one platform meant the class of bug was guarded on Linux only.
+  `python-layer` is the cheapest place to fix that and the most exposed — no docker, no `gh`,
+  no cargo, no go, just uv and a scratch project, and `test` and `coverage` are the vectors
+  that touch paths hardest. The rest stay Linux-only: docker and git-lfs on a Windows runner
+  are more runner than vector, and cargo and go would each need a toolchain install per cell.
+
+  One thing to keep if that job is edited: `${RUNNER_TEMP//\//}`. On Windows that variable
+  is a backslash path, and bash reads backslashes as literal characters where Python's `Path`
+  reads them as separators — so the raw value means two different things inside one step.
+  Rewriting to forward slashes is understood identically by both, and is a no-op on Linux. These exist because
   those layers' coverage is entirely argument-vector assertions, so a vector that is
   well-formed and *wrong* passes every other gate here and breaks in the first consumer that
   runs it. The Python one was added last and is the least obvious: `gates` already runs
