@@ -281,26 +281,32 @@ jobs:
         if: ${{ !cancelled() }}
         run: uv run rhiza-task test-pyproject
 
-      # The maintainability ceiling, and it is here rather than in `rhiza-task complexity`
-      # on purpose. That task is shipped: adding an MI floor to it would tighten a gate for
-      # every consumer on upgrade, which is a `feat:` and a new setting, to answer a finding
-      # about one module in this repository (#153). A step in this repo's own CI costs
-      # neither.
+      # The accumulation ceiling, and it is here rather than in `rhiza-task complexity`
+      # on purpose. That task is shipped: tightening it would fail every consumer's build on
+      # upgrade to answer a question about this repository. A step in this repo's own CI
+      # costs them nothing.
       #
-      # The ceiling is **no module worse than B**, not "config.py reaches A". config.py sits
-      # just under the A threshold, and the blocks holding it there -- `Config.load`'s layer
-      # walk, `_coerce`'s flat dispatch on value shape -- are the flat forms this repo
-      # prefers on purpose; splitting them to move a composite metric two points would be
-      # exactly the shape-over-substance trade that got test-layout parity dropped as a
-      # score. What was worth fixing is that the figure was read back by nothing.
+      # What it measures, and why not the obvious thing. `complexity` gates the worst
+      # *block* at 15; nothing gated *accumulation* -- a module whose blocks are each
+      # defensible and collectively a lot. #153 filled that hole with `radon mi -n C`, and
+      # #156 is what that cost: MI counts length, comments count as length, and dense
+      # comments are this repo's stated house style -- so writing the note that explained
+      # the ceiling ate a quarter of its headroom, 1.78 points for 19 lines of prose. A gate
+      # the convention erodes is one people raise rather than heed.
       #
-      # `radon mi -n C` prints the modules at C or worse and says nothing when there are
-      # none, so the emptiness *is* the assertion; radon has no failing exit code of its own.
-      - name: no module below the maintainability ceiling
+      # The measurement that settled it: MI ranked `config.py` B and `fences.py` A, while
+      # fences.py has *more* blocks at rank B or worse and the same total complexity. So MI's
+      # verdict was not a complexity verdict, and replacing it loses nothing -- this counts
+      # blocks at CC >= 6 per module, which no amount of prose can move.
+      #
+      # The ceiling is 6, one above the current worst. A module reaching it is the point to
+      # decompose rather than to raise the number, which is the rule CLAUDE.md already
+      # states for a block's own ceiling.
+      - name: no module above the complexity-accumulation ceiling
         if: ${{ !cancelled() }}
         run: |
-          worse=$(uvx radon mi src -n C)
-          test -z "$worse" || { echo "::error::below the B ceiling:"; echo "$worse"; exit 1; }
+          uvx radon cc src --json --output-file "$RUNNER_TEMP/cc.json"
+          uv run python "$GITHUB_WORKSPACE/.github/scripts/accumulation_ceiling.py" "$RUNNER_TEMP/cc.json"
 
   # The Rust and Go layers are 165 statements at 100% coverage, and every one of those
   # statements is covered by an *argument-vector assertion*: conftest.py patches uv.py's four

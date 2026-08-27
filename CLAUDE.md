@@ -449,17 +449,23 @@ lone method of 5 scores its class 6, and adding a second of 1 scores it **4**, n
 *down* rather than up. Prefer a module-level function when it needs no `self` or when
 laziness matters, as `_clauses` does; not to dodge a class score that works the other way.
 
-**Maintainability has a ceiling too, and it is a ceiling rather than a target.** `config.py`
-ranks B where every other module is A, and #153 is where that was argued out: the blocks
-holding it there are `Config.load`'s six-layer walk and `_coerce`'s dispatch on value shape,
-both flat on purpose, and splitting them to move a composite metric two points is the
-shape-over-substance trade this file declines elsewhere. So the rule is **no module worse
-than B**, enforced by a `radon mi -n C` step in `ci.yml`'s `gates` job — not by an MI floor
-in `rhiza-task complexity`, because that task is shipped and tightening it would fail every
-consumer's build on upgrade to settle a question about one module here. Note the direction
-the metric runs before chasing it: writing the paragraph that explains all this into
-`config.py` moved its figure *down*, because radon's MI counts length, and dense comments
-are the house style two sections up.
+**Accumulation has a ceiling too, and it is one metric replacing another.** `complexity`
+gates the worst *block*; nothing gated a module whose blocks are each defensible and
+collectively a lot. #153 filled that with `radon mi -n C`, and #156 is the correction: MI
+counts length, comments count as length, and dense comments are the house style two sections
+up — so writing the note that explained the ceiling moved the figure **down**, 1.78 points
+for 19 lines of prose with no branch touched. A gate the convention erodes is one people
+raise rather than heed.
+
+The measurement that settled it is the part worth keeping, because it says MI was not merely
+fragile here but wrong: it ranked `config.py` B and `tasks/fences.py` A, while fences.py
+carries *more* blocks at rank B or worse and the same total complexity. So the ceiling is now
+a count of blocks at CC ≥ 6 per module — `.github/scripts/accumulation_ceiling.py`, run from
+the `gates` job, prose-insensitive by construction. **A module reaching the ceiling is the
+point to decompose, not the point to raise the number**, which is the same rule this section
+already states for a block's own figure. The lesson generalises past radon: when a gate and
+the convention it runs beside pull in opposite directions, one of them is measuring the wrong
+thing, and it is worth finding out which before adjusting either.
 
 Unlike the layering invariant above, this one **is** gated: `rhiza-task complexity` fails on
 any block above `complexity_max`, which `pyproject.toml` leaves at the shipped 15, and
