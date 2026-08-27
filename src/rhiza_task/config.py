@@ -34,6 +34,25 @@ The ``+=`` accumulators do not survive as a mechanism, and do not need to: every
 them was a bundle contributing something it owned, which the task body can now *derive*
 by asking whether the contributing task is registered. See ``tasks/python.py``'s ``deps``
 and ``license``.
+
+**This module is the one that ranks B on maintainability, and that is deliberate** -- see
+issue #153. The blocks holding it there are ``Config.load``'s six-layer walk and
+``_coerce``'s dispatch on value shape, both of which are flat by choice: the walk *is* the
+precedence order this docstring spends thirty lines explaining, and reading it as a sequence
+of ``raw.update`` calls is the point. Splitting either to move a composite metric two points
+would be the shape-over-substance trade this repo declines elsewhere.
+
+What was worth fixing is that the figure was read back by nothing. **The ceiling is now no
+module worse than B**, enforced by a step in ``ci.yml``'s ``gates`` job rather than by an MI
+floor in ``rhiza-task complexity`` -- that task is shipped, so tightening it would fail
+consumers' builds on upgrade to settle a question about one module here. A third block
+joining these two is the point to decompose rather than to lower the ceiling.
+
+One measured thing worth knowing before anyone tries to chase A here: **writing the
+paragraph above moved the figure down.** radon's MI is a function of length as well as
+branching, so prose in a module counts against it -- and dense comments are this repo's
+house style, stated as such. That is a reason to hold a ceiling rather than a target, and
+a reason not to read the rank as a verdict on the module.
 """
 
 from __future__ import annotations

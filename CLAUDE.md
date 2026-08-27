@@ -449,6 +449,18 @@ lone method of 5 scores its class 6, and adding a second of 1 scores it **4**, n
 *down* rather than up. Prefer a module-level function when it needs no `self` or when
 laziness matters, as `_clauses` does; not to dodge a class score that works the other way.
 
+**Maintainability has a ceiling too, and it is a ceiling rather than a target.** `config.py`
+ranks B where every other module is A, and #153 is where that was argued out: the blocks
+holding it there are `Config.load`'s six-layer walk and `_coerce`'s dispatch on value shape,
+both flat on purpose, and splitting them to move a composite metric two points is the
+shape-over-substance trade this file declines elsewhere. So the rule is **no module worse
+than B**, enforced by a `radon mi -n C` step in `ci.yml`'s `gates` job — not by an MI floor
+in `rhiza-task complexity`, because that task is shipped and tightening it would fail every
+consumer's build on upgrade to settle a question about one module here. Note the direction
+the metric runs before chasing it: writing the paragraph that explains all this into
+`config.py` moved its figure *down*, because radon's MI counts length, and dense comments
+are the house style two sections up.
+
 Unlike the layering invariant above, this one **is** gated: `rhiza-task complexity` fails on
 any block above `complexity_max`, which `pyproject.toml` leaves at the shipped 15, and
 `ci.yml`'s `gates` job names it. So a ceiling a comment commits to is read back by a build
