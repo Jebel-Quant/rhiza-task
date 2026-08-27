@@ -17,7 +17,7 @@ from rhiza_task import uv as uv_module
 from rhiza_task.spec import Failed
 from rhiza_task.tasks import github as github_tasks
 
-from .conftest import OS_PROCESS_STARTERS, SUBPROCESS_ENTRY_POINTS, UV_ENTRY_POINTS, Recorder, task_modules
+from .conftest import SUBPROCESS_ENTRY_POINTS, UV_ENTRY_POINTS, Recorder, starts_a_process, task_modules
 
 
 @pytest.fixture
@@ -364,33 +364,66 @@ class TestTheSuiteStubsEveryEntryPoint:
         assert not [n for n in SUBPROCESS_ENTRY_POINTS if isinstance(getattr(subprocess, n), int)]
 
     def test_src_starts_no_process_the_guard_cannot_see(self) -> None:
-        """`src/` reaches a process through subprocess and nothing else.
+        """`src/` reaches a process through subprocess and nothing else -- checked by shape.
 
         The derived set above closes :mod:`subprocess`. It cannot close :mod:`os`, which is
         not stubbable here -- every module uses it for paths and the environment, so
         replacing its attributes would break the suite rather than protect it. This asserts
-        the same guarantee from the other side: nothing in `src/` reaches for `os.system`,
-        `os.popen`, an `exec*` or a `spawn*`.
+        the same guarantee from the other side.
 
-        Not already covered by bandit, which is the assumption worth having checked: `B605`
-        reports `os.system` with a literal command at LOW severity and `security` runs
-        `bandit -ll`, so a planted `os.system("echo hi")` passes that gate today.
+        **Matched by shape rather than against a list of names**, which is #162: the list
+        this replaces enumerated 22 `os` names and was already missing `os.startfile`. A
+        `.startswith(("exec", "spawn", ...))` cannot be short in that way, and it also covers
+        the doors the list never considered -- `asyncio.create_subprocess_exec`, `pty.spawn`.
+
+        Two node kinds, because a name can arrive either way: `os.system(...)` is an
+        attribute, and `from os import system` followed by `system(...)` is not. The second
+        is the one a list-based check reading only attributes would have missed entirely.
 
         Reading the AST rather than grepping, because a comment or a docstring mentioning
-        `os.system` -- this docstring, for one -- is not a call, and a grep cannot tell the
+        `os.system` -- this one, twice -- is not a call, and a grep cannot tell the
         difference.
         """
         offenders = []
-        for path in Path("src").rglob("*.py"):
-            tree = ast.parse(path.read_text())
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Attribute) or not isinstance(node.value, ast.Name):
-                    continue
-                if node.value.id == "os" and node.attr in OS_PROCESS_STARTERS:
-                    offenders.append(f"{path}:{node.lineno}: os.{node.attr}")
-                if node.value.id == "subprocess" and node.attr not in dir(subprocess):
-                    offenders.append(f"{path}:{node.lineno}: subprocess.{node.attr}")
+        for path in sorted(Path("src").rglob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text())):
+                if isinstance(node, ast.Attribute) and starts_a_process(node.attr):
+                    offenders.append(f"{path}:{node.lineno}: .{node.attr}")
+                elif isinstance(node, ast.ImportFrom):
+                    offenders += [
+                        f"{path}:{node.lineno}: from {node.module} import {alias.name}"
+                        for alias in node.names
+                        if starts_a_process(alias.name)
+                    ]
         assert offenders == [], f"process started outside the guard's reach: {offenders}"
+
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            ("system", True),
+            ("popen", True),
+            ("startfile", True),
+            ("execvp", True),
+            ("spawnl", True),
+            ("create_subprocess_exec", True),
+            ("path", False),
+            ("environ", False),
+            ("which", False),
+        ],
+    )
+    def test_the_shape_check_recognises_a_starter(self, name: str, expected: bool) -> None:
+        """The predicate itself, including the name the list it replaced had missed.
+
+        `startfile` is the case with history: it is Windows-only, so a set derived from
+        `dir(os)` on the machine running the tests would omit it on Linux and macOS --
+        silently, and in the direction that passes. Pinned here so the shape check cannot
+        regress to a platform-dependent answer.
+
+        Args:
+            name: The attribute name.
+            expected: Whether it should be recognised as a way to start a process.
+        """
+        assert starts_a_process(name) is expected
 
     def test_every_direct_subprocess_user_is_covered_by_that_guard(self) -> None:
         """Each module reaching subprocess directly holds the guarded module, not a copy.

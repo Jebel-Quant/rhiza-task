@@ -209,11 +209,26 @@ a starter this package begins using is covered before anyone notices they had to
 `os` is the door that stays open, because it cannot be closed the same way: every module uses
 it for paths, so stubbing its attributes would break the suite rather than protect it. So the
 guarantee is asserted from the other side — `test_uv.py` walks `src/`'s **AST** (not a grep;
-a docstring naming `os.system` is not a call) and fails on any `os.system`, `os.popen`,
-`exec*` or `spawn*`. **bandit does not already cover this**, which is the assumption worth
-checking rather than repeating: `B605` reports a literal `os.system` at LOW severity and
-`security` runs `bandit -ll`, so a planted one passes that gate today. Verified by planting
-one.
+a docstring naming `os.system` is not a call) and fails on anything that looks like a way to
+start one. **bandit does not already cover this**, which is the assumption worth checking
+rather than repeating: `B605` reports a literal `os.system` at LOW severity and `security`
+runs `bandit -ll`, so a planted one passes that gate today. Verified by planting one.
+
+**#162 is the fourth instalment, and it landed inside the fix for the third** — worth stating
+because the pattern is now the most reliable thing to look for in this suite. That `os` check
+began as a frozenset of 22 names, and it was missing `os.startfile` on the day it was written.
+The #157 argument for it — *a list of the stdlib's API cannot drift when this package changes*
+— was true, and answered only one of the two ways a list fails. **The other is being wrong at
+the start, which not-drifting does nothing about.**
+
+So the check matches a *shape*: the names `system`/`popen`/`startfile`/`fork`/`forkpty`, plus
+anything beginning `exec`, `spawn` or `create_subprocess`. That cannot be short a member, and
+it picked up two doors the list never considered — `asyncio.create_subprocess_exec`, and
+`from os import system` followed by a bare call, which an attribute-only scan cannot see at
+all. **Deriving from `dir(os)` is the trap to avoid**: `startfile` exists only on Windows, so
+a runtime-derived set is complete on one platform and silently short on the others. The scan
+is over-broad by design — a `.execute()` would trip it — and the answer when that happens is
+`PROCESS_START_ALLOWED` with a reason, never a narrower pattern.
 
 This is the point of the package rather than a shortcut: the make recipes expressed their
 contract as shell, and the vectors are that contract made assertable without provisioning a
@@ -221,6 +236,29 @@ toolchain. So a new task's test asserts *what it would run*, not that running it
 
 If you find yourself wanting a real subprocess in a test, that is a signal the logic under
 test belongs in a task body rather than in the plumbing.
+
+### The gates' own scopes are `src/`, and `.github/scripts/` is not in it
+
+`typecheck` runs `ty`/`mypy --strict` over `src`, `security` runs bandit over `src`, and the
+coverage floor measures `--cov=src`. That is right for a package whose product is `src/` —
+and it means **Python added anywhere else is checked by ruff alone**, which lints and formats
+but does not typecheck.
+
+#156 put a real script under `.github/scripts/`, and #161 measured the hole by planting
+`def broken(x: int) -> str: return x` in it: `typecheck`, `security` and `docs-coverage` all
+reported `ok`. Only ruff objected, and only to the missing docstring. The script enforcing a
+complexity gate was the least-checked Python in the repository.
+
+Two things close it, and the split is worth copying rather than the specifics. `ci.yml` runs
+`uvx mypy --strict .github/scripts`, which closes the **class** — a second script inherits the
+check instead of the hole — and `tests/test_ci_scripts.py` closes the **logic**, loading the
+script by path (that directory is not a package and must not become one) and asserting the
+off-by-one at the ceiling boundary that a manual run against a comfortably-passing repository
+could never have distinguished.
+
+`uvx mypy` rather than widening `rhiza-task typecheck`: that task is shipped, so changing its
+scope would tighten a gate for every consumer to answer a question about this repository's
+own `.github/`.
 
 The exception is the doctests: `Config.load`, `Config.field_for`, `Run.exit_code`,
 `lookup` and `Guard.check` carry 39 executable examples that do run. `tests/test_doctests.py`
