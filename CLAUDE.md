@@ -549,3 +549,31 @@ increase wherever its commit type puts it, so the upgrade note is always manual*
 body* separately with `git-cliff --latest` from commits, so a note added here does **not** reach
 it. And **`git-cliff --prepend` eats this file's `# Changelog` heading**: prior sections survive,
 the title does not, so restore it and diff before committing. Both of v1.1.0's prepends did it.
+
+### What counts as public, when the question is a name rather than a gate
+
+The rule above is about gate *strictness*, and v1.4.1 found the gap it leaves: that release
+renamed `tasks/setup.py`'s `CHECKS_EXECUTABLE_BIT` to `POSIX` under a **patch**. Nothing
+imports it and no consumer could have noticed, but nothing written down said so either, and
+the answer was being decided per change by whoever was making it. #154 is where it was
+settled, and the split is not new — it is what the repository already documents, now said
+out loud:
+
+> **Public: the task names, their flags, and the five modules `docs/api.md` documents**
+> (`spec`, `uv`, `config`, `runner`, `cli`). **Internal: everything under `tasks/`.**
+
+Both halves are checkable rather than asserted. `__init__.py`'s `__all__` exports
+`__version__` and nothing else; `docs/api.md`'s table lists exactly those five modules and no
+task module; and `adding_a_task.md` — the one page telling a consumer to import anything —
+imports from `spec` and `uv`. A task is reached by *name*, through the CLI, which is why
+renaming a task, dropping one of its flags, or changing what a setting is spelled is
+breaking, while renaming the Python object behind it is not.
+
+So: a module-level name under `tasks/` may be renamed in a `refactor:` or alongside the
+`fix:` that motivated it, with no minor. A name in those five modules may not — `Config`,
+`Guard`, `task`, `uvx` and their kin are what `adding_a_task.md` teaches, and moving one is a
+`feat!:` at least. **The underscore prefix is not the signal here**; layering rule 4 governs
+who may import a private name across a module boundary *inside* this package, which is a
+different question from what a consumer may rely on, and a name can be public to the fourth
+rule and internal to this one. `install_hooks` is exactly that: public because three sibling
+modules need the same spelling, internal because no consumer was ever told it exists.
