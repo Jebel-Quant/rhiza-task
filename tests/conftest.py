@@ -94,48 +94,52 @@ what they run is not a uv form at all: ``tasks/quality.py``'s ``_git``, ``tasks/
 version probe, ``tasks/fences.py``'s ``bash -n`` and ``tasks/go.py``'s cobertura pipe.
 """
 
-OS_PROCESS_STARTERS = frozenset(
-    {
-        "system",
-        "popen",
-        "execl",
-        "execle",
-        "execlp",
-        "execlpe",
-        "execv",
-        "execve",
-        "execvp",
-        "execvpe",
-        "spawnl",
-        "spawnle",
-        "spawnlp",
-        "spawnlpe",
-        "spawnv",
-        "spawnve",
-        "spawnvp",
-        "spawnvpe",
-        "posix_spawn",
-        "posix_spawnp",
-        "fork",
-        "forkpty",
-    }
-)
-"""The other door, and the one no guard here can close by patching.
+PROCESS_START_NAMES = frozenset({"system", "popen", "startfile", "fork", "forkpty"})
+"""Exact names that start a process, whatever module they are reached through."""
 
-:mod:`os` cannot be stubbed the way :mod:`subprocess` can -- every module in ``src/`` uses it
-for paths and the environment, so replacing its attributes would break the suite rather than
-protect it. So this set is not patched; ``test_uv`` asserts ``src/`` does not *reach* for any
-of it, which is the same guarantee arrived at from the other side.
+PROCESS_START_PREFIXES = ("exec", "spawn", "posix_spawn", "create_subprocess")
+"""Name *shapes* that start a process: the ``os.exec*``/``os.spawn*`` families and asyncio's.
 
-**bandit does not cover this**, which is worth stating because it looks like it should:
-``B605`` reports ``os.system`` with a literal command at LOW severity, and ``security`` runs
-``bandit -ll``. Checked rather than assumed -- an ``os.system("echo hi")`` planted in ``src/``
-passes that gate today.
+Matching a shape rather than enumerating members is the point, and #162 is why. The set this
+replaces listed 22 ``os`` names and was **already missing ``os.startfile``** the day it was
+written -- the fourth time in this suite's history that a hand list was the weak part, after
+#116's missing ``capture``, #151's four unguarded modules and #157's ``("run", "call")``.
 
-Listed, unlike the set above, because :mod:`os` offers no property that separates these from
-``os.path.join``. It is a list of the *stdlib's* API rather than of this repo's usage, so it
-does not drift when this package changes -- which was the whole complaint in #157.
+#157 argued that a list of the *stdlib's* API cannot drift when this package changes. True,
+and it answers only one of the two ways a list fails. The other is being wrong at the start,
+which not-drifting does nothing about.
+
+**Deriving from ``dir(os)`` is the trap to avoid here**, and it is why this is shapes rather
+than a runtime query: ``os.startfile`` exists only on Windows, so a set derived on the machine
+running the tests would be complete on one platform and short on the others -- silently, and
+in the direction that passes.
+
+Deliberately over-broad: it matches any attribute of that shape on any object, so a
+``.execute()`` or a ``.spawner`` would trip it. ``src/`` has none today (checked), and the
+answer when one appears is :data:`PROCESS_START_ALLOWED` with a reason, not a narrower shape.
 """
+
+PROCESS_START_ALLOWED: frozenset[str] = frozenset()
+"""Names matching the shapes above that are known not to start a process.
+
+Empty, and the emptiness is load-bearing: the scan is over-broad on purpose, so this is where
+a false positive goes -- one entry, one reason -- rather than into a narrower pattern that
+would let the true positives back through.
+"""
+
+
+def starts_a_process(attr: str) -> bool:
+    """Say whether an attribute name looks like a way to start a process.
+
+    Args:
+        attr: The attribute or imported name.
+
+    Returns:
+        True when the name matches a known starter or starter shape and is not allowed.
+    """
+    if attr in PROCESS_START_ALLOWED:
+        return False
+    return attr in PROCESS_START_NAMES or attr.startswith(PROCESS_START_PREFIXES)
 
 
 @dataclass
