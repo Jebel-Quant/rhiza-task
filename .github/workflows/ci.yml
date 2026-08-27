@@ -308,6 +308,20 @@ jobs:
           uvx radon cc src --json --output-file "$RUNNER_TEMP/cc.json"
           uv run python "$GITHUB_WORKSPACE/.github/scripts/accumulation_ceiling.py" "$RUNNER_TEMP/cc.json"
 
+      # The script above is Python this repository's own gates do not otherwise reach, and
+      # #161 is what that cost: `typecheck` runs over `src`, bandit runs over `src`, and the
+      # coverage floor measures `--cov=src`, so a planted `def broken(x: int) -> str: return x`
+      # in `.github/scripts` passed all three. Only ruff saw the file, and ruff does not
+      # typecheck.
+      #
+      # This closes the *class* -- a second script inherits the check rather than the hole --
+      # while `tests/test_ci_scripts.py` covers the logic of the one that exists. `uvx mypy`
+      # rather than `rhiza-task typecheck`, whose scope is `src` and which is shipped: widening
+      # it would tighten a gate for every consumer to settle a question about this directory.
+      - name: static checks for the CI scripts
+        if: ${{ !cancelled() }}
+        run: uvx mypy --strict .github/scripts
+
   # The Rust and Go layers are 165 statements at 100% coverage, and every one of those
   # statements is covered by an *argument-vector assertion*: conftest.py patches uv.py's four
   # entry points and the tests assert on what would have run. That is the point of the

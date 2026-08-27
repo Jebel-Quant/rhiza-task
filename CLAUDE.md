@@ -237,6 +237,29 @@ toolchain. So a new task's test asserts *what it would run*, not that running it
 If you find yourself wanting a real subprocess in a test, that is a signal the logic under
 test belongs in a task body rather than in the plumbing.
 
+### The gates' own scopes are `src/`, and `.github/scripts/` is not in it
+
+`typecheck` runs `ty`/`mypy --strict` over `src`, `security` runs bandit over `src`, and the
+coverage floor measures `--cov=src`. That is right for a package whose product is `src/` —
+and it means **Python added anywhere else is checked by ruff alone**, which lints and formats
+but does not typecheck.
+
+#156 put a real script under `.github/scripts/`, and #161 measured the hole by planting
+`def broken(x: int) -> str: return x` in it: `typecheck`, `security` and `docs-coverage` all
+reported `ok`. Only ruff objected, and only to the missing docstring. The script enforcing a
+complexity gate was the least-checked Python in the repository.
+
+Two things close it, and the split is worth copying rather than the specifics. `ci.yml` runs
+`uvx mypy --strict .github/scripts`, which closes the **class** — a second script inherits the
+check instead of the hole — and `tests/test_ci_scripts.py` closes the **logic**, loading the
+script by path (that directory is not a package and must not become one) and asserting the
+off-by-one at the ceiling boundary that a manual run against a comfortably-passing repository
+could never have distinguished.
+
+`uvx mypy` rather than widening `rhiza-task typecheck`: that task is shipped, so changing its
+scope would tighten a gate for every consumer to answer a question about this repository's
+own `.github/`.
+
 The exception is the doctests: `Config.load`, `Config.field_for`, `Run.exit_code`,
 `lookup` and `Guard.check` carry 39 executable examples that do run. `tests/test_doctests.py`
 is what runs them — `doctest.testmod` over every module `pkgutil` finds under
