@@ -173,6 +173,31 @@ a forgotten patch ran `gh` for real rather than erroring. `tests/test_uv.py` now
 no task module holds a real entry point once the fixture has run, so the sentence above is
 checked by a test rather than by this file being kept up to date.
 
+**"Or any other tool" was the half that was still prose, and #151 is what it cost.** `uv.py`
+is not the only door: four modules import `subprocess` directly, because what they run is not
+a uv form at all — `tasks/quality.py`'s `_git`, `tasks/doctor.py`'s version probe,
+`tasks/fences.py`'s `bash -n`, `tasks/go.py`'s cobertura pipe. Those were patched per test, by
+hand, in exactly the shape #116 had already diagnosed one level up — and the fix for `capture`
+did not generalise, because the leak assertion it added is built from `rhiza_task.uv`'s five
+names and so cannot see a module that never bound one.
+
+`conftest`'s `no_real_subprocess` closes them, and two things about its shape are the reusable
+part. It is **autouse**, so a test that asks for no fixture at all is still covered — needing
+to request `recorder` was itself a way to forget. And it **refuses rather than records**:
+there is no single vector shape across a git call, a `--version` probe, a `bash -n` and a pipe
+holding `stdin`/`stdout`, so a recorder would have to hand back a plausible zero to a test that
+never said what it expected, which is a pass invented by the fixture. An `AssertionError`
+naming the vector cannot be read as green.
+
+It found five on the first run: `TestQuality`'s `rhiza-test` group was calling real
+`git tag --list`, and passing only because a tmp directory is not usually inside a git
+repository — on a machine where it is, those tests read that repository's tags. **That is the
+argument for a guard that fails closed over a convention that holds**, and the rule to carry
+forward is narrower than "patch your subprocesses": a new direct `subprocess` user needs
+nothing, but a module switching to `from subprocess import run` binds the function into its
+own namespace and slips the guard in silence — which is why `test_uv.py` pins the import
+*form* as well as the guard itself.
+
 This is the point of the package rather than a shortcut: the make recipes expressed their
 contract as shell, and the vectors are that contract made assertable without provisioning a
 toolchain. So a new task's test asserts *what it would run*, not that running it works.
@@ -298,8 +323,12 @@ an integer in this sentence would be one more measured figure with nothing readi
   deliberate**, as the assertion that the shell dependency is gone, and the job carries a
   CLI smoke step because the suite stubs every subprocess and so never starts the CLI.
 - **`lint`** — `ruff check` and `ruff format --check`, both halves always running.
-- **`gates`** — the dogfood `uv run rhiza-task all`, plus the two gates deliberately outside
-  `all`: `complexity` and `docs-examples`.
+- **`gates`** — the dogfood `uv run rhiza-task all`, plus the gates deliberately outside
+  `all`: `complexity`, `docs-examples` and `test-pyproject`. The last is outside it for a
+  different reason than the other two — `rhiza-test` already runs pytest-rhiza's pyproject
+  checks, so this is the same assertions at higher verbosity — and looking redundant is how
+  it came to run nowhere at all until #152. Its `--pyargs` selection is its own, and nothing
+  else would notice it breaking.
 - **`links`** — lychee with `--offline` over `README.md` and `docs/`, so only *local*
   targets are resolved. The network half stays in `weekly.yml`: an external 404 is somebody
   else's deploy, and a gate that fails for reasons its author cannot fix is one people learn
@@ -326,6 +355,16 @@ an integer in this sentence would be one more measured figure with nothing readi
   download a browser per run, and its vector differs from `presentation`'s by one flag the
   suite already asserts. `lfs-pull` needs a remote holding LFS objects, and the fixture has
   no remote.
+
+  **`clean` runs here too, and it is the one with a fixture rather than a flag.** It ran
+  nowhere until #152 — the only *deleting* vector in the package, `git clean -d -X -f` plus
+  an rmtree plus `git branch -D`, covered by unit tests that patch `subprocess.run` and so
+  cannot ask whether real git agrees a branch is gone. The fixture is a real repository with
+  a real remote, and the branch is made gone the way it goes gone in life: pushed, then
+  deleted upstream. Its three assertions separate the halves that a zero exit cannot —
+  and the ignored file it looks for is `scratch.log` rather than `dist/` on purpose, because
+  `dist` is in `CLEAN_ARTIFACTS` and the rmtree would remove it whether `git clean` ran or
+  not.
 - **`extras-layer`** — the same argument again, and the family it had stopped short of. The
   Testing extras bundle was the last set with no real execution: `benchmark`, `stress` and
   `hypothesis-test` ran **nowhere**. It is the sharpest case rather than the mildest, because
@@ -340,6 +379,16 @@ an integer in this sentence would be one more measured figure with nothing readi
   section runs here.
 - **`lowest-deps`** — resolves `--resolution lowest-direct` to prove the manifest's floors
   are real.
+
+Two additions live outside `ci.yml` and are easy to miss when counting: `python-layer` now
+also runs **`coverage`** against the throwaway project — it is not `test` with a flag, it
+writes the Cobertura XML the book and any badge reads, so the step checks the *file* rather
+than the exit status — and `rhiza_paper.yml` runs **`paper-clean`** as its last step, because
+that is the only job in the repository with a compiled paper to clean. Both are #152. The
+`paper-clean` step is last for a reason worth knowing before moving it: `paper_clean` removes
+the **PDF as well as** the aux files, so the upload and the `paper`-branch push must already
+have finished with it. Its assertions name `.pdf` and `.log`, which is what tectonic actually
+leaves — looking for a `.aux` would pass against a `paper-clean` that deleted nothing.
 
 Two things follow for a change to `pyproject.toml`:
 
@@ -399,6 +448,18 @@ lone method of 5 scores its class 6, and adding a second of 1 scores it **4**, n
 `Config`'s five new helpers are *methods* — they need `self` — and the class score went
 *down* rather than up. Prefer a module-level function when it needs no `self` or when
 laziness matters, as `_clauses` does; not to dodge a class score that works the other way.
+
+**Maintainability has a ceiling too, and it is a ceiling rather than a target.** `config.py`
+ranks B where every other module is A, and #153 is where that was argued out: the blocks
+holding it there are `Config.load`'s six-layer walk and `_coerce`'s dispatch on value shape,
+both flat on purpose, and splitting them to move a composite metric two points is the
+shape-over-substance trade this file declines elsewhere. So the rule is **no module worse
+than B**, enforced by a `radon mi -n C` step in `ci.yml`'s `gates` job — not by an MI floor
+in `rhiza-task complexity`, because that task is shipped and tightening it would fail every
+consumer's build on upgrade to settle a question about one module here. Note the direction
+the metric runs before chasing it: writing the paragraph that explains all this into
+`config.py` moved its figure *down*, because radon's MI counts length, and dense comments
+are the house style two sections up.
 
 Unlike the layering invariant above, this one **is** gated: `rhiza-task complexity` fails on
 any block above `complexity_max`, which `pyproject.toml` leaves at the shipped 15, and
@@ -488,3 +549,31 @@ increase wherever its commit type puts it, so the upgrade note is always manual*
 body* separately with `git-cliff --latest` from commits, so a note added here does **not** reach
 it. And **`git-cliff --prepend` eats this file's `# Changelog` heading**: prior sections survive,
 the title does not, so restore it and diff before committing. Both of v1.1.0's prepends did it.
+
+### What counts as public, when the question is a name rather than a gate
+
+The rule above is about gate *strictness*, and v1.4.1 found the gap it leaves: that release
+renamed `tasks/setup.py`'s `CHECKS_EXECUTABLE_BIT` to `POSIX` under a **patch**. Nothing
+imports it and no consumer could have noticed, but nothing written down said so either, and
+the answer was being decided per change by whoever was making it. #154 is where it was
+settled, and the split is not new — it is what the repository already documents, now said
+out loud:
+
+> **Public: the task names, their flags, and the five modules `docs/api.md` documents**
+> (`spec`, `uv`, `config`, `runner`, `cli`). **Internal: everything under `tasks/`.**
+
+Both halves are checkable rather than asserted. `__init__.py`'s `__all__` exports
+`__version__` and nothing else; `docs/api.md`'s table lists exactly those five modules and no
+task module; and `adding_a_task.md` — the one page telling a consumer to import anything —
+imports from `spec` and `uv`. A task is reached by *name*, through the CLI, which is why
+renaming a task, dropping one of its flags, or changing what a setting is spelled is
+breaking, while renaming the Python object behind it is not.
+
+So: a module-level name under `tasks/` may be renamed in a `refactor:` or alongside the
+`fix:` that motivated it, with no minor. A name in those five modules may not — `Config`,
+`Guard`, `task`, `uvx` and their kin are what `adding_a_task.md` teaches, and moving one is a
+`feat!:` at least. **The underscore prefix is not the signal here**; layering rule 4 governs
+who may import a private name across a module boundary *inside* this package, which is a
+different question from what a consumer may rely on, and a name can be public to the fourth
+rule and internal to this one. `install_hooks` is exactly that: public because three sibling
+modules need the same spelling, internal because no consumer was ever told it exists.

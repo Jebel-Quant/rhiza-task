@@ -272,6 +272,36 @@ jobs:
         if: ${{ !cancelled() }}
         run: uv run rhiza-task docs-examples
 
+      # The third gate outside `all`, and outside it for a different reason than the two
+      # above: `rhiza-test` already runs pytest-rhiza's pyproject checks, so this is the same
+      # assertions at higher verbosity for whoever is reading a failure. Looking redundant is
+      # how it came to run nowhere at all (#152) -- but the *vector* is its own, a different
+      # `--pyargs` selection and a `-v`, and `rhiza-test` would not notice either breaking.
+      - name: rhiza-task test-pyproject
+        if: ${{ !cancelled() }}
+        run: uv run rhiza-task test-pyproject
+
+      # The maintainability ceiling, and it is here rather than in `rhiza-task complexity`
+      # on purpose. That task is shipped: adding an MI floor to it would tighten a gate for
+      # every consumer on upgrade, which is a `feat:` and a new setting, to answer a finding
+      # about one module in this repository (#153). A step in this repo's own CI costs
+      # neither.
+      #
+      # The ceiling is **no module worse than B**, not "config.py reaches A". config.py sits
+      # just under the A threshold, and the blocks holding it there -- `Config.load`'s layer
+      # walk, `_coerce`'s flat dispatch on value shape -- are the flat forms this repo
+      # prefers on purpose; splitting them to move a composite metric two points would be
+      # exactly the shape-over-substance trade that got test-layout parity dropped as a
+      # score. What was worth fixing is that the figure was read back by nothing.
+      #
+      # `radon mi -n C` prints the modules at C or worse and says nothing when there are
+      # none, so the emptiness *is* the assertion; radon has no failing exit code of its own.
+      - name: no module below the maintainability ceiling
+        if: ${{ !cancelled() }}
+        run: |
+          worse=$(uvx radon mi src -n C)
+          test -z "$worse" || { echo "::error::below the B ceiling:"; echo "$worse"; exit 1; }
+
   # The Rust and Go layers are 165 statements at 100% coverage, and every one of those
   # statements is covered by an *argument-vector assertion*: conftest.py patches uv.py's four
   # entry points and the tests assert on what would have run. That is the point of the
@@ -353,6 +383,16 @@ jobs:
       # pytest rejects fails here, which is the whole point: no stub can reject one.
       - name: rhiza-task test
         run: uv run rhiza-task test --root "$RUNNER_TEMP/pyproj"
+
+      # `coverage` is not `test` with a flag -- it runs its own vector, writing the Cobertura
+      # XML the book and any badge generator read. It ran nowhere until #152, so a vector
+      # producing no file, or writing it somewhere else, was well-formed and undetectable.
+      # Hence the file check: `coverage` exiting 0 having written nothing is exactly the
+      # failure this step is for, and an exit status cannot see it.
+      - name: rhiza-task coverage
+        run: |
+          uv run rhiza-task coverage --root "$RUNNER_TEMP/pyproj"
+          test -s "$RUNNER_TEMP/pyproj/_tests/coverage.xml"
 
   go-layer:
     name: go tasks against a real toolchain
@@ -568,6 +608,49 @@ jobs:
           uv run rhiza-task failed-workflows
           uv run rhiza-task workflow-status
           uv run rhiza-task latest-release
+
+      # `clean` is the Dev task that ran nowhere (#152), and the one worth the fixture: it is
+      # the only vector in the package that *deletes* -- `git clean -d -X -f`, an rmtree over
+      # CLEAN_ARTIFACTS, and `git branch -D` for every branch whose upstream is gone. Its unit
+      # tests patch `subprocess.run` and assert the vectors, which is right and cannot answer
+      # whether real git agrees that a branch is gone.
+      #
+      # So the fixture is a real repository with a real remote, and the branch is made gone
+      # the way it goes gone in life: pushed, then deleted upstream. `--prune` inside the task
+      # is what turns that into the `: gone]` marker it greps for.
+      #
+      # Three assertions, because `clean` exiting 0 says nothing about which half ran: the
+      # ignored file is gone (the `git clean` path), `.env` survived it (the `-e !.env`
+      # exclusion, which is the part a reader would not guess), and the gone branch was
+      # deleted (the `branch -vv` walk). `scratch.log` rather than `dist/` deliberately --
+      # `dist` is in CLEAN_ARTIFACTS and would be removed by the rmtree even if git clean
+      # never ran, so it cannot tell the two paths apart.
+      - name: Build a throwaway git repository with a gone branch
+        run: |
+          git init -q --bare "$RUNNER_TEMP/cleanremote.git"
+          mkdir -p "$RUNNER_TEMP/cleanrepo"
+          cd "$RUNNER_TEMP/cleanrepo"
+          git init -q -b main
+          git config user.email ci@example.com
+          git config user.name CI
+          printf '*.log\n.env\n' > .gitignore
+          git add .gitignore
+          git commit -q -m "init"
+          git remote add origin "$RUNNER_TEMP/cleanremote.git"
+          git push -q -u origin main
+          git checkout -q -b doomed
+          git push -q -u origin doomed
+          git checkout -q main
+          git push -q origin --delete doomed
+          printf 'ignored\n' > scratch.log
+          printf 'SECRET=keep-me\n' > .env
+
+      - name: rhiza-task clean
+        run: |
+          uv run rhiza-task clean --root "$RUNNER_TEMP/cleanrepo"
+          test ! -e "$RUNNER_TEMP/cleanrepo/scratch.log"
+          test -s "$RUNNER_TEMP/cleanrepo/.env"
+          ! git -C "$RUNNER_TEMP/cleanrepo" rev-parse --verify doomed 2>/dev/null
 
   # bundle-layer's argument, carried to the one family it stopped short of. Cross-referencing
   # `rhiza-task list` against every `rhiza-task <task>` in .github/ showed the Testing extras

@@ -23,12 +23,25 @@ The module list is derived rather than written down, for the same reason. It use
 hand-maintained tuple of twelve names, which was complete but only by inspection; a new
 module binding an entry point and not added here would have been handed real subprocesses
 rather than an error -- the same fail-open shape one level up.
+
+**And uv is not the only door.** Four task modules call :mod:`subprocess` directly, because
+what they run is not a uv form: git, a ``--version`` probe, ``bash -n``, a cobertura pipe.
+Those were patched per test, by hand, for the same reason ``capture`` was -- and the same way
+it failed. :func:`no_real_subprocess` closes them for the whole suite, autouse and refusing
+rather than recording, so the opening sentence of this docstring is now true of *any* tool
+rather than of uv alone. It caught five tests on the first run: ``TestQuality``'s
+``rhiza-test`` group was shelling out to real ``git tag --list``, and passing only because a
+tmp directory is not usually inside a repository. See issue #151.
 """
 
 from __future__ import annotations
 
 import importlib
 import pkgutil
+
+# Imported to be *closed*, not to be used: `no_real_subprocess` below replaces this module's
+# two entry points for the whole suite. Nothing here starts a process.
+import subprocess  # nosec B404
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,6 +55,16 @@ from rhiza_task.config import Config
 UV_ENTRY_POINTS = ("uv", "uvx", "uv_run", "tool")
 """The four entry points returning an exit status. ``capture`` returns stdout, so it needs a
 different stand-in and is handled separately."""
+
+SUBPROCESS_ENTRY_POINTS = ("run", "call")
+"""The two ways this package reaches a process without going through :mod:`rhiza_task.uv`.
+
+``uv.py`` is not the only door. Four task modules import :mod:`subprocess` directly, because
+what they run is not a uv form at all: ``tasks/quality.py``'s ``_git``, ``tasks/doctor.py``'s
+version probe, ``tasks/fences.py``'s ``bash -n`` and ``tasks/go.py``'s cobertura pipe. Between
+them they use exactly these two functions, which is why the guard below can be a pair of names
+rather than a wrapper each module has to adopt.
+"""
 
 
 @dataclass
@@ -208,6 +231,64 @@ def task_modules() -> list[ModuleType]:
         Every submodule of :mod:`rhiza_task.tasks`, imported.
     """
     return [importlib.import_module(f"rhiza_task.tasks.{found.name}") for found in pkgutil.iter_modules(tasks.__path__)]
+
+
+@pytest.fixture(autouse=True)
+def no_real_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Close the four doors :func:`recorder` cannot reach, for every test in the suite.
+
+    ``recorder`` patches the five :mod:`rhiza_task.uv` entry points, and ``test_uv`` asserts
+    that none leaked -- so the guarantee at the top of this file is checked rather than
+    remembered. It was checked for *uv*. Four task modules reach :mod:`subprocess` directly,
+    and each test that touched one patched it by hand; every one of them did, so nothing ever
+    leaked, but the guarantee held the way ``capture``'s did before #116 -- by each author
+    remembering, and failing **open** when one did not. A test that forgot ran real ``git``,
+    ``bash`` or ``go`` and *passed* on a machine that had them. ``_git`` is the sharp end of
+    that: it runs ``git branch -D``. See issue #151.
+
+    **Autouse, and it refuses rather than records.** Refusing is what makes the failure mode
+    right: there is no single argument-vector shape to record across a ``git`` invocation, a
+    ``--version`` probe, a ``bash -n`` and a pipe with ``stdin``/``stdout`` handles, and a
+    recorder that accepted all four would hand back a plausible zero to a test that never said
+    what it expected. An ``AssertionError`` naming the vector cannot be mistaken for a pass.
+
+    Patched on the :mod:`subprocess` module itself rather than per importer, because that is
+    the object all five modules hold: ``quality.subprocess`` *is* this module. The tests that
+    legitimately need a stand-in keep working unchanged -- they patch the same attribute from
+    a non-autouse fixture or the test body, and a later patch wins.
+
+    Args:
+        monkeypatch: pytest's patcher.
+    """
+
+    def refuse(name: str) -> Callable[..., object]:
+        """Build a stand-in for one subprocess entry point.
+
+        Args:
+            name: ``run`` or ``call``.
+
+        Returns:
+            A callable that raises rather than starting anything.
+        """
+
+        def guard(argv: object = None, *_args: object, **_kwargs: object) -> object:
+            """Refuse to start a process, naming what would have been run.
+
+            Args:
+                argv: The argument vector the caller passed.
+                *_args: Ignored.
+                **_kwargs: Ignored.
+
+            Raises:
+                AssertionError: Always.
+            """
+            msg = f"no test in this suite runs a tool: subprocess.{name}({argv!r}) -- patch it"
+            raise AssertionError(msg)
+
+        return guard
+
+    for name in SUBPROCESS_ENTRY_POINTS:
+        monkeypatch.setattr(subprocess, name, refuse(name))
 
 
 @pytest.fixture
