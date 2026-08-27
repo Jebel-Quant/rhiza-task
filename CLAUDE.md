@@ -173,6 +173,31 @@ a forgotten patch ran `gh` for real rather than erroring. `tests/test_uv.py` now
 no task module holds a real entry point once the fixture has run, so the sentence above is
 checked by a test rather than by this file being kept up to date.
 
+**"Or any other tool" was the half that was still prose, and #151 is what it cost.** `uv.py`
+is not the only door: four modules import `subprocess` directly, because what they run is not
+a uv form at all — `tasks/quality.py`'s `_git`, `tasks/doctor.py`'s version probe,
+`tasks/fences.py`'s `bash -n`, `tasks/go.py`'s cobertura pipe. Those were patched per test, by
+hand, in exactly the shape #116 had already diagnosed one level up — and the fix for `capture`
+did not generalise, because the leak assertion it added is built from `rhiza_task.uv`'s five
+names and so cannot see a module that never bound one.
+
+`conftest`'s `no_real_subprocess` closes them, and two things about its shape are the reusable
+part. It is **autouse**, so a test that asks for no fixture at all is still covered — needing
+to request `recorder` was itself a way to forget. And it **refuses rather than records**:
+there is no single vector shape across a git call, a `--version` probe, a `bash -n` and a pipe
+holding `stdin`/`stdout`, so a recorder would have to hand back a plausible zero to a test that
+never said what it expected, which is a pass invented by the fixture. An `AssertionError`
+naming the vector cannot be read as green.
+
+It found five on the first run: `TestQuality`'s `rhiza-test` group was calling real
+`git tag --list`, and passing only because a tmp directory is not usually inside a git
+repository — on a machine where it is, those tests read that repository's tags. **That is the
+argument for a guard that fails closed over a convention that holds**, and the rule to carry
+forward is narrower than "patch your subprocesses": a new direct `subprocess` user needs
+nothing, but a module switching to `from subprocess import run` binds the function into its
+own namespace and slips the guard in silence — which is why `test_uv.py` pins the import
+*form* as well as the guard itself.
+
 This is the point of the package rather than a shortcut: the make recipes expressed their
 contract as shell, and the vectors are that contract made assertable without provisioning a
 toolchain. So a new task's test asserts *what it would run*, not that running it works.

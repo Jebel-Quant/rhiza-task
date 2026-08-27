@@ -344,6 +344,22 @@ class TestDerivedAccumulators:
 class TestQuality:
     """quality.mk's gates."""
 
+    @pytest.fixture
+    def no_tags(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Report a repository with no tags, so ``rhiza-test`` sees no release in flight.
+
+        ``rhiza_test`` consults ``_release_pending``, which shells out to ``git tag --list``.
+        These five tests are about the pytest vector rather than release detection, and until
+        #151 they left that call unpatched -- so they ran **real git**, in a tmp directory,
+        and passed only because a tmp directory is not usually inside a repository. On a
+        machine where it is, they would have read that repository's tags. The autouse guard in
+        ``conftest`` is what turned that from a latent flake into a failing test.
+
+        Args:
+            monkeypatch: pytest's patcher.
+        """
+        monkeypatch.setattr(quality, "_git", lambda *_a, **_k: "")
+
     def test_fmt_names_the_config_explicitly(self, cfg: Config, recorder: Recorder) -> None:
         """Without ``--config``, prek treats nested configs as separate projects.
 
@@ -355,7 +371,7 @@ class TestQuality:
         quality.fmt(cfg)
         assert recorder.find("prek").flags == ["run", "--all-files", "--config", ".pre-commit-config.yaml"]
 
-    def test_rhiza_test_runs_the_pinned_plugin(self, cfg: Config, recorder: Recorder) -> None:
+    def test_rhiza_test_runs_the_pinned_plugin(self, cfg: Config, recorder: Recorder, no_tags: None) -> None:
         """The checks arrive installed and enumerated, never globbed.
 
         Globbing would collect pytest-rhiza's Rust and Go modules, which cannot pass here.
@@ -364,6 +380,7 @@ class TestQuality:
         Args:
             cfg: The resolved config.
             recorder: The uv recorder.
+            no_tags: The pinned tag probe.
         """
         quality.rhiza_test(cfg)
         call = recorder.find("pytest")
@@ -372,7 +389,9 @@ class TestQuality:
         assert not [f for f in call.flags if "test_cargo_toml" in f or "test_go_module" in f]
         assert call.kwargs["withs"] == (cfg.pytest_rhiza,)
 
-    def test_rhiza_test_omits_the_with_when_the_provider_is_empty(self, cfg: Config, recorder: Recorder) -> None:
+    def test_rhiza_test_omits_the_with_when_the_provider_is_empty(
+        self, cfg: Config, recorder: Recorder, no_tags: None
+    ) -> None:
         """An empty ``pytest_rhiza`` drops ``--with`` rather than passing an empty spec.
 
         The pin is right for a consumer and wrong for anyone testing an unreleased check
@@ -384,11 +403,12 @@ class TestQuality:
         Args:
             cfg: The resolved config.
             recorder: The uv recorder.
+            no_tags: The pinned tag probe.
         """
         quality.rhiza_test(replace(cfg, pytest_rhiza=""))
         assert recorder.find("pytest").kwargs["withs"] == ()
 
-    def test_rhiza_test_reads_whitespace_as_empty(self, cfg: Config, recorder: Recorder) -> None:
+    def test_rhiza_test_reads_whitespace_as_empty(self, cfg: Config, recorder: Recorder, no_tags: None) -> None:
         """``pytest-rhiza = " "`` means the same thing as ``""``.
 
         A TOML value cannot be stripped on the way in -- :func:`_coerce` only sees the
@@ -398,11 +418,14 @@ class TestQuality:
         Args:
             cfg: The resolved config.
             recorder: The uv recorder.
+            no_tags: The pinned tag probe.
         """
         quality.rhiza_test(replace(cfg, pytest_rhiza="  "))
         assert recorder.find("pytest").kwargs["withs"] == ()
 
-    def test_rhiza_test_tells_the_docstring_check_where_to_look(self, cfg: Config, recorder: Recorder) -> None:
+    def test_rhiza_test_tells_the_docstring_check_where_to_look(
+        self, cfg: Config, recorder: Recorder, no_tags: None
+    ) -> None:
         """``RHIZA_DOCTEST_FOLDERS`` carries ``source_folder`` into the checks.
 
         Without it ``test_docstrings`` falls back to a literal ``src`` and reports
@@ -412,11 +435,12 @@ class TestQuality:
         Args:
             cfg: The resolved config.
             recorder: The uv recorder.
+            no_tags: The pinned tag probe.
         """
         quality.rhiza_test(cfg)
         assert recorder.find("pytest").kwargs["env"] == {"RHIZA_DOCTEST_FOLDERS": cfg.source_folder}
 
-    def test_rhiza_test_honours_a_relocated_source_folder(self, cfg: Config, recorder: Recorder) -> None:
+    def test_rhiza_test_honours_a_relocated_source_folder(self, cfg: Config, recorder: Recorder, no_tags: None) -> None:
         """A repo declaring ``source-folder = "utils"`` gets its doctests checked.
 
         The default would pass the assertion above by coincidence, since ``source_folder``
@@ -426,6 +450,7 @@ class TestQuality:
         Args:
             cfg: The resolved config.
             recorder: The uv recorder.
+            no_tags: The pinned tag probe.
         """
         relocated = replace(cfg, source_folder="utils")
         quality.rhiza_test(relocated)

@@ -16,7 +16,7 @@ from rhiza_task import uv as uv_module
 from rhiza_task.spec import Failed
 from rhiza_task.tasks import github as github_tasks
 
-from .conftest import UV_ENTRY_POINTS, Recorder, task_modules
+from .conftest import SUBPROCESS_ENTRY_POINTS, UV_ENTRY_POINTS, Recorder, task_modules
 
 
 @pytest.fixture
@@ -330,6 +330,39 @@ class TestTheSuiteStubsEveryEntryPoint:
             if getattr(module, name, None) is original
         ]
         assert leaked == [], f"unstubbed entry point(s) would run the real tool: {leaked}"
+
+    def test_no_module_can_reach_a_real_subprocess(self) -> None:
+        """The other four doors, closed by ``conftest``'s autouse guard.
+
+        The assertion above covers :mod:`rhiza_task.uv`'s entry points. It does **not** cover
+        the four modules that import :mod:`subprocess` directly, because what they run is not
+        a uv form -- and until #151 those were patched per test, by hand, which is the same
+        fail-open shape #116 fixed for ``capture``. This asserts the guard is in place rather
+        than trusting that every future test remembers.
+
+        Requests no fixture: the guard is autouse, so a test that asks for nothing at all is
+        exactly the case that must still be covered.
+
+        Raises:
+            AssertionError: Through the guard, which is what is being asserted.
+        """
+        for name in SUBPROCESS_ENTRY_POINTS:
+            with pytest.raises(AssertionError, match="no test in this suite runs a tool"):
+                getattr(subprocess, name)(["definitely-not-a-tool"])
+
+    def test_every_direct_subprocess_user_is_covered_by_that_guard(self) -> None:
+        """Each module reaching subprocess directly holds the guarded module, not a copy.
+
+        ``import subprocess`` binds the module object, so patching its attributes reaches
+        every importer -- but that is a property of how these modules import it, not a law.
+        A module that switched to ``from subprocess import run`` would bind the *function*
+        into its own namespace and slip the guard silently, which is the regression this
+        pins.
+        """
+        holders = [uv_module, *task_modules()]
+        direct = [m for m in holders if getattr(m, "subprocess", None) is not None]
+        assert [m.__name__ for m in direct if m.subprocess is not subprocess] == []
+        assert len(direct) >= 5, f"expected uv.py and the four direct users, found {len(direct)}"
 
     def test_capture_is_recorded_and_replays_canned_output(self, recorder: Recorder) -> None:
         """``capture`` records like the others and hands back the next canned string.
