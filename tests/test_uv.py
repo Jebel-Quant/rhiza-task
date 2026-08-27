@@ -7,6 +7,7 @@ string, and the reason rhiza.mk needs a Windows shell probe that this package do
 
 from __future__ import annotations
 
+import ast
 import subprocess
 from pathlib import Path
 
@@ -16,7 +17,7 @@ from rhiza_task import uv as uv_module
 from rhiza_task.spec import Failed
 from rhiza_task.tasks import github as github_tasks
 
-from .conftest import SUBPROCESS_ENTRY_POINTS, UV_ENTRY_POINTS, Recorder, task_modules
+from .conftest import OS_PROCESS_STARTERS, SUBPROCESS_ENTRY_POINTS, UV_ENTRY_POINTS, Recorder, task_modules
 
 
 @pytest.fixture
@@ -349,6 +350,47 @@ class TestTheSuiteStubsEveryEntryPoint:
         for name in SUBPROCESS_ENTRY_POINTS:
             with pytest.raises(AssertionError, match="no test in this suite runs a tool"):
                 getattr(subprocess, name)(["definitely-not-a-tool"])
+
+    def test_the_guard_covers_every_way_subprocess_starts_a_process(self) -> None:
+        """The patched set is derived from the stdlib, so it cannot go stale as `src/` changes.
+
+        `("run", "call")` was the hand-written pair this replaces. It was accurate, and
+        accurate-by-inspection is the property that failed at #116 and again at #151 -- so
+        #157 applied the cure `conftest` already applies to the module list. The sanity
+        check is that the derivation did not quietly collapse: if the exclusion rules ever
+        matched everything, the guard would patch nothing and every test would pass.
+        """
+        assert {"run", "call", "Popen", "check_output"} <= set(SUBPROCESS_ENTRY_POINTS)
+        assert not [n for n in SUBPROCESS_ENTRY_POINTS if isinstance(getattr(subprocess, n), int)]
+
+    def test_src_starts_no_process_the_guard_cannot_see(self) -> None:
+        """`src/` reaches a process through subprocess and nothing else.
+
+        The derived set above closes :mod:`subprocess`. It cannot close :mod:`os`, which is
+        not stubbable here -- every module uses it for paths and the environment, so
+        replacing its attributes would break the suite rather than protect it. This asserts
+        the same guarantee from the other side: nothing in `src/` reaches for `os.system`,
+        `os.popen`, an `exec*` or a `spawn*`.
+
+        Not already covered by bandit, which is the assumption worth having checked: `B605`
+        reports `os.system` with a literal command at LOW severity and `security` runs
+        `bandit -ll`, so a planted `os.system("echo hi")` passes that gate today.
+
+        Reading the AST rather than grepping, because a comment or a docstring mentioning
+        `os.system` -- this docstring, for one -- is not a call, and a grep cannot tell the
+        difference.
+        """
+        offenders = []
+        for path in Path("src").rglob("*.py"):
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Attribute) or not isinstance(node.value, ast.Name):
+                    continue
+                if node.value.id == "os" and node.attr in OS_PROCESS_STARTERS:
+                    offenders.append(f"{path}:{node.lineno}: os.{node.attr}")
+                if node.value.id == "subprocess" and node.attr not in dir(subprocess):
+                    offenders.append(f"{path}:{node.lineno}: subprocess.{node.attr}")
+        assert offenders == [], f"process started outside the guard's reach: {offenders}"
 
     def test_every_direct_subprocess_user_is_covered_by_that_guard(self) -> None:
         """Each module reaching subprocess directly holds the guarded module, not a copy.

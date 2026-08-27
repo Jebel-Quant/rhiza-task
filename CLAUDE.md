@@ -198,6 +198,23 @@ nothing, but a module switching to `from subprocess import run` binds the functi
 own namespace and slips the guard in silence — which is why `test_uv.py` pins the import
 *form* as well as the guard itself.
 
+**#157 is the third instalment of the same mistake, and where it was finally derived.** The
+guard's own scope was written down by hand — `("run", "call")`, accurate for what `src/`
+called that week — which is #116's tuple of twelve module names wearing a different hat.
+`SUBPROCESS_ENTRY_POINTS` now comes from `subprocess.__all__`, minus three *properties*
+rather than three names: the ints (`PIPE`, `DEVNULL`, `STDOUT`), the exception types, and
+`CompletedProcess`, which the tests construct themselves. What is left starts a process, and
+a starter this package begins using is covered before anyone notices they had to.
+
+`os` is the door that stays open, because it cannot be closed the same way: every module uses
+it for paths, so stubbing its attributes would break the suite rather than protect it. So the
+guarantee is asserted from the other side — `test_uv.py` walks `src/`'s **AST** (not a grep;
+a docstring naming `os.system` is not a call) and fails on any `os.system`, `os.popen`,
+`exec*` or `spawn*`. **bandit does not already cover this**, which is the assumption worth
+checking rather than repeating: `B605` reports a literal `os.system` at LOW severity and
+`security` runs `bandit -ll`, so a planted one passes that gate today. Verified by planting
+one.
+
 This is the point of the package rather than a shortcut: the make recipes expressed their
 contract as shell, and the vectors are that contract made assertable without provisioning a
 toolchain. So a new task's test asserts *what it would run*, not that running it works.
