@@ -231,6 +231,15 @@ apt/brew/winget logic — the rule `lfs-install` states.
 A hook that exists but is not executable **fails**, with the `chmod` hint — a provisioning
 step someone wrote and believed was running is exactly what must not pass quietly.
 
+**Windows runs the same hook**, handed to `sh` rather than started directly, because the OS
+execs no `.sh` — it answers *%1 is not a valid Win32 application* before the shebang is read.
+GitHub's `windows-latest` runners ship git-bash, so there is an `sh` on PATH to hand it to,
+and one hook file still covers every platform. Two consequences: the shebang is **not**
+consulted there, so a hook that means `bash` should keep to POSIX shell; and a machine with no
+`sh` at all fails naming `sh`, rather than naming the hook that never started. The execute bit
+is not asked about on Windows either — `os.access(X_OK)` calls every existing file executable
+there, so the question would pass vacuously.
+
 An absent hook, by contrast, **succeeds**; it does not skip. That is deliberate and is the
 one place in this package where "nothing happened" is not a `skipped`. `Skip` means work was
 asked for and did not happen, which is why `--strict` promotes it to a failure. Nothing is

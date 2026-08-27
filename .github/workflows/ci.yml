@@ -95,6 +95,35 @@ jobs:
           uv run --python ${{ matrix.python-version }} rhiza-task doctor
           uv run --python ${{ matrix.python-version }} rhiza-task todos
 
+      # The bug this step exists for is #148: four red Windows cells at 1.4.0 with every
+      # other job in the run green. `setup` exec'd the repository's own `local-setup.sh`,
+      # Windows answered `%1 is not a valid Win32 application`, and because `install` names
+      # `setup` and every gate names `install`, a consumer whose matrix included
+      # `windows-latest` could not adopt the hook at all. Nothing here caught it: the suite
+      # asserts the argument vector, and this vector was well-formed and unrunnable -- the
+      # exact hazard the language-layer jobs below exist for, arriving at the one task those
+      # jobs cannot host. `setup` needs a hook at a repository root, and this repository
+      # cannot commit one of its own: a real `local-setup.sh` here would run on every gate,
+      # forever. So the root is built in $RUNNER_TEMP, which also keeps the step from
+      # provisioning anything -- the rule the CLI smoke above states.
+      #
+      # Left on the runner's default shell rather than `shell: bash`, and that is the whole
+      # assertion on Windows: `setup` finds its `sh` with `shutil.which`, git-bash puts its
+      # own `usr/bin` on PATH for anything it launches, so a bash step would resolve one even
+      # from an image that did not offer it to a normal job. The default shell is the PATH a
+      # consumer's job actually has.
+      #
+      # The hook writes a marker and the third line demands it, rather than reading `ok
+      # setup` and stopping. An *absent* hook reports ok too, deliberately -- see
+      # tasks/setup.py -- so a step that only checked the exit status would stay green if the
+      # file never arrived, which is the silent green this whole task exists to remove.
+      - name: Setup-hook smoke (the one gate that starts a POSIX script)
+        if: ${{ !cancelled() }}
+        run: |
+          uv run --python ${{ matrix.python-version }} python -c "import os, pathlib; d = pathlib.Path(os.environ['RUNNER_TEMP']) / 'hook-repo'; d.mkdir(exist_ok=True); h = d / 'local-setup.sh'; h.write_text('#!/bin/sh\nprintf ran > ran.txt\n'); h.chmod(0o755)"
+          uv run --python ${{ matrix.python-version }} rhiza-task setup --root ${{ runner.temp }}/hook-repo
+          uv run --python ${{ matrix.python-version }} python -c "import os, pathlib, sys; sys.exit(None if (pathlib.Path(os.environ['RUNNER_TEMP']) / 'hook-repo' / 'ran.txt').is_file() else 'the hook reported ok without running')"
+
   # ruff.toml is 9 KB of deliberate rule selection, and this job is not the only thing
   # enforcing it: `.pre-commit-config.yaml` carries the same ruff hooks, so `rhiza-task
   # fmt` -- and the dogfood `all` in the `gates` job below -- runs them too. It was the

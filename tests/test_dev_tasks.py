@@ -443,6 +443,20 @@ class TestSetupHook:
         hook.chmod(0o755 if executable else 0o644)
         return hook
 
+    @pytest.fixture
+    def on_posix(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Pin the POSIX branch, for the tests that are about something other than platform.
+
+        The suite runs on ``windows-latest`` too, where the hook is handed to ``sh`` and the
+        vector gains a leading interpreter -- a real difference, and one with its own two
+        tests below. Everything else here asserts the *shape* of the invocation, so it pins
+        the branch rather than accommodating both and asserting neither precisely.
+
+        Args:
+            monkeypatch: pytest's patcher.
+        """
+        monkeypatch.setattr(setup_tasks, "POSIX", True)
+
     def test_no_hook_succeeds_rather_than_skipping(
         self, cfg: Config, recorder: Recorder, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -497,46 +511,81 @@ class TestSetupHook:
             recorder: The uv recorder.
             monkeypatch: pytest's patcher.
         """
-        monkeypatch.setattr(setup_tasks, "CHECKS_EXECUTABLE_BIT", True)
+        monkeypatch.setattr(setup_tasks, "POSIX", True)
         monkeypatch.setattr(setup_tasks.os, "access", lambda *_a, **_k: False)
         self._write(cfg, executable=False)
         with pytest.raises(Failed, match="chmod"):
             setup_tasks.setup(cfg)
         assert recorder.calls == []
 
-    def test_the_executable_check_is_not_asked_on_windows(
+    def test_a_platform_that_cannot_start_the_hook_hands_it_to_a_shell(
         self, cfg: Config, recorder: Recorder, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Windows has no execute bit, so the check would pass vacuously; it is not made.
+        """Windows execs no ``.sh``, so the hook is run *by* ``sh`` rather than *as* one.
 
-        ``os.access(X_OK)`` reports *every* existing file as executable there, which is why
-        this cannot be one code path with a platform-independent check: a guard that always
-        passes reads like protection while providing none. The hook is attempted instead, and
-        the OS's refusal is what reports it.
+        The failure this replaces was not a platform limitation but a wall: ``install`` is a
+        prerequisite of every gate, so a consumer whose matrix included ``windows-latest``
+        could not adopt the hook at all, whatever the hook did. GitHub's Windows runners ship
+        git-bash, so there is a shell to hand it to. See issue #148.
+
+        The execute bit is not asked about on the way past, and that is the same test as
+        before under a new name: ``os.access(X_OK)`` reports *every* existing file as
+        executable on Windows, so the guard would pass vacuously -- which is why the hook
+        here is written *without* the bit and still runs.
+
+        ``which`` is pinned rather than trusted, because this branch is exercised on POSIX
+        machines, where the answer would otherwise be a real path that differs per machine.
 
         Args:
             cfg: The resolved config.
             recorder: The uv recorder.
             monkeypatch: pytest's patcher.
         """
-        monkeypatch.setattr(setup_tasks, "CHECKS_EXECUTABLE_BIT", False)
+        monkeypatch.setattr(setup_tasks, "POSIX", False)
+        monkeypatch.setattr(setup_tasks.shutil, "which", lambda name: f"C:\\Git\\{name}.exe")
         hook = self._write(cfg, executable=False)
         setup_tasks.setup(cfg)
-        assert recorder.find(str(hook)).kind == "tool"
+        call = recorder.find("C:\\Git\\sh.exe")
+        assert call.kind == "tool"
+        assert call.flags == [str(hook)]
+        assert call.kwargs["cwd"] == cfg.root
 
-    def test_a_hook_the_os_refuses_to_start_fails_with_the_reason(
+    def test_a_platform_with_no_shell_at_all_fails_with_that_reason(
         self, cfg: Config, recorder: Recorder, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """An OSError is reported as a failure, not raised as a traceback.
+        """The one Windows case still left, reported as itself rather than as ``WinError 193``.
 
-        How Windows arrives at a `.sh`, and how POSIX arrives at a malformed shebang
-        (ENOEXEC). Either way the script cannot start, and a traceback is a poor way to learn
-        that a provisioning step never began.
+        A failure rather than a skip, for the reason the missing execute bit is one: the
+        repository asked for provisioning and did not get it. Naming ``sh`` is what makes the
+        line actionable -- the Win32 error the exec used to produce named the hook instead,
+        which sent readers to look at a script that had never started.
 
         Args:
             cfg: The resolved config.
             recorder: The uv recorder.
             monkeypatch: pytest's patcher.
+        """
+        monkeypatch.setattr(setup_tasks, "POSIX", False)
+        monkeypatch.setattr(setup_tasks.shutil, "which", lambda _name: None)
+        self._write(cfg, executable=True)
+        with pytest.raises(Failed, match=r"no `sh` on PATH"):
+            setup_tasks.setup(cfg)
+        assert recorder.calls == []
+
+    def test_a_hook_the_os_refuses_to_start_fails_with_the_reason(
+        self, cfg: Config, recorder: Recorder, monkeypatch: pytest.MonkeyPatch, on_posix: None
+    ) -> None:
+        """An OSError is reported as a failure, not raised as a traceback.
+
+        Windows no longer arrives here -- it is handed a shell instead. What still does is a
+        malformed shebang on POSIX (ENOEXEC), and a resolved ``sh`` that will not start. The
+        script cannot begin, and a traceback is a poor way to learn that.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+            monkeypatch: pytest's patcher.
+            on_posix: The pinned platform branch.
         """
         self._write(cfg, executable=True)
 
@@ -556,12 +605,13 @@ class TestSetupHook:
         with pytest.raises(Failed, match=r"could not run local-setup\.sh: Exec format error"):
             setup_tasks.setup(cfg)
 
-    def test_runs_the_hook_from_the_repository_root(self, cfg: Config, recorder: Recorder) -> None:
+    def test_runs_the_hook_from_the_repository_root(self, cfg: Config, recorder: Recorder, on_posix: None) -> None:
         """An absolute path, so it runs whatever the caller's working directory was.
 
         Args:
             cfg: The resolved config.
             recorder: The uv recorder.
+            on_posix: The pinned platform branch.
         """
         hook = self._write(cfg, executable=True)
         setup_tasks.setup(cfg)
@@ -582,12 +632,13 @@ class TestSetupHook:
         """
         assert "setup" in REGISTRY[f"{layer}:install"].needs
 
-    def test_the_hook_precedes_the_dependency_sync(self, cfg: Config, recorder: Recorder) -> None:
+    def test_the_hook_precedes_the_dependency_sync(self, cfg: Config, recorder: Recorder, on_posix: None) -> None:
         """A native library needed to *build* a wheel has to be there before ``uv sync``.
 
         Args:
             cfg: The resolved config.
             recorder: The uv recorder.
+            on_posix: The pinned platform branch.
         """
         self._write(cfg, executable=True)
         run(["install"], cfg)

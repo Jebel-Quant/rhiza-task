@@ -31,17 +31,33 @@ to be spelled the same on apt and brew; ``libgl1-mesa-glx`` is not, and a list c
 would be a schema this package then had to keep honest across three package managers, for the
 subset of needs that happen to be a package name.
 
-The hook is POSIX shell by name and by nature, and Windows is where that shows. The
-executable check is skipped there -- ``os.access(X_OK)`` reports every existing file as
-executable, so asking would be a guard that guarantees nothing -- and the OS refusing to run
-a ``.sh`` is reported as a failure with the reason attached rather than as a traceback. A
-project that must provision on Windows needs its own arrangement; this task will tell you
-clearly that it could not.
+The hook is POSIX shell by name and by nature, and Windows is where that shows -- but not, as
+this module first had it, as a wall. Windows cannot ``exec`` a ``.sh`` at all: the OS answers
+*%1 is not a valid Win32 application* before the shebang is read, so the first version of this
+task reported that as a failure and told the reader their platform needed its own arrangement.
+Which was one insertion point short of the design's own claim -- ``install`` is a prerequisite
+of every gate, so a consumer whose matrix includes ``windows-latest`` could not adopt the hook
+at all, even for a dependency that only matters on one job. See #148.
+
+So on a platform with no execute bit the hook is handed to ``sh`` rather than started
+directly, and there is one to hand it to: GitHub's ``windows-latest`` runners ship git-bash,
+whose ``sh`` is on PATH and is what :func:`shutil.which` finds. One hook file still covers
+every platform, which is the whole point of putting the seam here; a project that provisions
+differently per OS branches inside the script, where the platform knowledge already is.
+
+Two things follow from handing it to ``sh`` instead of exec'ing it, and both are why the
+POSIX branch is left alone rather than unified with it. The shebang is **not** consulted --
+a hook whose first line names ``python3`` runs under python3 on POSIX and under ``sh`` on
+Windows -- which is what the ``.sh`` in the name is promising and this docstring is repeating.
+And a machine with no ``sh`` on PATH is told *that*, rather than being handed the Win32 error
+from an exec that was never going to work.
 """
 
 from __future__ import annotations
 
 import os
+import shutil
+from pathlib import Path
 
 from ..config import Config
 from ..spec import Failed, task
@@ -57,19 +73,63 @@ can be used, and there is nothing a project could express by moving it. It sits 
 repository.
 """
 
-CHECKS_EXECUTABLE_BIT = os.name == "posix"
-"""Whether this platform has an execute bit worth asking about.
+POSIX = os.name == "posix"
+"""Whether this platform can start the hook itself.
 
-Windows does not. ``os.access(path, os.X_OK)`` reports *every* existing file as executable
-there, so the check below would pass vacuously -- a guard that reads like protection while
-guaranteeing nothing, which is worse than not asking. What covers Windows instead is the
-``OSError`` handler: the OS refuses to start the script, and that is reported with its reason.
+One platform fact with two consequences, which is why it is one constant rather than two.
+
+It decides whether there is an **execute bit worth asking about**. Windows has none:
+``os.access(path, os.X_OK)`` reports *every* existing file as executable there, so the check
+below would pass vacuously -- a guard that reads like protection while guaranteeing nothing,
+which is worse than not asking.
+
+And it decides **how the hook is started**: exec'd directly where the OS honours a shebang,
+handed to ``sh`` where it does not. The two answers move together because they are the same
+question asked twice -- a platform that has no execute bit is a platform that will not start
+the file for you.
 
 Named rather than inlined as ``os.name == "posix"`` so the assumption is visible at module
 level, and so a test can reach *both* branches on either platform. Patching ``os.name`` to
 get there is not an option -- it is read by :mod:`pathlib` at import, and forcing it makes
 ``Path`` unconstructible.
 """
+
+SHELL = "sh"
+"""The interpreter the hook is handed to where the platform cannot start it.
+
+``sh`` rather than ``bash``, because the hook's contract is POSIX shell and ``sh`` is the
+spelling git-bash, WSL and every POSIX system agree on. Not a setting: a repository that
+needs a different interpreter says so in its shebang, which is honoured everywhere the
+platform starts the file itself.
+"""
+
+
+def _command(hook: Path) -> tuple[str, ...]:
+    """Build the argument vector that starts the hook on this platform.
+
+    Args:
+        hook: The absolute path to the hook.
+
+    Returns:
+        The vector to hand to :func:`~rhiza_task.uv.tool`.
+
+    Raises:
+        Failed: When the platform cannot start the file and has no ``sh`` to do it.
+    """
+    if POSIX:
+        return (str(hook),)
+    # A missing shell fails rather than skipping, for the same reason a missing execute bit
+    # does: the repository asked for provisioning and it did not happen. It is deliberately
+    # not a `Guard` either -- a guard is declared on the task and would skip the *common*
+    # case, a repository with no hook at all, on any machine without `sh`.
+    shell = shutil.which(SHELL)
+    if shell is None:
+        raise Failed(
+            1,
+            f"could not run {HOOK}: no `{SHELL}` on PATH to run it with -- "
+            "install Git for Windows, whose git-bash provides one",
+        )
+    return (shell, str(hook))
 
 
 @task("setup", "run the repository's own environment setup hook", section="Dev")
@@ -95,19 +155,21 @@ def setup(cfg: Config) -> None:
         cfg: The resolved config.
 
     Raises:
-        Failed: When the hook is not executable, or exits non-zero.
+        Failed: When the hook is not executable, cannot be started, or exits non-zero.
     """
     hook = cfg.root / HOOK
     if not hook.is_file():
         print(f"[INFO] no {HOOK}; nothing to provision")
         return
-    if CHECKS_EXECUTABLE_BIT and not os.access(hook, os.X_OK):
+    if POSIX and not os.access(hook, os.X_OK):
         raise Failed(1, f"{HOOK} is not executable -- run `chmod +x {HOOK}`")
+    command = _command(hook)
     try:
-        tool(str(hook), cwd=cfg.root)
+        tool(*command, cwd=cfg.root)
     except OSError as exc:
-        # Not a Windows special case, though it is how Windows arrives: the OS refuses to
-        # execute the file at all. A malformed shebang on POSIX raises ENOEXEC through the
-        # same path. Either way an unhandled OSError would surface as a traceback, which is
-        # a poor way to learn that a provisioning script cannot start.
+        # Windows no longer arrives here -- `_command` hands it a shell rather than the
+        # script. What still does is a malformed shebang on POSIX, which raises ENOEXEC
+        # through this same path, and a resolved `sh` that will not start. Either way an
+        # unhandled OSError would surface as a traceback, which is a poor way to learn that
+        # a provisioning script cannot begin.
         raise Failed(1, f"could not run {HOOK}: {exc}") from exc
