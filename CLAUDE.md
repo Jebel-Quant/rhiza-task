@@ -323,8 +323,12 @@ an integer in this sentence would be one more measured figure with nothing readi
   deliberate**, as the assertion that the shell dependency is gone, and the job carries a
   CLI smoke step because the suite stubs every subprocess and so never starts the CLI.
 - **`lint`** — `ruff check` and `ruff format --check`, both halves always running.
-- **`gates`** — the dogfood `uv run rhiza-task all`, plus the two gates deliberately outside
-  `all`: `complexity` and `docs-examples`.
+- **`gates`** — the dogfood `uv run rhiza-task all`, plus the gates deliberately outside
+  `all`: `complexity`, `docs-examples` and `test-pyproject`. The last is outside it for a
+  different reason than the other two — `rhiza-test` already runs pytest-rhiza's pyproject
+  checks, so this is the same assertions at higher verbosity — and looking redundant is how
+  it came to run nowhere at all until #152. Its `--pyargs` selection is its own, and nothing
+  else would notice it breaking.
 - **`links`** — lychee with `--offline` over `README.md` and `docs/`, so only *local*
   targets are resolved. The network half stays in `weekly.yml`: an external 404 is somebody
   else's deploy, and a gate that fails for reasons its author cannot fix is one people learn
@@ -351,6 +355,16 @@ an integer in this sentence would be one more measured figure with nothing readi
   download a browser per run, and its vector differs from `presentation`'s by one flag the
   suite already asserts. `lfs-pull` needs a remote holding LFS objects, and the fixture has
   no remote.
+
+  **`clean` runs here too, and it is the one with a fixture rather than a flag.** It ran
+  nowhere until #152 — the only *deleting* vector in the package, `git clean -d -X -f` plus
+  an rmtree plus `git branch -D`, covered by unit tests that patch `subprocess.run` and so
+  cannot ask whether real git agrees a branch is gone. The fixture is a real repository with
+  a real remote, and the branch is made gone the way it goes gone in life: pushed, then
+  deleted upstream. Its three assertions separate the halves that a zero exit cannot —
+  and the ignored file it looks for is `scratch.log` rather than `dist/` on purpose, because
+  `dist` is in `CLEAN_ARTIFACTS` and the rmtree would remove it whether `git clean` ran or
+  not.
 - **`extras-layer`** — the same argument again, and the family it had stopped short of. The
   Testing extras bundle was the last set with no real execution: `benchmark`, `stress` and
   `hypothesis-test` ran **nowhere**. It is the sharpest case rather than the mildest, because
@@ -365,6 +379,16 @@ an integer in this sentence would be one more measured figure with nothing readi
   section runs here.
 - **`lowest-deps`** — resolves `--resolution lowest-direct` to prove the manifest's floors
   are real.
+
+Two additions live outside `ci.yml` and are easy to miss when counting: `python-layer` now
+also runs **`coverage`** against the throwaway project — it is not `test` with a flag, it
+writes the Cobertura XML the book and any badge reads, so the step checks the *file* rather
+than the exit status — and `rhiza_paper.yml` runs **`paper-clean`** as its last step, because
+that is the only job in the repository with a compiled paper to clean. Both are #152. The
+`paper-clean` step is last for a reason worth knowing before moving it: `paper_clean` removes
+the **PDF as well as** the aux files, so the upload and the `paper`-branch push must already
+have finished with it. Its assertions name `.pdf` and `.log`, which is what tectonic actually
+leaves — looking for a `.aux` would pass against a `paper-clean` that deleted nothing.
 
 Two things follow for a change to `pyproject.toml`:
 

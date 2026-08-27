@@ -190,3 +190,22 @@ jobs:
           fi
 
           git push origin "$commit:refs/heads/paper"
+
+      # `paper-clean` ran nowhere at all until #152, and this is the only job in the
+      # repository with a compiled paper to clean -- anywhere else it would pass by finding
+      # nothing, which is the shape of a step that proves nothing.
+      #
+      # Last, and after the push, because it removes the **PDF as well as** the aux files:
+      # `paper_clean` adds `.pdf` to AUX_SUFFIXES on the grounds that removing the output is
+      # the point of a clean. So the two steps above have to have finished with it.
+      #
+      # Both assertions name what tectonic actually leaves, which is not what a TeX
+      # distribution would: tectonic writes only the PDF plus, because `paper` passes
+      # `--keep-logs`, the `.log`. There is no `.aux` here to look for, so asserting one was
+      # gone would pass on a `paper-clean` that deleted nothing at all.
+      - name: rhiza-task paper-clean
+        if: ${{ steps.check_tex.outputs.tex_present == 'true' }}
+        run: |
+          uv run rhiza-task paper-clean
+          test ! -e "${{ steps.pdf.outputs.pdf_path }}"
+          test -z "$(find docs/paper -maxdepth 1 -name '*.log')"
