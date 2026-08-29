@@ -170,7 +170,7 @@ reach the published book.
 
 `book` aggregates the report-producing gates, copies `_tests/` into `docs/reports/`,
 exports every Marimo notebook to `docs/notebooks/*.html`, builds the site with
-[zensical](https://github.com/squidfunk/zensical), and generates a coverage badge. It
+[zensical](https://github.com/zensical/zensical), and generates a coverage badge. It
 skips entirely without a `mkdocs.yml`.
 
 `paper` is a prerequisite but needs no copy step, unlike `_tests/`: tectonic writes the PDF
