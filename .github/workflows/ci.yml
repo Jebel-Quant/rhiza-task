@@ -230,6 +230,39 @@ jobs:
       - name: rhiza-task all
         run: uv run rhiza-task all
 
+      # `coverage` is outside `all` for the same reason `complexity` is, below: `all` is what
+      # every consumer's CI invokes, so adding a prerequisite would fail builds in
+      # repositories that changed nothing. This repository opts in by naming it here -- the
+      # mechanism a consumer would use too.
+      #
+      # It is named here rather than left to a human because the report is *published*, and
+      # nothing published should depend on somebody remembering a command. The fleet board
+      # reads coverage from an artifact by the name below, and until this step existed this
+      # was one of two repositories that produced none -- so the board reported "no report"
+      # about the package whose own floor is `coverage_fail_under = 100`.
+      #
+      # The file check is the point of the step as much as the task is: `coverage` exiting 0
+      # having written nothing is exactly the failure the upload would otherwise turn into a
+      # silently empty column.
+      - name: rhiza-task coverage
+        if: ${{ !cancelled() }}
+        run: |
+          uv run rhiza-task coverage
+          test -s _tests/coverage.xml
+
+      # The artifact name is load-bearing: the collector reading this looks for
+      # `coverage-report` and nothing else. `if-no-files-found: error` so a future change
+      # that stops writing the file fails this job rather than quietly emptying the board.
+      # Published even when another gate failed: the board should show the coverage a
+      # commit actually has, not go blank because an unrelated check was red.
+      - name: Upload coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-report
+          path: _tests/coverage.xml
+          if-no-files-found: error
+
       # `complexity` is deliberately outside `all` -- tasks/python.py says why, in one line:
       # `all` is what every consumer's CI invokes, so adding a prerequisite to it would fail
       # builds in repositories that changed nothing. So this repository opts in by naming it
