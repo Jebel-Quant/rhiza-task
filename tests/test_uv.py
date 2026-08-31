@@ -93,6 +93,22 @@ def test_uv_run_can_bypass_the_project(spy: list[dict[str, object]], tmp_path: P
     assert spy[0]["argv"][:4] == ["/fake/uv", "run", "--no-project", "--with"]
 
 
+def test_uv_run_can_pin_the_interpreter(spy: list[dict[str, object]], tmp_path: Path) -> None:
+    """``--python`` precedes ``--no-project``, which ``update`` relies on together.
+
+    The scripts that task drives belong to another project, pinned by it to 3.12, and are
+    stdlib-only -- so the interpreter is named and the target repo's environment is not
+    resolved. Both flags in one vector is the case worth pinning, since either alone would
+    leave the other's ordering unasserted.
+
+    Args:
+        spy: The subprocess spy.
+        tmp_path: Working directory.
+    """
+    uv_module.uv_run("python", "sync.py", cwd=tmp_path, no_project=True, python="3.12")
+    assert spy[0]["argv"] == ["/fake/uv", "run", "--python", "3.12", "--no-project", "python", "sync.py"]
+
+
 def test_uvx_passes_the_interpreter_and_extras(spy: list[dict[str, object]], tmp_path: Path) -> None:
     """``-p`` and ``--with`` both land before the tool spec.
 

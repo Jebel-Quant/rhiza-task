@@ -880,3 +880,76 @@ jobs:
       # exists to check.
       - name: Run tests against the floors
         run: uv run --all-extras --all-groups --resolution lowest-direct pytest -ra
+
+  # The one task with no fixture-free way to be exercised, and the one whose unit tests are
+  # least able to speak for it: `update` drives *another repository's* scripts, so what the
+  # suite asserts is the vector this package sends and nothing at all about whether `sync.py`
+  # still accepts it. That is exactly the gap #148 shipped a release through -- a vector
+  # well-formed, unit-asserted and wrong -- so it gets a job rather than a promise.
+  #
+  # Read a failure here as "the front door and the scripts disagree", which is actionable in
+  # this repository even when the change was upstream. That is the line `links` draws for the
+  # network half of its checks, and it falls on the other side of it.
+  template-layer:
+    name: update against the real sync scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.16"
+          enable-cache: true
+
+      # Plain "$RUNNER_TEMP", not the `${RUNNER_TEMP//\\//}` rewrite `python-layer` needs: that
+      # one exists because a backslash path means two different things to bash and to Python's
+      # `Path` inside one step, and this job is Linux-only, where the value has no backslashes
+      # to rewrite. Adding Windows here would mean adopting it.
+      #
+      # A real git repository with a real pointer file, because `sync.py` refuses a dirty tree
+      # and writes a lock relative to the repository root -- neither of which a bare directory
+      # can exercise. The ref is deliberately an *old* one: syncing to a release that is behind
+      # the latest is the case a consumer is in, and it keeps the job off whatever landed
+      # upstream this morning.
+      - name: Build a throwaway managed repository
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/managed/.rhiza"
+          cd "$RUNNER_TEMP/managed"
+          git init -q -b main
+          git config user.email ci@example.com
+          git config user.name CI
+          # Every field here was corrected by running this for real, which is the argument for
+          # the job in miniature. `repo:` is not the key -- `_validate_fields.py` requires
+          # `template-repository` or `repository` -- and there is no `python` bundle; the two
+          # a Python repo actually names are `core` and `python-core`. Both mistakes came
+          # straight from the guide in rhiza#1654, and both exit non-zero here.
+          cat > .rhiza/template.yml <<'EOF'
+          template-repository: "jebel-quant/rhiza"
+          ref: "v1.7.0"
+          templates:
+            - core
+            - python-core
+          EOF
+          git add -A
+          git commit -qm "chore: a repository with a template pointer"
+
+      # TEMPLATE_REF exercises the bump as well as the sync: the `ref:` rewrite is the only
+      # file this task writes itself, so a job that left it unset would test three quarters of
+      # the command. Asserted below rather than trusted, since a no-op rewrite still exits 0.
+      - name: Sync it, as a consumer would
+        env:
+          TEMPLATE_REF: v1.7.1
+        run: uv run rhiza-task update --root "$RUNNER_TEMP/managed"
+
+      # Three assertions, because a zero exit separates none of them. The pointer moved; the
+      # sync wrote its lock; and the staged set is non-empty -- that last one is what fails if
+      # `stage_synced.py` grew an argument this package does not pass, which is the drift this
+      # whole job exists to notice.
+      - name: Check the sync actually landed
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/managed"
+          grep -q 'ref: "v1.7.1"' .rhiza/template.yml
+          test -f .rhiza/template.lock
+          git diff --cached --quiet && { echo "nothing was staged"; exit 1; }
+          echo "staged $(git diff --cached --name-only | wc -l) file(s)"
