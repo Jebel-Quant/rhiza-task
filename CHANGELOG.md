@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.5.0] - 2026-08-31
+
+### 🚀 Features
+
+- Make the docstring floor a setting instead of a literal 100
+- Add `update`, the template sync as one command
+
+### 📚 Documentation
+
+- Hold config.py's maintainability rank at a gated ceiling
+- Say what counts as public when the question is a name
+- Point the zensical link at the project's own org
+
+### 🧪 Testing
+
+- Close the four subprocess doors the uv fixture cannot reach
+- Derive the subprocess guard's scope instead of listing it
+- Match process starters by shape instead of listing them
+- Bring .github/scripts inside typecheck and give the ceiling a test
+
+### ⚙️ Miscellaneous Tasks
+
+- Run clean, coverage, paper-clean and test-pyproject for real
+- Measure accumulation directly instead of through radon's MI
+- Run the python layer on Windows, and state where the line falls
+- Publish the coverage report this repo already measures
+
 ## [1.4.1] - 2026-08-27
 
 ### 📝 Note
