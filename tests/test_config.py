@@ -262,14 +262,29 @@ def test_invalid_typechecker_fails_at_load(tmp_path: Path) -> None:
         Config.load(root=tmp_path, typechecker="tpye")
 
 
-def test_invalid_coverage_threshold_fails_at_load(tmp_path: Path) -> None:
-    """A coverage threshold outside 0-100 is rejected.
+@pytest.mark.parametrize("field", ["coverage_fail_under", "docs_coverage_fail_under"])
+def test_invalid_coverage_threshold_fails_at_load(tmp_path: Path, field: str) -> None:
+    """A coverage threshold outside 0-100 is rejected, and named in the message.
+
+    Parametrised over both floors rather than asserted on one: the validator loops, so a
+    test that checked only ``coverage_fail_under`` would pass against a loop that had lost
+    the other name from its tuple.
+
+    Args:
+        tmp_path: The repository root.
+        field: The percentage setting under test.
+    """
+    with pytest.raises(ValueError, match=f"{field} must be a percentage"):
+        Config.load(root=tmp_path, **{field: 900})
+
+
+def test_the_docstring_floor_defaults_to_a_hundred(tmp_path: Path) -> None:
+    """Making the floor configurable did not lower it.
 
     Args:
         tmp_path: The repository root.
     """
-    with pytest.raises(ValueError, match="percentage"):
-        Config.load(root=tmp_path, coverage_fail_under=900)
+    assert Config.load(root=tmp_path).docs_coverage_fail_under == 100
 
 
 @pytest.mark.parametrize("value", [0, -1])

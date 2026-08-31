@@ -1122,7 +1122,10 @@ class TestPythonDocsCoverage:
     """python.mk's ``docs-coverage``."""
 
     def test_measures_both_folders_the_gate_claims(self, cfg: Config, recorder: Recorder) -> None:
-        """Both the source and the test tree are measured, at a 100% floor.
+        """Both the source and the test tree are measured, at the default 100% floor.
+
+        The literal is the assertion that making the floor a setting did not move the
+        default: a repo configuring nothing is gated exactly as it was before #1654.
 
         Args:
             cfg: The resolved config.
@@ -1132,6 +1135,19 @@ class TestPythonDocsCoverage:
         call = recorder.find("interrogate")
         assert call.flags[:5] == ["-vv", "--fail-under", "100", "--ignore-init-method", "--ignore-magic"]
         assert call.flags[5:] == ["src", "tests"]
+
+    def test_honours_a_configured_floor(self, cfg: Config, recorder: Recorder) -> None:
+        """A repo that cannot reach 100 today says so, rather than shadowing the recipe.
+
+        The point of the setting: ``local.mk`` could already override this gate locally and
+        was invisible to CI, so the override passed on a laptop and failed on a runner.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        python.docs_coverage(replace(cfg, docs_coverage_fail_under=85))
+        assert recorder.find("interrogate").flags[:3] == ["-vv", "--fail-under", "85"]
 
     def test_omits_a_folder_that_is_not_there(self, cfg: Config, recorder: Recorder) -> None:
         """A repository with no test folder is measured on what it has.

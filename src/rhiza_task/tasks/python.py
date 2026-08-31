@@ -352,7 +352,11 @@ def license_(cfg: Config) -> None:
     guards=(Guard("source_folder"),),
 )
 def docs_coverage(cfg: Config) -> None:
-    """Require 100% docstring coverage over the source and test folders.
+    """Enforce :attr:`Config.docs_coverage_fail_under` over the source and test folders.
+
+    The floor was the literal ``100`` until it became a setting; it still *defaults* to
+    100, so a repo that configures nothing is gated exactly as it was. The field's own
+    comment carries why it is now askable.
 
     Args:
         cfg: The resolved config.
@@ -362,7 +366,7 @@ def docs_coverage(cfg: Config) -> None:
         "interrogate",
         "-vv",
         "--fail-under",
-        "100",
+        str(cfg.docs_coverage_fail_under),
         "--ignore-init-method",
         "--ignore-magic",
         *folders,
