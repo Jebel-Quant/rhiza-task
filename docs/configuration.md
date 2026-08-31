@@ -125,11 +125,30 @@ exports one for every caller and deliberately leaves it empty for consumers, who
 | setting | default | what |
 |---|---|---|
 | `coverage_fail_under` | `90` | the coverage floor, enforced wherever `test` runs |
+| `docs_coverage_fail_under` | `100` | the docstring floor `docs-coverage` hands interrogate |
 | `complexity_max` | `15` | the cyclomatic-complexity ceiling `complexity` enforces |
 | `typechecker` | `ty` | `ty`, `mypy` or `both` |
 | `license_fail_on` | `("GPL", "LGPL", "AGPL")` | matched as **substrings** |
 | `license_ignore_packages` | `()` | packages exempt from the copyleft scan |
 | `deptry_ignore` | `()` | deptry rule codes to suppress |
+
+!!! tip "Adopting `docs-coverage` on a codebase that already exists"
+    The floor defaults to 100 and stays there, because a docstring is either present or it
+    is not. A repository arriving at 89% has no way to reach it in one commit, though, and
+    the two workarounds are both worse than saying so: writing docstrings for every nested
+    helper in one sitting, or shadowing the recipe in `local.mk` — which CI never reads, so
+    the gate then passes locally and fails on the runner.
+
+    Set the floor to what you have and raise it as a ratchet:
+
+    ```toml
+    [tool.rhiza-task]
+    docs_coverage_fail_under = 89
+    ```
+
+    Only the Python layer takes a number. Rust and Go express the same gate as
+    `-D missing_docs` and revive's `exported` rule, which are pass/fail on one item rather
+    than a percentage over a tree, so there is no threshold for them to read.
 
 !!! warning "`typechecker = "both"` masks `ty`"
     `python.mk` documented it and the behaviour is unchanged: `both` hides `ty`'s exit

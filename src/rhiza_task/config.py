@@ -179,6 +179,21 @@ class Config:
 
     coverage_fail_under: int = 90
 
+    # The floor ``docs-coverage`` hands interrogate. 100 because a docstring is present or
+    # it is not -- unlike a line of code, which can be covered by a test that asserts
+    # nothing -- so there is no honest reason to aim lower in a repo starting from scratch.
+    #
+    # A setting rather than the literal it was, because the repos adopting this are not
+    # starting from scratch. A codebase arriving at 89% has one gate it cannot pass and no
+    # way to say so, and the two answers left were both worse than a number: write
+    # docstrings for every nested helper in one sitting, or shadow the whole recipe in
+    # ``local.mk`` -- which is CI-invisible, so the gate then passes locally and fails in
+    # CI. Both were observed on the same upgrade; see jebel-quant/rhiza#1654.
+    #
+    # Lowering it is a ratchet to raise again, not a destination. The default is unchanged,
+    # so a repo that says nothing is gated exactly as before.
+    docs_coverage_fail_under: int = 100
+
     # The ceiling the ``complexity`` gate enforces, as radon's own cyclomatic-complexity
     # number rather than its A-F rank. A number and not a rank because rank C spans 11-20,
     # which is too coarse to hold a decision: this repository's four deliberate C blocks
@@ -297,8 +312,9 @@ class Config:
         validated setting" stop being an open-ended growth rule.
 
         Raises:
-            ValueError: When ``typechecker`` is not one of ty, mypy, both,
-                ``coverage_fail_under`` is outside 0-100, ``complexity_max`` is below 1,
+            ValueError: When ``typechecker`` is not one of ty, mypy, both, either of
+                ``coverage_fail_under`` and ``docs_coverage_fail_under`` is outside 0-100,
+                ``complexity_max`` is below 1,
                 ``layers`` names a layer that does not exist, :attr:`root` is not an
                 existing directory, or a ``*_folder`` escapes it. Each helper below raises
                 for its own settings and documents the message it uses.
@@ -369,14 +385,22 @@ class Config:
             raise ValueError(msg)
 
     def _validate_coverage(self) -> None:
-        """Reject a :attr:`coverage_fail_under` that is not a percentage.
+        """Reject a coverage floor that is not a percentage.
+
+        Both floors are checked in one loop rather than in two helpers, because they are
+        the same validation and not merely a similar one: whatever a third percentage
+        setting turns out to be, it joins the tuple and adds no branch here. That is the
+        ceiling this helper commits to -- a name, never an ``if``.
 
         Raises:
-            ValueError: When ``coverage_fail_under`` is outside 0-100.
+            ValueError: When ``coverage_fail_under`` or ``docs_coverage_fail_under`` is
+                outside 0-100.
         """
-        if not 0 <= int(self.coverage_fail_under) <= 100:
-            msg = f"coverage_fail_under must be a percentage (got {self.coverage_fail_under!r})"
-            raise ValueError(msg)
+        for name in ("coverage_fail_under", "docs_coverage_fail_under"):
+            value = getattr(self, name)
+            if not 0 <= int(value) <= 100:
+                msg = f"{name} must be a percentage (got {value!r})"
+                raise ValueError(msg)
 
     def _validate_complexity_max(self) -> None:
         """Reject a :attr:`complexity_max` below 1.
