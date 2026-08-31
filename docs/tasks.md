@@ -256,6 +256,66 @@ Every other binary the package reaches for — docker, gh, git-lfs, tectonic, ma
 an install URL. `doctor.mk` also probed GNU make, which was honest while the task layer *was*
 make; nothing here needs it, so it is not probed at all.
 
+## Template
+
+| task | needs | does |
+|---|---|---|
+| `update` | — | sync the rhiza template into this repository |
+
+The one task here that replaces a *document* rather than a make recipe.
+[jebel-quant/rhiza#1654](https://github.com/Jebel-Quant/rhiza/issues/1654) logs an upgrade
+that took eight steps, a clone into `~/.local/share`, three scripts run in sequence and four
+commits — and the guide written from it says `git add -A`, where the upstream document says
+never to. `update` is those steps as one command:
+
+```bash
+TEMPLATE_REF=v1.8.0 uvx rhiza-task update
+```
+
+The ref is a setting rather than a flag, because a task body takes a `Config` and nothing
+else. The environment layer is the spelling above; a repo pinning its next target in
+`pyproject.toml` works too. Leave it unset to re-sync at whatever `.rhiza/template.yml`
+already names.
+
+**It wraps, and does not reimplement.** `rhiza-claude`'s `docs/headless.md` settles that:
+*"A separate CLI would be a second implementation of sync to keep in step with the first,
+and that is the one thing this project has decided not to maintain. One operation, one entry
+point."* So nothing here parses `template.yml`, resolves a bundle, walks the lock or merges a
+file — `sync.py`, `resolve_conflicts.py` and `stage_synced.py` do, and this runs them in
+their documented order and reads their documented exit codes. `resolve_conflicts.py` is
+reached **only** on exit 1, which means "synced, with conflicts"; exit 2 means the sync
+refused and applied nothing, so there is no half-done state to unpick.
+
+Why it lives in this package: `rhiza-task` is the only piece of the ecosystem on PyPI, so
+`uvx rhiza-task update` needs no install — and the install was the step people tripped over.
+
+**It stops before the commit**, and prints the command instead:
+
+```text
+[INFO] staged the synced files. To commit exactly that set:
+[INFO]   SKIP=check-managed-files git commit -m "chore: apply rhiza sync v1.8.0"
+```
+
+That `SKIP=` is not decoration. rhiza-hooks' `check-managed-files` refuses a commit touching
+any path in the lock's `files:` list, and this commit is by construction exactly that list —
+better seen once than hidden. A sync that resolved conflicts has just taken the template's
+side of each one, which is right for a managed file and still a diff worth reading before it
+becomes history.
+
+`RHIZA_CLAUDE_DIR` points at an existing rhiza-claude clone — the `~/.local/share/rhiza-claude`
+that `headless.md` tells you to make. Set, it is read and **never written to**: a
+`git reset --hard` into your working clone is not something a sync command should be able to
+do to you. Unset, this package keeps its own shallow clone under `XDG_CACHE_HOME` and
+refreshes that, because a stale `sync.py` is a correctness risk and its own copy has nothing
+to lose.
+
+!!! warning "This is the one task this repository cannot run against itself"
+    `rhiza-task` is not rhiza-managed and has no `.rhiza/` — see `CLAUDE.md` — so `update`
+    skips here, and CI's `gates` job cannot dogfood it the way it does every other gate. Its
+    vectors are unit-asserted and exercised against a scratch repository, but nothing in
+    *this* repository proves `sync.py` still takes the arguments it is passed. What would is
+    a job in rhiza-claude running its scripts against this front door.
+
 ## Bundle-owned sections
 
 The last five sections are the bundle-owned fragments. **None is a gate**: no `all` names
@@ -356,6 +416,9 @@ reader can tell "skipped deliberately" from "forgotten":
 - **`complexity`** and **`docs-examples`** — adding either to `all` would fail builds in
   repositories that changed nothing, so a repo opts in by naming it in its own CI, which
   is what this one does.
+- **`update`** — it *changes* the repository rather than measuring it, which is the opposite
+  of what an aggregate of gates is for. A sync inside `all` would mean `rhiza-task all`
+  rewriting managed files mid-run.
 - **the bundle-owned sections** — none is a gate, as above.
 
 Anything else registered *is* in `all` for its layer.

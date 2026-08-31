@@ -174,6 +174,7 @@ def uv_run(
     cwd: Path,
     withs: Sequence[str] = (),
     no_project: bool = False,
+    python: str | None = None,
     check: bool = True,
     env: Mapping[str, str] | None = None,
 ) -> int:
@@ -186,6 +187,12 @@ def uv_run(
         withs: Packages to inject, e.g. ``("pytest", "pytest-cov")``.
         no_project: Pass ``--no-project``, for a tool that must not see the project
             environment. marimo.mk's ``marimo`` target is the one case.
+        python: Interpreter to run under, as ``uvx``'s parameter of the same name already
+            does. Usually omitted -- a tool run against the project environment takes that
+            environment's interpreter, which is the point of this form. ``update`` is the
+            exception: the scripts it drives are a *different* project's, pinned by that
+            project to one version, so the interpreter is theirs to name rather than the
+            target repository's.
         check: Raise on non-zero rather than returning the status.
         env: Extra environment variables.
 
@@ -196,6 +203,8 @@ def uv_run(
         Failed: When ``check`` and the tool exited non-zero.
     """
     argv = [_bin("uv", "RHIZA_UV_BIN"), "run"]
+    if python:
+        argv += ["--python", python]
     if no_project:
         argv.append("--no-project")
     for w in withs:

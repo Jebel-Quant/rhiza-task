@@ -132,6 +132,20 @@ exports one for every caller and deliberately leaves it empty for consumers, who
 | `license_ignore_packages` | `()` | packages exempt from the copyleft scan |
 | `deptry_ignore` | `()` | deptry rule codes to suppress |
 
+### The template sync
+
+| setting | default | what |
+|---|---|---|
+| `template_ref` | `""` | the ref `update` moves `.rhiza/template.yml` to; empty re-syncs at the pinned one |
+
+Two environment variables belong to the same task and are deliberately *not* settings, for
+the reason `RHIZA_UV_BIN` is not one — they say where a tool lives on this machine, which is
+not a property of the repository:
+
+- **`RHIZA_CLAUDE_DIR`** — an existing rhiza-claude clone to read the sync scripts from.
+  Never written to.
+- **`XDG_CACHE_HOME`** — where this package keeps its own clone when the above is unset.
+
 !!! tip "Adopting `docs-coverage` on a codebase that already exists"
     The floor defaults to 100 and stays there, because a docstring is either present or it
     is not. A repository arriving at 89% has no way to reach it in one commit, though, and

@@ -205,6 +205,15 @@ class Config:
     # does not should either raise it or not run the gate.
     complexity_max: int = 15
 
+    # The ref ``update`` moves .rhiza/template.yml to, e.g. ``v1.8.0``. Empty means "sync at
+    # the ref the file already names", which is the re-sync case rather than the upgrade one.
+    #
+    # A setting and not a flag because a task body takes a Config and nothing else -- see
+    # spec.Task.run. That is not a workaround: the environment layer already spells it
+    # (``TEMPLATE_REF=v1.8.0 rhiza-task update``), and a repo pinning its next target in
+    # pyproject.toml is a use the flag would not have served.
+    template_ref: str = ""
+
     # ty | mypy | both. python.mk documents that ``both`` masks ty's exit status behind
     # mypy's, and jointview sets ``ty`` in .rhiza/.env for that reason. The shell ``case``
     # whose fourth branch validated this is replaced by __post_init__, so a typo now fails

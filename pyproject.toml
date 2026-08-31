@@ -61,6 +61,11 @@ docker = "rhiza_task.tasks.docker"
 lfs = "rhiza_task.tasks.lfs"
 paper = "rhiza_task.tasks.paper"
 presentation = "rhiza_task.tasks.presentation"
+# `update` is the odd one out: it wraps another project's scripts rather than a make recipe,
+# and it is the only task this repository cannot run against itself -- there is no `.rhiza/`
+# here to sync. See the module docstring, which says so at length rather than leaving it to
+# be discovered.
+template = "rhiza_task.tasks.template"
 
 [project.urls]
 Homepage = "https://github.com/jebel-quant/rhiza-task"
