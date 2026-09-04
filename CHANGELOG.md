@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.6.0] - 2026-09-04
+
+> ⚠️ **Upgrade note.** `typecheck` now provisions `ty` and `mypy` at the versions
+> `[tool.rhiza-task]` declares (`ty_version`, `mypy_version`) instead of resolving whatever
+> is newest. If your machine was quietly supplying an older `ty` through the project
+> environment, the gate may report diagnostics it did not report before -- the checker
+> changed, not your code. Set `ty_version = ""` to go back to newest-available.
+
+### 🚀 Features
+
+- Provision the typecheckers at a configured version
+- Add `test-lowest`, the floors gate as a task
+
+### 🐛 Bug Fixes
+
+- Clear pre-commit's legacy hook so `git commit` works after the upgrade
+
 ## [1.5.0] - 2026-08-31
 
 ### 🚀 Features

@@ -2,7 +2,7 @@
 license = "MIT"
 license-files = ["LICENSE"]
 name = "rhiza-task"
-version = "1.5.0"
+version = "1.6.0"
 description = "The rhiza developer tasks as a pinned CLI: one set of task names across Python, Rust and Go, replacing a synced make layer"
 readme = "README.md"
 requires-python = ">=3.11"
