@@ -175,6 +175,7 @@ def uv_run(
     withs: Sequence[str] = (),
     no_project: bool = False,
     python: str | None = None,
+    uv_args: Sequence[str] = (),
     check: bool = True,
     env: Mapping[str, str] | None = None,
 ) -> int:
@@ -193,6 +194,13 @@ def uv_run(
             exception: the scripts it drives are a *different* project's, pinned by that
             project to one version, so the interpreter is theirs to name rather than the
             target repository's.
+        uv_args: Flags for ``uv run`` itself, placed before the tool. ``test-lowest`` is the
+            only caller, and what it passes is why this is one parameter rather than three:
+            ``--isolated``, ``--resolution lowest-direct`` and the repository's
+            ``uv_sync_args`` are a resolver mode plus the environment it is asked about, and
+            none of them means anything without the others. ``no_project`` and ``python``
+            stay named because each is a single decision with a single spelling -- a caller
+            wanting one of those should keep using them rather than spelling the flag here.
         check: Raise on non-zero rather than returning the status.
         env: Extra environment variables.
 
@@ -202,7 +210,7 @@ def uv_run(
     Raises:
         Failed: When ``check`` and the tool exited non-zero.
     """
-    argv = [_bin("uv", "RHIZA_UV_BIN"), "run"]
+    argv = [_bin("uv", "RHIZA_UV_BIN"), "run", *uv_args]
     if python:
         argv += ["--python", python]
     if no_project:

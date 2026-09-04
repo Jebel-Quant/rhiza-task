@@ -109,6 +109,39 @@ def test_uv_run_can_pin_the_interpreter(spy: list[dict[str, object]], tmp_path: 
     assert spy[0]["argv"] == ["/fake/uv", "run", "--python", "3.12", "--no-project", "python", "sync.py"]
 
 
+def test_uv_run_places_uv_s_own_flags_before_the_injections(spy: list[dict[str, object]], tmp_path: Path) -> None:
+    """``uv_args`` reach ``uv run`` itself, ahead of every ``--with`` and the tool.
+
+    Position is the whole of the contract: ``--resolution`` after the tool name would be
+    pytest's argument rather than uv's, and pytest would reject it. ``test-lowest`` is the
+    caller, and it needs the resolver mode and the environment it applies to in one place.
+
+    Args:
+        spy: The subprocess spy.
+        tmp_path: Working directory.
+    """
+    uv_module.uv_run(
+        "pytest",
+        "-n",
+        "auto",
+        cwd=tmp_path,
+        withs=("pytest>=8.0.0",),
+        uv_args=("--isolated", "--resolution", "lowest-direct"),
+    )
+    assert spy[0]["argv"] == [
+        "/fake/uv",
+        "run",
+        "--isolated",
+        "--resolution",
+        "lowest-direct",
+        "--with",
+        "pytest>=8.0.0",
+        "pytest",
+        "-n",
+        "auto",
+    ]
+
+
 def test_uvx_passes_the_interpreter_and_extras(spy: list[dict[str, object]], tmp_path: Path) -> None:
     """``-p`` and ``--with`` both land before the tool spec.
 

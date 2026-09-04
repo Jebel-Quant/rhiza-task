@@ -245,6 +245,107 @@ class TestCoverage:
         assert (cfg.root / "_tests" / "html-coverage").is_dir()
 
 
+class TestTestLowest:
+    """The floors gate, and the reason it is a task at all -- see issue #169."""
+
+    def test_resolves_lowest_direct_in_an_ephemeral_environment(self, cfg: Config, recorder: Recorder) -> None:
+        """The resolver mode is the gate; ``--isolated`` is what keeps it side-effect free.
+
+        Without ``--isolated`` uv re-resolves the project environment in place and leaves
+        ``.venv`` and ``uv.lock`` downgraded, so a gate would rewrite a tracked file and
+        change what every later task runs against.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        python.test_lowest(cfg)
+        uv_args = recorder.find("pytest").kwargs["uv_args"]
+        assert list(python.LOWEST_DIRECT) == ["--isolated", "--resolution", "lowest-direct"]
+        assert set(python.LOWEST_DIRECT) <= set(uv_args)
+
+    def test_asks_about_the_pieces_install_syncs(self, cfg: Config, recorder: Recorder) -> None:
+        """The environment the floors are resolved for is the one ``install`` builds.
+
+        rhiza's workflow restated ``--all-extras --all-groups`` by hand beside a task that
+        already had the setting, which is the drift this reuse removes.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        cfg = replace(cfg, uv_sync_args=("--group", "test"))
+        python.test_lowest(cfg)
+        assert list(recorder.find("pytest").kwargs["uv_args"])[-2:] == ["--group", "test"]
+
+    def test_selects_the_suite_the_way_test_does(self, cfg: Config, recorder: Recorder) -> None:
+        """One argument builder, so the two gates cannot disagree about what the suite is.
+
+        Asserted as a subset of what ``test`` passes rather than against the builder itself:
+        that says both things at once -- every selection flag is shared, and this gate adds
+        none of its own.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        python.test(cfg)
+        from_test = set(recorder.find("pytest").flags)
+        recorder.calls.clear()
+        python.test_lowest(cfg)
+        flags = recorder.find("pytest").flags
+        assert set(flags) <= from_test
+        assert "auto" in flags
+
+    def test_measures_no_coverage(self, cfg: Config, recorder: Recorder) -> None:
+        """The subject is whether the suite runs at the floors, not what it covers.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        python.test_lowest(cfg)
+        assert not [f for f in recorder.find("pytest").flags if f.startswith("--cov")]
+
+    def test_every_injected_package_carries_a_floor(self) -> None:
+        """A bare name in :data:`PYTEST_WITHS` resolves to the oldest release on PyPI.
+
+        The injected packages are direct requirements too, so ``lowest-direct`` applies to
+        them: an unpinned ``pytest`` here resolves to 2.0.0, whose sdist does not build, and
+        the gate fails on its own instrumentation without reaching a single floor. Asserted
+        as the *shape* of every entry rather than as the six versions -- moving a floor is a
+        decision, while a seventh package arriving without one is the mistake this catches.
+        """
+        assert all(">=" in w or "==" in w for w in python.PYTEST_WITHS)
+
+    def test_skips_a_repository_with_no_tests(self, cfg: Config, recorder: Recorder) -> None:
+        """No test files is the same skip ``test`` reports, not a floors failure.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        from rhiza_task import runner
+
+        shutil.rmtree(cfg.path("tests_folder"))
+        state = runner.run(["test-lowest"], cfg)
+        assert state.status_of("test-lowest") is runner.Status.SKIPPED
+        assert "pytest" not in recorder.tools()
+
+    def test_arrives_through_install_so_the_setup_hook_runs(self, cfg: Config, recorder: Recorder) -> None:
+        """#169 itself: the gate that bypassed the graph bypassed ``local-setup.sh`` with it.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        from rhiza_task import runner
+
+        state = runner.run(["test-lowest"], cfg)
+        assert state.status_of("setup") is runner.Status.OK
+        assert state.status_of("install") is runner.Status.OK
+
+
 class TestTypecheck:
     """python.mk's ``typecheck``, including the ty/mypy asymmetry."""
 
