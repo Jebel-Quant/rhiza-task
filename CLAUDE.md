@@ -447,7 +447,18 @@ an integer in this sentence would be one more measured figure with nothing readi
   property test. Unlike `bundle-layer`, this job leaves no vector out — every task in the
   section runs here.
 - **`lowest-deps`** — resolves `--resolution lowest-direct` to prove the manifest's floors
-  are real.
+  are real, and since #169 it does that by calling `rhiza-task test-lowest` rather than uv
+  directly. It was the last job here restating how the suite runs, and calling uv is exactly
+  what kept it outside `setup` — which is the whole argument for the task existing, since a
+  consumer whose `local-setup.sh` provisions a native binary got a red floors job diagnosing
+  a missing binary as a resolution failure. `python-layer` runs the same task against its
+  scratch project, and the two are not redundant: there the floors read back are the ones
+  `PYTEST_WITHS` injects, since that fixture declares only pytest and pytest-cov and leaves
+  xdist, html, mock and timeout entirely to the injection. Its bare `pytest` is also what
+  failed the job on the first run — **a requirement with no lower bound is not a floor**, and
+  `lowest-direct` resolves it to the oldest release on PyPI. That is not the task being
+  stricter than the job it replaced: plain `uv sync --all-extras --all-groups --resolution
+  lowest-direct` fails identically, which is checked rather than assumed.
 
 Two additions live outside `ci.yml` and are easy to miss when counting: `python-layer` now
 also runs **`coverage`** against the throwaway project — it is not `test` with a flag, it

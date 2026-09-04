@@ -459,7 +459,14 @@ jobs:
           build-backend = "hatchling.build"
 
           [dependency-groups]
-          test = ["pytest", "pytest-cov"]
+          # The floors are not decoration, and `test-lowest` is why: a requirement with no
+          # lower bound is not a floor at all, so `--resolution lowest-direct` resolves it
+          # to the oldest release on PyPI -- `pytest 2.0.0`, whose sdist does not build.
+          # This fixture had bare names and the step below failed on both platforms before
+          # anything was measured. That is not this task being strict: the plain-uv job it
+          # replaces resolves the same set the same way and fails identically, which is
+          # checked rather than assumed.
+          test = ["pytest>=8.0.0", "pytest-cov>=5.0.0"]
 
           [tool.rhiza-task]
           coverage_fail_under = 0
@@ -471,6 +478,20 @@ jobs:
       # pytest rejects fails here, which is the whole point: no stub can reject one.
       - name: rhiza-task test
         run: uv run rhiza-task test --root "${RUNNER_TEMP//\\//}/pyproj"
+
+      # `test-lowest` runs here as well as in `lowest-deps` below, for the reason this job
+      # exists at all: that job runs it against *this* repository, whose manifest is tuned to
+      # it, so the shipped defaults a consumer actually gets would otherwise go unexercised.
+      #
+      # It is also the only place `PYTEST_WITHS`'s floors are read back, and the fixture above
+      # is what makes that true: it declares `pytest` and `pytest-cov` and nothing else, so
+      # xdist, html, mock and timeout are supplied entirely by the injected pins -- and
+      # `-n auto` is the flag that would fail if the xdist floor were wrong. A `--with` is an
+      # overlay resolved separately from the project, which is worth knowing before reading
+      # this step's failures: an injected floor bounds the runner and cannot rescue a bare
+      # name in the manifest.
+      - name: rhiza-task test-lowest
+        run: uv run rhiza-task test-lowest --root "${RUNNER_TEMP//\\//}/pyproj"
 
       # `coverage` is not `test` with a flag -- it runs its own vector, writing the Cobertura
       # XML the book and any badge generator read. It ran nowhere until #152, so a vector
@@ -853,10 +874,16 @@ jobs:
   # The floors in pyproject.toml -- typer>=0.15, rich>=13.0, python-dotenv>=1.0 -- are a
   # claim, and `--frozen` everywhere else means nothing tests it: the lockfile resolves
   # typer 0.27.1 and rich 15.0.0, nine and two minor versions above what the manifest
-  # says is enough. This job is the only place those numbers are asserted. Lifted from
-  # rhiza's rhiza_ci.yml `lowest-deps`, which is the one job there that calls plain uv
-  # rather than a pinned older rhiza-task, so it carries no circular dependency on this
-  # package.
+  # says is enough. This job is the only place those numbers are asserted.
+  #
+  # It used to be the one job here that called plain uv, with `--all-extras --all-groups
+  # --resolution lowest-direct` spelled out twice and a comment arguing that `rhiza-task
+  # test` could not be used because its `--with` flags resolved newest and would undo the
+  # floors. #169 answered that in both directions. The injected packages now carry floors of
+  # their own, so they bound the runner instead of replacing it -- and a job that calls uv
+  # directly is a job that never reaches `setup`, which for a consumer whose
+  # `local-setup.sh` provisions a native binary meant a red floors job diagnosing a missing
+  # binary as a resolution problem. So the vector lives in the package and this job runs it.
   lowest-deps:
     name: lowest-direct dependency floors
     runs-on: ubuntu-latest
@@ -867,19 +894,17 @@ jobs:
           version: "0.11.16"
           enable-cache: true
 
-      # Deliberately not --frozen: resolving against the manifest rather than the
-      # lockfile is the whole point.
-      - name: Resolve the declared floors
-        run: uv sync --all-extras --all-groups --resolution lowest-direct
-
-      - name: Show what that resolved to
-        run: uv pip list
-
-      # pytest directly rather than `rhiza-task test`: the task provisions pytest through
-      # `uv run --with`, which resolves newest and would silently undo the floors this job
-      # exists to check.
-      - name: Run tests against the floors
-        run: uv run --all-extras --all-groups --resolution lowest-direct pytest -ra
+      # The `uv pip list` diagnostic this job used to carry is gone on purpose. `test-lowest`
+      # resolves into an ephemeral environment so that it cannot leave `.venv` and `uv.lock`
+      # downgraded, so listing the *project* environment afterwards would print the highest
+      # resolution while appearing to report the floors -- and uv names the versions it chose
+      # in the failure itself, which is the moment anyone wants them.
+      #
+      # Against a real manifest with real floors, which is what this job adds over
+      # `python-layer`'s scratch project: `requires-python >=3.11` is resolved here too, so
+      # the suite runs on the oldest interpreter the package claims to support.
+      - name: Run the tests against the declared floors
+        run: uv run rhiza-task test-lowest
 
   # The one task with no fixture-free way to be exercised, and the one whose unit tests are
   # least able to speak for it: `update` drives *another repository's* scripts, so what the

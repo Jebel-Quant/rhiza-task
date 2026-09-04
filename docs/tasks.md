@@ -30,6 +30,7 @@ special cases.
 |---|---|---|
 | `install` | — | create the venv and sync dependencies |
 | `test` | `install` | run all tests |
+| `test-lowest` | `install` | run the tests against the oldest dependencies the manifest allows |
 | `coverage` | `install` | measure coverage and write `_tests/coverage.xml` |
 | `typecheck` | `install` | run `ty` and/or `mypy` (`typechecker = ty \| mypy \| both`) |
 | `security` | `install` | run the bandit security scan |
@@ -46,6 +47,53 @@ badge step reads and what CI uploads.
 !!! info "`test` retries once, on exit 3 only"
     Exit 3 is the xdist teardown race. A retry on 1, 2 or 4 would be re-running a real
     failure and hoping, so it never happens.
+
+`test-lowest` shares that argument builder too, and adds `--resolution lowest-direct`: every
+direct requirement resolves to the oldest version its specifier allows, so a floor like
+`typer>=0.15` is read back rather than merely declared. It is **not** a prerequisite of
+`all` — it resolves from the manifest rather than the lock file, which is a different
+question from "is this commit green" — so CI names it as its own job.
+
+!!! info "Why `test-lowest` runs `--isolated`"
+    Asking uv for a different resolution mode makes it discard the lock file: without
+    `--isolated` the *project* environment is re-resolved in place, and `.venv` and
+    `uv.lock` are left downgraded once the gate finishes. On a runner nobody notices; on
+    your machine it is a gate that rewrites a tracked file and changes what every later
+    task runs against. The ephemeral environment costs one resolve and leaves nothing
+    behind.
+
+!!! warning "A requirement with no lower bound has no floor"
+    `--resolution lowest-direct` reads every direct requirement's *specifier*, so a bare
+    `pytest` in a dependency group is not "any version is fine" — it resolves to the oldest
+    release on PyPI, `pytest 2.0.0`, whose sdist no longer builds. The gate then fails
+    before measuring anything, naming the requirement that did it:
+
+    ```text
+    hint: `pytest` (v2.0.0) was included because `demo:test` (v0.1.0) depends on `pytest`
+    ```
+
+    The fix is a floor on the named requirement, not a flag here. It applies to
+    `[dependency-groups]` and `[project.optional-dependencies]` as much as to
+    `[project.dependencies]`, since all three are direct. This is not `test-lowest` being
+    stricter than the plain `uv sync --all-extras --all-groups --resolution lowest-direct`
+    it replaces: that resolves the same set the same way and fails on the same requirement.
+    What the task adds is floors for the packages *it* injects, so `-n auto` and the plugins
+    cannot be the thing that breaks.
+
+!!! question "Why there is no Rust or Go `test-lowest`"
+    It is one of the few places the gate-parity contract does not reach, and for reasons
+    belonging to the other two toolchains rather than to this package. Go already resolves
+    this way: module resolution is *minimum version selection*, so `go test` builds against
+    the versions `go.mod` names and a floors gate would be `test` again. Cargo does the
+    opposite and offers no stable way to ask — `-Z minimal-versions` is nightly-only — so a
+    task here would be a gate that most consumers' toolchains reject.
+
+!!! tip "It is a task so that `setup` runs"
+    The job this replaces called `uv` directly, and a caller outside the task graph is a
+    caller outside `install` — so a repository whose `local-setup.sh` provisions a native
+    binary got a green `test` and a red floors job on identical code, reporting a
+    resolution failure that was really a missing `dot`. Anything that runs the suite
+    should arrive through `install`; that is the whole reason the hook is anchored there.
 
 ## Rust
 

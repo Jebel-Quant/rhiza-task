@@ -220,6 +220,29 @@ class Config:
     # before any tool is provisioned rather than after.
     typechecker: str = "ty"
 
+    # What ``typecheck`` provisions each checker *as*: appended to the checker's own name, so
+    # `==0.0.78` becomes `--with ty==0.0.78`. The shape `zensical_version` already uses, and
+    # an empty value means the bare name -- whatever is newest, which is what both settings
+    # replace.
+    #
+    # ty is pinned and mypy is not, and the asymmetry belongs to the checkers rather than to
+    # this package. ty is 0.0.x and its diagnostics change between patch releases, so an
+    # unpinned `--with ty` makes the verdict a fact about the day the job ran: a consumer
+    # migrating to this CLI saw one warning locally, where the project's lock supplied ty
+    # 0.0.18 for `--with ty` to reuse, and twenty-four errors on a runner that had no ty to
+    # reuse -- same commit, different checker. mypy is post-1.0 and moves slowly enough that
+    # the same pin would mostly buy staleness. See jebel-quant/rhiza-task#170.
+    #
+    # Moving the pin is a deliberate edit here, like `pytest-benchmark==5.2.3` in
+    # tasks/extras.py: both are places where the tool's *output* is the gate's meaning, so
+    # what version produced it is part of the gate. A consumer wanting a different ty sets
+    # this rather than forking the task; one wanting the newest sets it empty, which is a
+    # manifest-only spelling for the reason `pytest_rhiza` above documents -- `_from_environ`
+    # and `_from_env_file` drop an empty value as unset, and only TOML tells an empty string
+    # from an absent key.
+    ty_version: str = "==0.0.78"
+    mypy_version: str = ""
+
     # Matched as substrings -- see ``--partial-match`` in the ``license`` task.
     license_fail_on: tuple[str, ...] = ("GPL", "LGPL", "AGPL")
     license_ignore_packages: tuple[str, ...] = ()

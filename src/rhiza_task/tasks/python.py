@@ -20,18 +20,36 @@ from ..uv import uv, uv_run, uvx
 from .quality import install_hooks
 
 PYTEST_WITHS = (
-    "pytest",
-    "pytest-cov",
-    "pytest-xdist",
-    "pytest-html",
-    "pytest-timeout",
-    "pytest-mock",
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "pytest-xdist>=3.5.0",
+    "pytest-html>=4.1.0",
+    "pytest-timeout>=2.2.0",
+    "pytest-mock>=3.12.0",
 )
 """What ``test`` injects.
 
 A named tuple of packages rather than a literal in the call, so CI and this package's own
 tests can assert on it. The make recipe's six ``--with`` flags are invisible to anything
 but a human reading the recipe.
+
+**The floors change nothing under the default resolution** -- uv takes the newest of each
+either way -- and they are not there for it. ``test-lowest`` runs these same six through
+``--resolution lowest-direct``, which applies to every *direct* requirement including the
+injected ones, and a bare ``pytest`` there resolves to the oldest release uv can see --
+``pytest 2.0.0``, whose sdist does not build -- so the gate fails on its own instrumentation
+without ever reaching the floors it was asked about. Each name therefore carries the oldest version this package is
+willing to run a suite with.
+
+They bound the *instrumentation* and nothing else, which is the boundary to know before
+reading a failure: ``--with`` is an overlay uv resolves separately from the project, so a
+floor here cannot rescue a bare name in the manifest under test -- and should not. A
+requirement a repository declares without a lower bound has no floor for this gate to read
+back, and saying so is the gate working.
+
+That makes them a claim, and the claim is read back rather than asserted: ``ci.yml``'s
+``python-layer`` runs ``test-lowest`` against a real project on Linux and Windows, which is
+where a floor that cannot actually run ``-n auto`` shows up.
 """
 
 PYTEST_INTERNAL_ERROR = 3
@@ -44,6 +62,21 @@ test failed.
 """
 
 MAX_ATTEMPTS = 2
+
+LOWEST_DIRECT = ("--isolated", "--resolution", "lowest-direct")
+"""How ``test-lowest`` asks uv for the floors, and why it asks in an ephemeral environment.
+
+``--resolution lowest-direct`` is the gate itself: every direct requirement resolves to the
+oldest version its specifier allows and every transitive one to the newest, so what fails is
+a floor that was never true rather than a dependency somebody else moved.
+
+``--isolated`` is what keeps the answer free of charge. Without it uv re-resolves the
+*project* environment in place -- it says so, ``Ignoring existing lockfile due to change in
+resolution mode`` -- and leaves both ``.venv`` and ``uv.lock`` downgraded when the gate
+finishes. On a runner that is invisible; on a developer's machine it is a gate that rewrites
+a tracked file and silently changes what every later task runs against. An ephemeral
+environment costs one resolve per invocation and leaves nothing behind.
+"""
 
 
 # `setup` first, and in all three layers: a native library needed to *build* a wheel has to
@@ -170,6 +203,59 @@ def coverage(cfg: Config) -> None:
     uv_run("pytest", *_pytest_args(cfg), *coverage_args(cfg), cwd=cfg.root, withs=PYTEST_WITHS)
 
 
+@task(
+    "test-lowest",
+    "run the tests against the oldest dependencies the manifest allows",
+    section="Python",
+    layer="python",
+    needs=("install",),
+    guards=(Guard("tests_folder", glob="test_*.py", reason="no test files found"),),
+)
+def test_lowest(cfg: Config) -> None:
+    """Run the suite with every direct dependency resolved to its declared floor.
+
+    A declared floor is a claim -- ``typer>=0.15`` says the package works with typer 0.15 --
+    and ``--frozen`` everywhere else means nothing reads it back: the lock file resolves
+    whatever is newest, so a floor can be years stale while every gate stays green.
+
+    **It is a task rather than a workflow step, and that is the whole of #169.** rhiza's
+    ``lowest-deps`` job called plain ``uv`` because there was nothing here to call, and a
+    caller that bypasses the task graph bypasses ``setup`` with it -- so a repository whose
+    ``local-setup.sh`` provisions a native binary got a green ``test`` and a red
+    ``lowest-deps`` on identical code, reporting a resolution problem that was really a
+    missing ``dot`` on the runner. Arriving through ``install`` puts this gate back inside
+    the single insertion point :mod:`rhiza_task.tasks.setup` documents, which is the whole
+    argument for anchoring the hook there.
+
+    Three things it shares rather than restates, because the job it replaces restated all
+    three by hand and the copy had already drifted by one flag:
+
+    * ``_pytest_args``, so the suite is selected the way ``test`` and ``coverage`` select it.
+    * :data:`PYTEST_WITHS`, so ``-n auto`` has an xdist to run under -- see that constant for
+      why its floors exist and why they are invisible anywhere else.
+    * :attr:`~rhiza_task.config.Config.uv_sync_args`, because "which of the manifest's
+      optional pieces count" is the same question ``install`` asks, and a repository that
+      answered it once has answered it here.
+
+    No coverage flags, deliberately. The subject is whether the suite *runs* at the floors,
+    and a coverage floor here would either report what ``test`` already reported or give this
+    gate a second way to go red that has nothing to do with resolution.
+
+    Args:
+        cfg: The resolved config.
+
+    Raises:
+        Failed: When pytest reports test failures.
+    """
+    uv_run(
+        "pytest",
+        *_pytest_args(cfg),
+        cwd=cfg.root,
+        withs=PYTEST_WITHS,
+        uv_args=(*LOWEST_DIRECT, *cfg.uv_sync_args),
+    )
+
+
 def _pytest_args(cfg: Config) -> list[str]:
     """Return the arguments both pytest-running gates share.
 
@@ -225,6 +311,15 @@ def typecheck(cfg: Config) -> None:
     the setting and errors. Validation moved to :meth:`Config.__post_init__`, so an
     invalid value fails before a tool is provisioned, and what is left is a loop.
 
+    **What each checker is provisioned *as* is a setting, and it has to be.** The ``--with``
+    here used to carry the bare name, so the gate ran whatever was newest at the moment it
+    ran -- and for a 0.0.x checker that is not a detail: one consumer saw a single warning
+    locally, where ``--with ty`` reused the ty their lock file supplied, and twenty-four
+    errors on a runner that had none to reuse, on the same commit. An unchanged repository
+    could go from green to red overnight, and two machines could disagree about it on the
+    same day. See #170, and ``ty_version`` in :mod:`rhiza_task.config` for why ty is pinned
+    by default and mypy is not.
+
     Args:
         cfg: The resolved config.
     """
@@ -232,7 +327,11 @@ def typecheck(cfg: Config) -> None:
     for checker in checkers:
         # The asymmetry is preserved from python.mk: mypy runs --strict, ty does not.
         args = ("check", cfg.source_folder) if checker == "ty" else ("--strict", cfg.source_folder)
-        uv_run(checker, *args, cwd=cfg.root, withs=(checker,))
+        # The second asymmetry, and this one is not python.mk's: `ty` is provisioned at an
+        # exact version and mypy is not. See `ty_version` in config.py for why -- both are
+        # settings, so a consumer needing the other answer changes it rather than the task.
+        requirement = f"ty{cfg.ty_version}" if checker == "ty" else f"mypy{cfg.mypy_version}"
+        uv_run(checker, *args, cwd=cfg.root, withs=(requirement,))
 
 
 @task(
