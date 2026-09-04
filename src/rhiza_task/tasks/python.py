@@ -225,6 +225,15 @@ def typecheck(cfg: Config) -> None:
     the setting and errors. Validation moved to :meth:`Config.__post_init__`, so an
     invalid value fails before a tool is provisioned, and what is left is a loop.
 
+    **What each checker is provisioned *as* is a setting, and it has to be.** The ``--with``
+    here used to carry the bare name, so the gate ran whatever was newest at the moment it
+    ran -- and for a 0.0.x checker that is not a detail: one consumer saw a single warning
+    locally, where ``--with ty`` reused the ty their lock file supplied, and twenty-four
+    errors on a runner that had none to reuse, on the same commit. An unchanged repository
+    could go from green to red overnight, and two machines could disagree about it on the
+    same day. See #170, and ``ty_version`` in :mod:`rhiza_task.config` for why ty is pinned
+    by default and mypy is not.
+
     Args:
         cfg: The resolved config.
     """
@@ -232,7 +241,11 @@ def typecheck(cfg: Config) -> None:
     for checker in checkers:
         # The asymmetry is preserved from python.mk: mypy runs --strict, ty does not.
         args = ("check", cfg.source_folder) if checker == "ty" else ("--strict", cfg.source_folder)
-        uv_run(checker, *args, cwd=cfg.root, withs=(checker,))
+        # The second asymmetry, and this one is not python.mk's: `ty` is provisioned at an
+        # exact version and mypy is not. See `ty_version` in config.py for why -- both are
+        # settings, so a consumer needing the other answer changes it rather than the task.
+        requirement = f"ty{cfg.ty_version}" if checker == "ty" else f"mypy{cfg.mypy_version}"
+        uv_run(checker, *args, cwd=cfg.root, withs=(requirement,))
 
 
 @task(

@@ -21,6 +21,12 @@ You should. An unpinned task layer can change under a green pull request without
 touching your repository — which is the failure mode the whole package exists to remove.
 `rhiza-task@1.5.0` makes a bump a deliberate commit that carries whatever fixes it wants.
 
+Pinning this package is not the whole of it, because a gate can be pinned and still
+provision an unpinned tool. `typecheck` was that case: `--with ty` resolved whatever was
+newest at the moment the job ran, so a pinned `rhiza-task` still gave two machines two
+verdicts on one commit. Hence [`ty_version`](configuration.md#gates-and-thresholds) — the
+checker's version is part of the pin, and moving it is a commit too.
+
 ### A gate says `skipped`. Is that bad?
 
 Not by itself. A task whose subject is absent skips: `fmt` with no

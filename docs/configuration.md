@@ -128,6 +128,8 @@ exports one for every caller and deliberately leaves it empty for consumers, who
 | `docs_coverage_fail_under` | `100` | the docstring floor `docs-coverage` hands interrogate |
 | `complexity_max` | `15` | the cyclomatic-complexity ceiling `complexity` enforces |
 | `typechecker` | `ty` | `ty`, `mypy` or `both` |
+| `ty_version` | `==0.0.78` | what `typecheck` provisions `ty` as, appended to the name |
+| `mypy_version` | `""` | the same for mypy, empty meaning whatever is newest |
 | `license_fail_on` | `("GPL", "LGPL", "AGPL")` | matched as **substrings** |
 | `license_ignore_packages` | `()` | packages exempt from the copyleft scan |
 | `deptry_ignore` | `()` | deptry rule codes to suppress |
@@ -163,6 +165,26 @@ not a property of the repository:
     Only the Python layer takes a number. Rust and Go express the same gate as
     `-D missing_docs` and revive's `exported` rule, which are pass/fail on one item rather
     than a percentage over a tree, so there is no threshold for them to read.
+
+!!! warning "`ty` is pinned, and `mypy` is not"
+    `typecheck` used to pass the bare name to `uv run --with`, so the gate ran whatever was
+    newest at the moment it ran. For a 0.0.x checker that is not a detail: one consumer saw
+    a single warning locally, where `--with ty` reused the `ty` their lock file supplied,
+    and twenty-four errors on a runner that had none to reuse — same commit, different
+    checker. So `ty` ships pinned and mypy, being post-1.0, does not.
+
+    Both are settings because neither answer is right for everyone. Move the pin to adopt a
+    newer `ty` deliberately:
+
+    ```toml
+    [tool.rhiza-task]
+    ty_version = "==0.0.60"
+    mypy_version = "==1.18.2"
+    ```
+
+    Set either **empty** to go back to whatever is newest. That is a manifest-only
+    spelling, for the reason `pytest_rhiza` documents below: the environment layer drops an
+    empty value as unset, and only TOML tells an empty string from an absent key.
 
 !!! warning "`typechecker = "both"` masks `ty`"
     `python.mk` documented it and the behaviour is unchanged: `both` hides `ty`'s exit

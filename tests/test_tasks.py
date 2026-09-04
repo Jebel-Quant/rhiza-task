@@ -259,6 +259,34 @@ class TestTypecheck:
         assert recorder.tools() == ["ty"]
         assert recorder.find("ty").flags == ["check", "src"]
 
+    def test_provisions_ty_at_the_pinned_version(self, cfg: Config, recorder: Recorder) -> None:
+        """``--with ty`` bare made the verdict a fact about the day the job ran -- see #170.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        python.typecheck(cfg)
+        assert recorder.find("ty").kwargs["withs"] == (f"ty{cfg.ty_version}",)
+        assert cfg.ty_version.startswith("==")
+
+    def test_a_consumer_can_move_or_drop_the_pin(self, repo: Path, recorder: Recorder) -> None:
+        """Both versions are settings, so the answer this package ships is not the only one.
+
+        An empty value is the bare name again -- whatever is newest -- which is why it is
+        spellable in the manifest at all.
+
+        Args:
+            repo: The repository root.
+            recorder: The uv recorder.
+        """
+        python.typecheck(Config.load(root=repo, typechecker="both", ty_version=">=0.0.18", mypy_version="==1.18.2"))
+        assert recorder.find("ty").kwargs["withs"] == ("ty>=0.0.18",)
+        assert recorder.find("mypy").kwargs["withs"] == ("mypy==1.18.2",)
+        recorder.calls.clear()
+        python.typecheck(Config.load(root=repo, ty_version=""))
+        assert recorder.find("ty").kwargs["withs"] == ("ty",)
+
     def test_both_runs_ty_then_mypy_strict(self, repo: Path, recorder: Recorder) -> None:
         """``both`` runs them in order, and only mypy gets ``--strict``.
 
@@ -266,9 +294,14 @@ class TestTypecheck:
             repo: The repository root.
             recorder: The uv recorder.
         """
-        python.typecheck(Config.load(root=repo, typechecker="both"))
+        cfg = Config.load(root=repo, typechecker="both")
+        python.typecheck(cfg)
         assert recorder.tools() == ["ty", "mypy"]
         assert recorder.find("mypy").flags == ["--strict", "src"]
+        # The other asymmetry, and the default: mypy is post-1.0, so it is provisioned
+        # unpinned where ty is not.
+        assert recorder.find("mypy").kwargs["withs"] == ("mypy",)
+        assert not cfg.mypy_version
 
 
 class TestDerivedAccumulators:
