@@ -111,10 +111,11 @@ need none**. Each was a bundle contributing something it owned, which a task bod
 If you accumulated onto one of these from your own fragment, the equivalent is either the
 plain list setting (`license_ignore_packages`) or [your own task](adding_a_task.md).
 
-## Two behaviour changes to know about
+## Behaviour changes to know about
 
-Both are deliberate, and both are recorded in their module docstring — the convention for
-any change that is not a straight port:
+Each is deliberate, and each is recorded in its module docstring — the convention for any
+change that is not a straight port. The heading carries no count, because the table is the
+enumeration and a number in a sentence is read back by nothing:
 
 | task | change |
 |---|---|
@@ -127,6 +128,28 @@ And one that is not a change so much as a name losing its special status: `paper
 preferred a file called `basanos.tex` — one downstream repository's paper, named in a
 template every consumer synced. It is now `main.tex`, then `paper.tex`, then alphabetical
 order.
+
+!!! warning "If `git commit` broke during the upgrade"
+    0.x installed a classic pre-commit hook. Bare `prek install` does not replace such a
+    hook — it moves it to `.git/hooks/pre-commit.legacy` and runs it *as well*, which prek
+    calls migration mode. pre-commit's generated script refuses to run that way, so
+    `git commit` fails with a message telling you to report a bug against pre-commit, which
+    is the wrong tracker:
+
+    ```text
+    bug: pre-commit's script is installed in migration mode
+    run `pre-commit install -f --hook-type pre-commit` to fix this
+    ```
+
+    The state was also sticky: once the `.legacy` file existed, every later `install`
+    re-entered migration mode, and `install` is a prerequisite of nearly every gate — so
+    running `test` again reaffirmed the broken commit path rather than clearing it.
+
+    `install` now passes `--force` when the hook in place is pre-commit's own, so the first
+    gate you run clears it and names the file it replaced. Nothing is left to do by hand,
+    and a hook **you** wrote in that location is deliberately not touched: prek's migration
+    mode keeps it running, and this check leaves it alone on every later run. See
+    [#171](https://github.com/Jebel-Quant/rhiza-task/issues/171).
 
 ## After the migration
 
