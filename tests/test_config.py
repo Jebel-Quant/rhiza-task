@@ -571,3 +571,34 @@ def test_a_settings_table_that_is_not_a_table_is_ignored(tmp_path: Path) -> None
     cfg = Config.load(root=tmp_path)
     assert cfg.coverage_fail_under == 90
     assert cfg.source_folder == "src"
+
+
+def test_deploy_pages_defaults_on_and_is_settable_from_every_layer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``deploy_pages`` defaults true and turns off from TOML, the env file or the environment.
+
+    All three spellings matter for this one. TOML is the documented home, because the whole
+    point of the setting is to be *repo-owned* -- the alternative was editing the
+    template-owned ``github-book`` workflow stub, which the next sync overwrites. The other
+    two matter because a reusable workflow reads the value through the environment, which is
+    how a caller keeps an explicit ``deploy-pages: false`` input winning over the file.
+
+    Args:
+        tmp_path: The repository root.
+        monkeypatch: Used to export ``RHIZA_DEPLOY_PAGES``.
+    """
+    assert Config.load(root=tmp_path).deploy_pages is True
+
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "d"\nversion = "0"\n\n[tool.rhiza-task]\ndeploy-pages = false\n'
+    )
+    assert Config.load(root=tmp_path).deploy_pages is False
+
+    (tmp_path / "pyproject.toml").unlink()
+    (tmp_path / ".rhiza").mkdir()
+    (tmp_path / ".rhiza" / ".env").write_text("DEPLOY_PAGES=false\n")
+    assert Config.load(root=tmp_path).deploy_pages is False
+
+    monkeypatch.setenv("RHIZA_DEPLOY_PAGES", "false")
+    assert Config.load(root=tmp_path).deploy_pages is False

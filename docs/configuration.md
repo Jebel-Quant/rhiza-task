@@ -242,6 +242,7 @@ $(CURDIR))` cannot be spelled as a dataclass default, and keeping it empty keeps
 |---|---|---|
 | `uv_sync_args` | `("--all-extras", "--all-groups")` | what `install` passes to `uv sync` |
 | `ci_os_matrix` | `("ubuntu-latest",)` | feeds `ci-os-matrix` |
+| `deploy_pages` | `true` | whether rhiza's reusable book workflow publishes to GitHub Pages |
 | `pytest_rhiza` | pinned to a tag | the `rhiza-test` provider — a gate that moves under you is not a gate |
 
 **Empty means "omit `--with` entirely."** The pin is right for a consumer, and wrong for the
@@ -257,6 +258,21 @@ pytest-rhiza = ""
 
 TOML only, for the same reason as `mkdocs-extra-packages = []` above: `RHIZA_PYTEST_RHIZA=`
 reads as unset, and only TOML tells an empty string from an absent key.
+
+**`deploy_pages` is read by a workflow, not by a task**, which `ci_os_matrix` above already
+is. It exists because the choice had nowhere else to live. rhiza's reusable `rhiza_book.yml`
+takes a `deploy-pages` input, so the only place to spell it was the caller — and for a rhiza
+consumer the caller is the `github-book` bundle's workflow stub, which is template-owned: an
+edit there survives review and merge and is then overwritten by the next sync. Set it here
+instead and the stub stays managed:
+
+```toml
+[tool.rhiza-task]
+deploy-pages = false
+```
+
+That is the artifact-only mode rhiza's book guide describes — the generic `book` artifact is
+still uploaded, and a consumer-owned job deploys it wherever it likes.
 
 `pytest-rhiza = "."` looks like the shorthand and is a trap. `uv run --with .` resolves to a
 **cached built copy** that is not rebuilt on edit, so a broken check goes uncaught while the

@@ -292,6 +292,21 @@ class Config:
     uv_sync_args: tuple[str, ...] = ("--all-extras", "--all-groups")
     ci_os_matrix: tuple[str, ...] = DEFAULT_CI_OS_MATRIX
 
+    # Whether rhiza's reusable book workflow publishes to GitHub Pages. No task here reads
+    # it -- `ci_os_matrix` already had that shape, and for the same reason: a workflow needs
+    # a *repo-owned* answer, and this is the only config surface every consumer has.
+    #
+    # The alternative was the one it replaces. `rhiza_book.yml` takes a `deploy-pages`
+    # input, so the choice could only be spelled in the caller -- which for a rhiza consumer
+    # is the `github-book` bundle's workflow stub, a template-owned file. Editing it works,
+    # is reviewed, is merged, and is overwritten by the next sync; rhiza-hooks'
+    # `check-managed-files` now refuses the commit outright. So the toggle existed and had
+    # nowhere to live short of excluding the file from management.
+    #
+    # Defaults true, which is what the input already defaulted to: a repo that says nothing
+    # deploys exactly as before.
+    deploy_pages: bool = True
+
     # Pinned to a tag rather than a branch: a gate that moves under you is not a gate.
     #
     # Set it **empty** and `rhiza-test` passes no `--with` at all, resolving pytest-rhiza
