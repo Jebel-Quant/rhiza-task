@@ -257,24 +257,6 @@ jobs:
         with:
           token: ${{ secrets.GH_PAT }}
 
-      - name: Verify version matches tag
-        if: hashFiles('pyproject.toml') != ''
-        run: |
-          TAG_VERSION="${{ needs.tag.outputs.tag }}"
-          TAG_VERSION=${TAG_VERSION#v}
-          PROJECT_VERSION=$(uv version --short)
-
-          # Normalize tag version to PEP 440 format for comparison.
-          # Tags use semver format (e.g., 0.11.1-beta.1) while uv version --short
-          # returns PEP 440 normalized format (e.g., 0.11.1b1).
-          NORMALIZED_TAG=$(uv run --with packaging --no-project python3 -c "from packaging.version import Version; print(Version('$TAG_VERSION'))")
-
-          if [[ "$PROJECT_VERSION" != "$NORMALIZED_TAG" ]]; then
-            echo "::error::Version mismatch: pyproject.toml has '$PROJECT_VERSION' but tag is '$NORMALIZED_TAG' (from tag '$TAG_VERSION')"
-            exit 1
-          fi
-          echo "Version verified: $PROJECT_VERSION matches tag (normalized: $NORMALIZED_TAG)"
-
       - name: Detect buildable Python package
         id: buildable
         run: |
@@ -289,6 +271,45 @@ jobs:
         run: |
           printf "[INFO] Building package...\n"
           uv build
+
+      # This runs *after* the build, and reads the version out of the wheel rather than
+      # out of pyproject.toml. It used to run before it, on `uv version --short`, which
+      # cannot work on a project whose version is dynamic: since #160 this one derives
+      # its version from the git tag via hatch-vcs and `[project]` carries
+      # `dynamic = ["version"]`, so that command exits 2 with "We cannot get or set
+      # dynamic project versions in: pyproject.toml" and the whole release fails at the
+      # first step. v1.7.0 was tagged before this was noticed -- and nothing here could
+      # have caught it earlier, because every job in this file is green until a release
+      # actually runs.
+      #
+      # Checking the artifact is also the stronger check, and would be worth keeping even
+      # with a static version: it verifies the version that will actually be uploaded to
+      # PyPI, which for a dynamic project is the one thing worth verifying -- that the
+      # build backend resolved the tag it was handed. A static `[project] version` field
+      # agreeing with the tag says nothing about what the backend then produced.
+      - name: Verify version matches tag
+        if: steps.buildable.outputs.buildable == 'true'
+        run: |
+          TAG_VERSION="${{ needs.tag.outputs.tag }}"
+          TAG_VERSION=${TAG_VERSION#v}
+
+          # Normalize tag version to PEP 440 format for comparison.
+          # Tags use semver format (e.g., 0.11.1-beta.1) while a built wheel carries the
+          # PEP 440 normalized format (e.g., 0.11.1b1).
+          NORMALIZED_TAG=$(uv run --with packaging --no-project python3 -c "from packaging.version import Version; print(Version('$TAG_VERSION'))")
+
+          # `{name}-{version}-{python}-{abi}-{platform}.whl`, and PEP 427 escapes any
+          # hyphen in the distribution name to an underscore, so field 2 is the version.
+          # A glob rather than `ls` so shellcheck's SC2012 is satisfied and a surprising
+          # filename cannot be word-split into a passing comparison.
+          WHEELS=(dist/*.whl)
+          BUILT_VERSION=$(basename "${WHEELS[0]}" | cut -d- -f2)
+
+          if [[ "$BUILT_VERSION" != "$NORMALIZED_TAG" ]]; then
+            echo "::error::Version mismatch: built '$BUILT_VERSION' but tag is '$NORMALIZED_TAG' (from tag '$TAG_VERSION')"
+            exit 1
+          fi
+          echo "Version verified: $BUILT_VERSION matches tag (normalized: $NORMALIZED_TAG)"
 
       - name: Install Python for SBOM generation
         if: hashFiles('pyproject.toml') != ''
