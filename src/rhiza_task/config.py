@@ -301,7 +301,7 @@ class Config:
     # unset, and only TOML tells an empty string from an absent key. See
     # `tasks/quality.py`'s `_provider`, which also records why `"."` is not the shorthand it
     # looks like.
-    pytest_rhiza: str = "pytest-rhiza @ git+https://github.com/Jebel-Quant/pytest-rhiza@v0.2.0"
+    pytest_rhiza: str = "pytest-rhiza @ git+https://github.com/Jebel-Quant/pytest-rhiza@v0.6.0"
 
     # Both are empty by default and filled in `_validate_layers`, because both depend on
     # the repository rather than on a constant: the layers come from the manifests present,
