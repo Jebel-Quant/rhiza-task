@@ -19,8 +19,23 @@ Layout:
 * :mod:`rhiza_task.tasks` -- the task modules themselves, loaded by entry point.
 """
 
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _installed_version
+
 __all__ = ["__version__"]
 
-# Kept in step with [project].version by bump-my-version, which needs a [[files]] entry
-# for this file but not for pyproject.toml itself.
-__version__ = "1.6.0"
+# Read from the installed distribution's metadata rather than written here. hatch-vcs
+# derives the version from the git tag at build time, so this file has no number to keep
+# in step and bump-my-version has no [[files]] entry for it -- which is the point: a
+# version written in two places is a version that can disagree with itself, and the release
+# that shipped 1.0.0 with a stale uv.lock is what that looks like.
+#
+# The fallback is for a source tree that was never installed -- someone running out of a
+# clone with `python -c "import rhiza_task"` and no `uv sync`. Every real invocation is
+# `uvx rhiza-task@X.Y.Z`, which installs the distribution, so metadata is present. A
+# literal here would be a second source of truth for exactly the case that does not
+# matter, so it says what it knows instead.
+try:
+    __version__ = _installed_version("rhiza-task")
+except PackageNotFoundError:  # pragma: no cover - requires an uninstalled source tree
+    __version__ = "0+unknown"

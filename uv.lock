@@ -321,7 +321,6 @@ wheels = [
 
 [[package]]
 name = "rhiza-task"
-version = "1.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "python-dotenv" },

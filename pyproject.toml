@@ -2,7 +2,8 @@
 license = "MIT"
 license-files = ["LICENSE"]
 name = "rhiza-task"
-version = "1.6.0"
+# Derived from the git tag by hatch-vcs, not written here. See [tool.hatch.version] below.
+dynamic = ["version"]
 description = "The rhiza developer tasks as a pinned CLI: one set of task names across Python, Rust and Go, replacing a synced make layer"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -84,19 +85,47 @@ Issues = "https://github.com/jebel-quant/rhiza-task/issues"
 test = ["pytest>=8.0", "pytest-cov>=6.0", "hypothesis>=6.98"]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rhiza_task"]
 
+# The version is the tag, and nothing else records it. This is what makes a release one
+# step instead of the eleven the old flow took (Jebel-Quant/rhiza-task#160): there is no
+# number to write into pyproject.toml, into __init__.py and into uv.lock, and therefore no
+# release that can ship with two of the three updated -- v1.0.0 shipped exactly that way,
+# with uv.lock left behind, and every gate failed because `uv lock --check` is the first
+# thing `install` runs.
+#
+# `raw-options.version_scheme = "no-guess-dev"` keeps an untagged commit's version at the
+# last tag plus `.post1.devN` rather than guessing the *next* release number, which the
+# default `guess-next-dev` does. Guessing is worse than useless here: a development build
+# would claim to be 1.7.0.dev4 while 1.7.0 is unreleased, and `uvx rhiza-task@1.7.0` would
+# then resolve to something else entirely.
+#
+# One thing this cannot do for itself: a clone with no tags derives 0.1.dev1+g<sha>, so any
+# job that builds a distribution needs the full history. `fetch-depth: 0` in
+# rhiza_release.yml, asserted by tests/test_version_source.py.
+[tool.hatch.version]
+source = "vcs"
+raw-options = { version_scheme = "no-guess-dev" }
+
+# bump-my-version no longer writes this project's version -- hatch-vcs derives it from the
+# tag. What is left is the three entries below, which rewrite the `rhiza-task@X.Y.Z` pins in
+# the README, the docs and the paper. Those are *documentation* pins: they have to be right
+# in the commit the tag names, so they cannot be derived from a tag that does not exist yet.
+# That is the whole reason a release still commits something before it tags.
+#
+# With no `[project].version` and no `current_version` here, bump-my-version resolves the
+# current version from the newest reachable tag. That used to be a fallback worth warning
+# about (jebel-quant/rhiza#1453, where it meant a release got cut against `git describe`
+# instead of the project's version); with the version defined as the tag it is now simply
+# the right answer, and the same answer hatch-vcs gives.
 [tool.bumpversion]
 allow_dirty = false
 commit = false
 tag = false
-
-[[tool.bumpversion.files]]
-filename = "src/rhiza_task/__init__.py"
 
 # The README pins the CLI in its usage examples. Without this entry those examples drift:
 # they still read `rhiza-task@0.1.0` two releases after 0.1.0.
@@ -146,19 +175,6 @@ replace = "rhiza-task@{new_version}"
 filename = "docs/paper/paper.tex"
 search = "rhiza-task@{current_version}"
 replace = "rhiza-task@{new_version}"
-
-# The lockfile records this package's own version, and `uv lock --check` is the first
-# command `install` runs -- so a bump that leaves uv.lock behind fails every gate that
-# names `install` as a prerequisite, which is all of them. v1.0.0 shipped that way: the
-# release commit touched pyproject.toml, __init__.py and CHANGELOG.md only. The search is
-# anchored on the package name because a bare `version = "..."` matches every one of the
-# seventeen locked packages.
-[[tool.bumpversion.files]]
-filename = "uv.lock"
-search = """name = "rhiza-task"
-version = "{current_version}\""""
-replace = """name = "rhiza-task"
-version = "{new_version}\""""
 
 # `relative_files` makes coverage record paths relative to the project rather than absolute.
 # Without it every artefact carries the build machine's layout: `coverage.xml`'s Cobertura
