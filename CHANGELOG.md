@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.7.0] - 2026-09-07
+
+### 🚀 Features
+
+- *(config)* Add a deploy_pages setting
+- Derive the version from the git tag (#160)
+- Bump the pytest-rhiza pin to v0.6.0, which accepts a dynamic version
+
 ## [1.6.0] - 2026-09-04
 
 > ⚠️ **Upgrade note.** `typecheck` now provisions `ty` and `mypy` at the versions
