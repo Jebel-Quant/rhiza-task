@@ -317,6 +317,76 @@ class TestDocker:
         assert flags[flags.index("--file") + 1] == "docker/Dockerfile"
         assert flags[-1] == "."
 
+    def test_build_passes_no_secret_when_none_is_set(
+        self, cfg: Config, recorder: Recorder, present: set[str], dockerfile: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Unset variables produce no ``--secret`` flag, because buildx fails on an unreadable one.
+
+        ``--secret id=x,env=X`` with ``X`` unset is ``failed to read secret X from env``, so
+        the flag must be absent rather than pointing at nothing. The empty string counts as
+        unset: an empty mount is what the Dockerfile's ``[ -s ]`` guard skips anyway.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+            present: The installed-tool set.
+            dockerfile: Writes the Dockerfile.
+            monkeypatch: pytest's patcher.
+        """
+        present.add("docker")
+        monkeypatch.delenv("GH_PAT", raising=False)
+        monkeypatch.setenv("UV_EXTRA_INDEX_URL", "")
+        docker_tasks.docker_build(cfg)
+        assert "--secret" not in recorder.find("docker").flags
+
+    def test_build_forwards_each_set_secret_by_env_not_build_arg(
+        self, cfg: Config, recorder: Recorder, present: set[str], dockerfile: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Every set variable in ``BUILD_SECRETS`` becomes one ``--secret id=…,env=…`` pair.
+
+        The value itself never appears in the vector -- buildx reads it from the environment
+        -- and it is never a ``--build-arg``, which ``docker history`` would show.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+            present: The installed-tool set.
+            dockerfile: Writes the Dockerfile.
+            monkeypatch: pytest's patcher.
+        """
+        present.add("docker")
+        monkeypatch.setenv("GH_PAT", "ghp_secret")
+        monkeypatch.setenv("UV_EXTRA_INDEX_URL", "https://user:token@pypi.example.com/simple")
+        docker_tasks.docker_build(cfg)
+        flags = recorder.find("docker").flags
+        secrets = [flags[i + 1] for i, flag in enumerate(flags) if flag == "--secret"]
+        assert secrets == ["id=gh_pat,env=GH_PAT", "id=uv_extra_index_url,env=UV_EXTRA_INDEX_URL"]
+        assert not any("ghp_secret" in flag or "token" in flag for flag in flags)
+        assert [flags[i + 1] for i, flag in enumerate(flags) if flag == "--build-arg"] == [
+            f"PYTHON_VERSION={cfg.python_version}"
+        ]
+        assert flags[-1] == "."
+
+    def test_build_forwards_only_the_set_secret(
+        self, cfg: Config, recorder: Recorder, present: set[str], dockerfile: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One set and one unset variable yields exactly one ``--secret``.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+            present: The installed-tool set.
+            dockerfile: Writes the Dockerfile.
+            monkeypatch: pytest's patcher.
+        """
+        present.add("docker")
+        monkeypatch.delenv("GH_PAT", raising=False)
+        monkeypatch.setenv("UV_EXTRA_INDEX_URL", "https://pypi.example.com/simple")
+        docker_tasks.docker_build(cfg)
+        flags = recorder.find("docker").flags
+        assert flags.count("--secret") == 1
+        assert flags[flags.index("--secret") + 1] == "id=uv_extra_index_url,env=UV_EXTRA_INDEX_URL"
+
     def test_image_name_is_overridable(self, repo, recorder: Recorder, present: set[str], dockerfile: None) -> None:
         """``docker_image`` in the manifest wins over the directory name.
 

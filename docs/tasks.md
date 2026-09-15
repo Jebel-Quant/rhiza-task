@@ -389,6 +389,14 @@ tool is absent, with `--strict` for a caller who wants the hard failure instead.
 | `docker-run` | `docker-build` | run the Docker container |
 | `docker-clean` | — | remove the Docker image |
 
+`docker-build` forwards `GH_PAT` and `UV_EXTRA_INDEX_URL` to buildx as BuildKit secrets
+(`--secret id=gh_pat,env=GH_PAT`, `--secret id=uv_extra_index_url,env=UV_EXTRA_INDEX_URL`)
+when they are set, so a private Git dependency or private index that the bundle's
+Dockerfile resolves in CI resolves locally too. Only when set: buildx fails on a secret
+whose variable is missing, while the Dockerfile treats a missing mount as a no-op. They are
+never passed as build arguments, which `docker history` would show. A Dockerfile that
+declares no such mount gets a warning about an unused secret and nothing else.
+
 ### Git LFS
 
 | task | does |

@@ -646,11 +646,18 @@ jobs:
           EOF
           # `ARG PYTHON_VERSION` on purpose: docker-build passes --build-arg whatever the
           # layer, and a Dockerfile declaring no such ARG gets a warning. Declaring it is what
-          # asserts the flag is actually consumed rather than merely tolerated.
+          # asserts the flag is actually consumed rather than merely tolerated. The secret
+          # mount is the same argument for the `--secret` half of the vector (#184): the step
+          # below sets GH_PAT, so docker-build must pass `--secret id=gh_pat,env=GH_PAT`, and
+          # the RUN fails unless the mount is present and non-empty -- a vector that spelled
+          # the id or the env wrong would be a warning about an unused secret, not a green.
+          # UV_EXTRA_INDEX_URL is deliberately left unset, so the same build also asserts
+          # that an unset variable produces no flag, which buildx would otherwise reject.
           cat > docker/Dockerfile <<'EOF'
           ARG PYTHON_VERSION=3.11
           FROM alpine:3.22
           RUN echo "built for python ${PYTHON_VERSION}"
+          RUN --mount=type=secret,id=gh_pat [ -s /run/secrets/gh_pat ] && echo "gh_pat mounted"
           EOF
           # Marp needs front matter to treat the file as a deck rather than plain markdown.
           cat > PRESENTATION.md <<'EOF'
@@ -681,9 +688,12 @@ jobs:
           git config user.name CI
 
       # buildx with --load, against a real daemon. The vector's failure mode is a flag docker
-      # stopped accepting, which no stub can reject.
+      # stopped accepting, which no stub can reject. GH_PAT is a placeholder, not a
+      # credential: the Dockerfile above only asks whether the mount arrived non-empty.
       - name: rhiza-task docker-build
         run: uv run rhiza-task docker-build --root "$RUNNER_TEMP/bundle"
+        env:
+          GH_PAT: not-a-real-token
 
       # Immediately after, so the image it removes is one this run built. `docker rmi` is
       # `check=False` in the task -- removing an image that was never built is the expected
