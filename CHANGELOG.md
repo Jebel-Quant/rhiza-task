@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.8.0] - 2026-09-15
+
+### 🚀 Features
+
+- Forward GH_PAT and UV_EXTRA_INDEX_URL to docker-build as BuildKit secrets
+
+### 💼 Other
+
+- Bump the python group with 2 updates
+- Bump hypothesis from 6.167.1 to 6.168.0 in the python group
+- Bump astral-sh/setup-uv in the actions group
+
+### 🛡️ Security
+
+- Bump the actions group with 2 updates
+
 ## [1.7.0] - 2026-09-07
 
 ### 🚀 Features
