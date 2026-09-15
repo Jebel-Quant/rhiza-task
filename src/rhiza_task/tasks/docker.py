@@ -14,6 +14,8 @@ cannot answer the question at all. Both are a skip, and ``--strict`` fails both.
 
 from __future__ import annotations
 
+import os
+
 from ..config import Config
 from ..spec import Guard, Skip, task
 from ..uv import tool
@@ -21,6 +23,26 @@ from ..uv import tool
 SECTION = "Docker"
 
 HAVE_DOCKER = Guard(tool="docker", reason="docker not found; install from https://docs.docker.com/get-docker/")
+
+BUILD_SECRETS = (("gh_pat", "GH_PAT"), ("uv_extra_index_url", "UV_EXTRA_INDEX_URL"))
+"""The BuildKit secrets ``docker-build`` forwards, as ``(secret id, environment variable)``.
+
+These are the two mounts the bundle's Dockerfile declares so that ``uv sync`` can resolve a
+private Git dependency or a private index *inside* the builder stage, and the ids and
+variable names are the ones ``rhiza_docker.yml`` passes -- so a project that builds in CI
+builds the same way here, with the same ``export``. Two rules about how they are passed:
+
+* **Only when set.** ``--secret id=x,env=X`` for an unset ``X`` makes buildx fail with
+  ``failed to read secret X from env``, whereas the Dockerfile's ``[ -s /run/secrets/x ]``
+  guard already treats a *missing* mount as a no-op. So the conditional lives here rather
+  than in the Dockerfile. A variable set to the empty string counts as unset for the same
+  reason: an empty mount is exactly what that guard skips.
+* **Never ``--build-arg``.** A build argument is recorded in the image and readable with
+  ``docker history``; a secret exists only for the instruction that mounts it.
+
+A Dockerfile that declares no such mount gets a warning from docker about an unused secret
+and nothing else, the same shape as the unconditional ``PYTHON_VERSION`` build arg.
+"""
 
 
 def image_name(cfg: Config) -> str:
@@ -35,6 +57,20 @@ def image_name(cfg: Config) -> str:
     return cfg.docker_image or cfg.root.name
 
 
+def secret_flags() -> list[str]:
+    """Return the ``--secret`` flags for every :data:`BUILD_SECRETS` variable that is set.
+
+    Returns:
+        ``["--secret", "id=<id>,env=<VAR>", ...]`` in :data:`BUILD_SECRETS` order, empty
+        when none of the variables is set.
+    """
+    flags: list[str] = []
+    for secret_id, var in BUILD_SECRETS:
+        if os.environ.get(var):
+            flags.extend(("--secret", f"id={secret_id},env={var}"))
+    return flags
+
+
 @task("docker-build", "build the Docker image", section=SECTION, guards=(HAVE_DOCKER,))
 def docker_build(cfg: Config) -> None:
     """Build ``<docker_folder>/Dockerfile`` with the repository root as the context.
@@ -42,6 +78,10 @@ def docker_build(cfg: Config) -> None:
     ``PYTHON_VERSION`` is passed as a build argument whatever the layer, as docker.mk
     does. A Dockerfile that declares no such ``ARG`` gets a warning from docker and
     nothing else, which is cheaper than making the flag conditional on a language.
+
+    ``GH_PAT`` and ``UV_EXTRA_INDEX_URL`` are forwarded as BuildKit secrets when set, so a
+    private dependency the CI build resolves is resolved here too; :data:`BUILD_SECRETS`
+    says why they are conditional and why they are not build arguments.
 
     Args:
         cfg: The resolved config.
@@ -63,6 +103,7 @@ def docker_build(cfg: Config) -> None:
         f"{cfg.docker_folder}/Dockerfile",
         "--build-arg",
         f"PYTHON_VERSION={cfg.python_version}",
+        *secret_flags(),
         "--tag",
         tag,
         "--load",
