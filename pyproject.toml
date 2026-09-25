@@ -111,6 +111,16 @@ packages = ["src/rhiza_task"]
 source = "vcs"
 raw-options = { version_scheme = "no-guess-dev" }
 
+# A version derived from git needs uv to know that git is an input. By default uv rebuilds
+# the editable install only when pyproject.toml changes, so the version baked into .venv
+# froze at whatever commit last triggered a build -- 1.7.0.post1.dev0+g8b5f828f1 while
+# main had moved a dozen commits and a release past it (#187), which is what
+# `rhiza-task --version` and the `license` listing then reported. Keying the cache on the
+# commit and the tags makes the next `uv run` rebuild instead. CI never saw it, because
+# every job builds a fresh environment.
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { git = { commit = true, tags = true } }]
+
 # bump-my-version no longer writes this project's version -- hatch-vcs derives it from the
 # tag. What is left is the three entries below, which rewrite the `rhiza-task@X.Y.Z` pins in
 # the README, the docs and the paper. Those are *documentation* pins: they have to be right
