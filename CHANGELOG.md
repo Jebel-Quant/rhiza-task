@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.8.1] - 2026-09-28
+
+### 🚀 Features
+
+- List leaves out bundles the repository does not use
+
+### 🐛 Bug Fixes
+
+- Key uv's build cache on git so the editable version tracks commits and tags (#187)
+
+### 💼 Other
+
+- Bump astral-sh/setup-uv in the actions group
+- Bump hypothesis from 6.168.0 to 6.168.1 in the python group
+
 ## [1.8.0] - 2026-09-15
 
 ### 🚀 Features
