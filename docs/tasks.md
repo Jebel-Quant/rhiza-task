@@ -8,6 +8,11 @@ Every task is `rhiza-task <name>`. The catalogue below is the registry the CLI g
 its own help from — `rhiza-task list` is the authoritative version for *your* repository,
 and `rhiza-task list --all` adds the layers you do not have.
 
+`list` also leaves out a bundle this repository does not use: the Docker tasks without a
+`<docker_folder>/Dockerfile`, Paper without `paper_folder`, Presentation without
+`presentation_file`, and Git LFS without a `filter=lfs` line in `.gitattributes`. They
+still run by name (and skip), and `list --all` shows them.
+
 ## The shape every task shares
 
 Reading all ten make fragments back to back, every recipe turned out to have the same

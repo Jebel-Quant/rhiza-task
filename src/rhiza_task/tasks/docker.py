@@ -71,7 +71,22 @@ def secret_flags() -> list[str]:
     return flags
 
 
-@task("docker-build", "build the Docker image", section=SECTION, guards=(HAVE_DOCKER,))
+def has_dockerfile(cfg: Config) -> bool:
+    """Return whether the repository ships an image, for ``list``.
+
+    The same file :func:`docker_build` skips without, so ``list`` and the task agree on
+    what "has adopted the Docker bundle" means.
+
+    Args:
+        cfg: The resolved config.
+
+    Returns:
+        True when ``<docker_folder>/Dockerfile`` exists.
+    """
+    return (cfg.root / cfg.docker_folder / "Dockerfile").is_file()
+
+
+@task("docker-build", "build the Docker image", section=SECTION, guards=(HAVE_DOCKER,), applies=has_dockerfile)
 def docker_build(cfg: Config) -> None:
     """Build ``<docker_folder>/Dockerfile`` with the repository root as the context.
 
@@ -112,7 +127,14 @@ def docker_build(cfg: Config) -> None:
     )
 
 
-@task("docker-run", "run the Docker container", section=SECTION, needs=("docker-build",), guards=(HAVE_DOCKER,))
+@task(
+    "docker-run",
+    "run the Docker container",
+    section=SECTION,
+    needs=("docker-build",),
+    guards=(HAVE_DOCKER,),
+    applies=has_dockerfile,
+)
 def docker_run(cfg: Config) -> None:
     """Run the built image interactively, removing the container on exit.
 
@@ -124,7 +146,7 @@ def docker_run(cfg: Config) -> None:
     tool("docker", "run", "--rm", "-it", tag, cwd=cfg.root)
 
 
-@task("docker-clean", "remove the Docker image", section=SECTION, guards=(HAVE_DOCKER,))
+@task("docker-clean", "remove the Docker image", section=SECTION, guards=(HAVE_DOCKER,), applies=has_dockerfile)
 def docker_clean(cfg: Config) -> None:
     """Delete the image, tolerating its absence.
 

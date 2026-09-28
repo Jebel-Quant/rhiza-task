@@ -310,6 +310,60 @@ def test_list_shows_this_repository_s_layer(tmp_path: Path, monkeypatch: pytest.
     assert "cargo-tools" in every.stdout
 
 
+def test_list_leaves_out_bundles_this_repository_does_not_use(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A library with no Dockerfile or paper is not shown ``docker-build`` or ``paper``.
+
+    ``book`` names ``paper`` as a prerequisite, so the ``needs`` cell is asserted on as
+    well: a hidden task that still appeared there would be advertised all the same.
+    ``--all`` is the way back to everything, and adding the Dockerfile brings Docker back.
+
+    Args:
+        repo: The throwaway repository, with no bundle files.
+        monkeypatch: pytest's patcher.
+    """
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("COLUMNS", "200")
+
+    result = runner.invoke(cli.app, ["list"])
+    assert result.exit_code == 0
+    for section in ("Docker", "Git LFS", "Paper", "Presentation"):
+        assert section not in result.stdout
+    assert "hypothesis-test paper" not in result.stdout
+    assert "GitHub Helpers" in result.stdout
+
+    every = runner.invoke(cli.app, ["list", "--all"])
+    for section in ("Docker", "Git LFS", "Paper", "Presentation"):
+        assert section in every.stdout
+    assert "hypothesis-test paper" in every.stdout
+
+    (repo / "docker").mkdir()
+    (repo / "docker" / "Dockerfile").write_text("FROM scratch\n")
+    assert "docker-build" in runner.invoke(cli.app, ["list"]).stdout
+
+
+def test_list_never_shows_a_hidden_task(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``hidden`` wins over ``--all``: it is not a bundle filter but "not for humans".
+
+    Args:
+        repo: The throwaway repository.
+        monkeypatch: pytest's patcher.
+    """
+    from rhiza_task.config import Config
+    from rhiza_task.spec import task
+
+    @task("t-cli-hidden", "plumbing", section="Test", hidden=True)
+    def plumbing(cfg: Config) -> None:
+        """Do nothing, out of sight.
+
+        Args:
+            cfg: Unused.
+        """
+
+    monkeypatch.chdir(repo)
+    for argv in (["list"], ["list", "--all"]):
+        assert "t-cli-hidden" not in runner.invoke(cli.app, argv).stdout
+
+
 def test_run_blocked_task_exits_one(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A task whose prerequisite failed is blocked; the CLI exits 1.
 

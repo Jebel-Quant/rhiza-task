@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 import shutil
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 
@@ -84,6 +85,59 @@ def test_every_retired_target_has_a_task() -> None:
         for target in targets:
             assert target in REGISTRY, f"{fragment}'s {target} has no task"
             assert REGISTRY[target].layer is None, f"{target} should be language-neutral"
+
+
+def _add_dockerfile(root: Path) -> None:
+    """Write ``docker/Dockerfile``.
+
+    Args:
+        root: The repository root.
+    """
+    (root / "docker").mkdir()
+    (root / "docker" / "Dockerfile").write_text("FROM scratch\n")
+
+
+BUNDLE_EVIDENCE: dict[str, Callable[[Path], object]] = {
+    "docker.mk": _add_dockerfile,
+    "lfs.mk": lambda root: (root / ".gitattributes").write_text("*.parquet filter=lfs diff=lfs merge=lfs -text\n"),
+    "paper.mk": lambda root: (root / "docs" / "paper").mkdir(parents=True),
+    "presentation.mk": lambda root: (root / "PRESENTATION.md").write_text("# Slides\n"),
+}
+"""What a repository that has adopted each bundle contains, and so what ``list`` looks for.
+
+``github.mk`` is absent on purpose: its helpers query the forge, and every repository
+rhiza manages has one, so they apply everywhere.
+"""
+
+
+class TestApplies:
+    """``list`` shows a bundle's tasks only where the repository uses the bundle."""
+
+    @pytest.mark.parametrize("fragment", sorted(BUNDLE_EVIDENCE))
+    def test_a_bundle_applies_only_once_its_evidence_exists(self, fragment: str, cfg: Config) -> None:
+        """Every target of the fragment is out of ``list`` in a bare repo and back once it is used.
+
+        Args:
+            fragment: The make fragment whose targets are checked.
+            cfg: A config resolved against a repository with none of the bundles' files.
+        """
+        specs = [REGISTRY[target] for target in FRAGMENT_TARGETS[fragment]]
+        assert all(spec.applies is not None and not spec.applies(cfg) for spec in specs)
+        BUNDLE_EVIDENCE[fragment](cfg.root)
+        assert all(spec.applies is not None and spec.applies(cfg) for spec in specs)
+
+    def test_github_helpers_apply_everywhere(self) -> None:
+        """The forge helpers carry no predicate, so ``list`` always shows them."""
+        assert all(REGISTRY[target].applies is None for target in FRAGMENT_TARGETS["github.mk"])
+
+    def test_gitattributes_without_an_lfs_filter_is_not_lfs(self, cfg: Config) -> None:
+        """A ``.gitattributes`` that only normalises line endings has not adopted LFS.
+
+        Args:
+            cfg: The resolved config.
+        """
+        (cfg.root / ".gitattributes").write_text("* text=auto eol=lf\n")
+        assert not lfs_tasks.uses_lfs(cfg)
 
 
 class TestToolGuard:

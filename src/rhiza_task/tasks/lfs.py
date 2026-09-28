@@ -59,7 +59,25 @@ def install_hint() -> str:
     return INSTALL_HINTS.get(sys.platform, f"see {INSTALL_URL}")
 
 
-@task("lfs-install", "configure git-lfs for this repository", section=SECTION)
+def uses_lfs(cfg: Config) -> bool:
+    """Return whether the repository tracks anything with LFS, for ``list``.
+
+    ``git lfs track`` records a pattern as a ``filter=lfs`` attribute in ``.gitattributes``,
+    so that line is the repository-side evidence of LFS whatever the machine has installed.
+    A repository about to adopt LFS runs ``lfs-install`` before it has one; that still
+    works by name, and ``list --all`` still shows it.
+
+    Args:
+        cfg: The resolved config.
+
+    Returns:
+        True when ``.gitattributes`` declares an LFS filter.
+    """
+    attributes = cfg.root / ".gitattributes"
+    return attributes.is_file() and "filter=lfs" in attributes.read_text(encoding="utf-8", errors="replace")
+
+
+@task("lfs-install", "configure git-lfs for this repository", section=SECTION, applies=uses_lfs)
 def lfs_install(cfg: Config) -> None:
     """Run ``git lfs install``, writing this repository's filter and hook configuration.
 
@@ -77,7 +95,9 @@ def lfs_install(cfg: Config) -> None:
     tool("git", "lfs", "install", cwd=cfg.root)
 
 
-@task("lfs-pull", "download the LFS files for the current branch", section=SECTION, guards=(HAVE_LFS,))
+@task(
+    "lfs-pull", "download the LFS files for the current branch", section=SECTION, guards=(HAVE_LFS,), applies=uses_lfs
+)
 def lfs_pull(cfg: Config) -> None:
     """Fetch and check out the LFS objects the working tree points at.
 
@@ -87,7 +107,7 @@ def lfs_pull(cfg: Config) -> None:
     tool("git", "lfs", "pull", cwd=cfg.root)
 
 
-@task("lfs-track", "list the patterns tracked by git-lfs", section=SECTION, guards=(HAVE_LFS,))
+@task("lfs-track", "list the patterns tracked by git-lfs", section=SECTION, guards=(HAVE_LFS,), applies=uses_lfs)
 def lfs_track(cfg: Config) -> None:
     """Show the ``.gitattributes`` patterns routed through LFS.
 
@@ -97,7 +117,7 @@ def lfs_track(cfg: Config) -> None:
     tool("git", "lfs", "track", cwd=cfg.root)
 
 
-@task("lfs-status", "show the status of LFS files", section=SECTION, guards=(HAVE_LFS,))
+@task("lfs-status", "show the status of LFS files", section=SECTION, guards=(HAVE_LFS,), applies=uses_lfs)
 def lfs_status(cfg: Config) -> None:
     """Show which LFS files are modified, staged, or not yet pushed.
 

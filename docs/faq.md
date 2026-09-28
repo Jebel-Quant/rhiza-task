@@ -13,7 +13,8 @@ It is not supposed to be. `rhiza-task <task>` is rewritten to `rhiza-task run <t
 `version`.
 
 Use `rhiza-task list` to enumerate tasks, and `rhiza-task list --all` to include the
-language layers this repository does not have.
+language layers and bundles (Docker, Git LFS, Paper, Presentation) this repository does
+not use.
 
 ### Do I have to pin the version?
 
