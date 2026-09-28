@@ -21,7 +21,7 @@ from rich.table import Table
 from . import __version__, runner
 from .config import DEFAULT_CI_OS_MATRIX, LAYERS, Config
 from .runner import Status
-from .spec import REGISTRY
+from .spec import REGISTRY, Task, lookup
 
 app = typer.Typer(
     add_completion=False,
@@ -57,7 +57,7 @@ def load_tasks() -> None:
 
 @app.command("list")
 def list_tasks(
-    every_layer: bool = typer.Option(False, "--all", help="include the other languages' layers"),
+    every_layer: bool = typer.Option(False, "--all", help="include other layers and unused bundles"),
 ) -> None:
     """Show the available tasks, grouped by section.
 
@@ -66,33 +66,63 @@ def list_tasks(
     what the make layer showed, having synced exactly one language fragment. ``--all`` is
     for the question the make layer could not answer: what the other layers call things.
 
+    The same argument applies to the bundles. A library with no Dockerfile, paper or slide
+    deck is not helped by ``docker-build`` or ``presentation-pdf`` either, so a task whose
+    ``applies`` says the repository does not use it is left out too, and dropped from the
+    ``needs`` cell of the tasks that name it -- ``book`` lists ``paper`` only where there is
+    one. ``--all`` shows everything again.
+
     Args:
-        every_layer: Show tasks from every language layer, not only this repository's.
+        every_layer: Show every task, from every layer, whether or not this repository uses it.
     """
-    layers = () if every_layer else _layers()
+    cfg = None if every_layer else _config()
+    layers = LAYERS if cfg is None else cfg.layers
+    shown = {k: spec for k, spec in REGISTRY.items() if _shown(spec, cfg, layers, every_layer)}
     table = Table("task", "section", "needs", "does", box=None, header_style="bold")
-    for _, spec in sorted(REGISTRY.items(), key=lambda kv: (kv[1].section, kv[0])):
-        if spec.hidden or (not every_layer and spec.layer is not None and spec.layer not in layers):
-            continue
-        table.add_row(spec.name, spec.section, " ".join(spec.needs), spec.help)
+    for _, spec in sorted(shown.items(), key=lambda kv: (kv[1].section, kv[0])):
+        needs = [n for n in spec.needs if (dep := lookup(n, layers)) is None or dep.key in shown]
+        table.add_row(spec.name, spec.section, " ".join(needs), spec.help)
     console.print(table)
 
 
-def _layers() -> tuple[str, ...]:
-    """Return this repository's language layers, tolerating an unresolvable config.
+def _shown(spec: Task, cfg: Config | None, layers: tuple[str, ...], every_layer: bool) -> bool:
+    """Return whether ``list`` prints *spec*.
 
-    ``list`` is what you run *because* something is wrong, so a config error must not be
-    the thing that stops it printing. Showing every layer is the honest fallback: it is a
-    superset, and the alternative is showing nothing.
+    Args:
+        spec: The task.
+        cfg: The resolved config, or None when it did not resolve or ``--all`` was given --
+            both of which show every bundle, the unresolvable case because a superset is the
+            honest fallback.
+        layers: The active layers.
+        every_layer: Whether ``--all`` was given.
 
     Returns:
-        The active layers, or every layer when the config does not resolve.
+        False for a hidden task, a task from another layer, or one this repository does not use.
+    """
+    if spec.hidden:
+        return False
+    if every_layer:
+        return True
+    if spec.layer is not None and spec.layer not in layers:
+        return False
+    return cfg is None or spec.applies is None or spec.applies(cfg)
+
+
+def _config() -> Config | None:
+    """Resolve the config for ``list``, tolerating one that does not resolve.
+
+    ``list`` is what you run *because* something is wrong, so a config error must not be
+    the thing that stops it printing. Showing every layer and bundle is the honest
+    fallback: it is a superset, and the alternative is showing nothing.
+
+    Returns:
+        The config, or None when it does not resolve.
     """
     try:
-        return Config.load().layers
+        return Config.load()
     except (ValueError, OSError) as exc:
         err.print(f"[yellow]could not resolve the config ({exc}); listing every layer[/yellow]")
-        return LAYERS
+        return None
 
 
 @app.command("print")

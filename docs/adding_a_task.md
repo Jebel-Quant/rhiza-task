@@ -67,6 +67,7 @@ audit - run the in-house audit
 | `section` | the `list` grouping (`Python`, `Quality`, `Book`, or your own) |
 | `needs` | prerequisites, run first and deduplicated across one invocation |
 | `guards` | conditions that turn the run into a `skipped` instead of a failure |
+| `applies` | `Config -> bool`; when false, `list` leaves the task out (`--all` still shows it) |
 
 ## Guards
 

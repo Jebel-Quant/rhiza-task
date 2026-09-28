@@ -233,6 +233,12 @@ class Task:
             without being run eleven times.
         guards: Evaluated in order before the body.
         hidden: Omit from ``list``.
+        applies: Whether the repository uses what this task operates on, asked by ``list``
+            and nothing else. A repository with no Dockerfile has not adopted the Docker
+            bundle, so ``list`` leaves ``docker-build`` out rather than advertising an image
+            the repository does not ship; ``list --all`` and running the task by name are
+            unaffected, and the task still skips through its own guards. None means the
+            task applies everywhere, which is every gate.
     """
 
     name: str
@@ -243,6 +249,7 @@ class Task:
     guards: tuple[Guard, ...] = ()
     hidden: bool = False
     layer: str | None = None
+    applies: Callable[[Config], bool] | None = None
 
     @property
     def key(self) -> str:
@@ -272,6 +279,7 @@ def task(
     guards: Sequence[Guard] = (),
     hidden: bool = False,
     layer: str | None = None,
+    applies: Callable[[Config], bool] | None = None,
 ) -> Callable[[Callable[[Config], None]], Callable[[Config], None]]:
     """Register a task and return the function unchanged.
 
@@ -286,6 +294,7 @@ def task(
         guards: Layout preconditions.
         hidden: Omit from ``list``.
         layer: The language layer this task belongs to, or None for a neutral task.
+        applies: Whether ``list`` shows the task in this repository; None for always.
 
     Returns:
         The decorator.
@@ -309,6 +318,7 @@ def task(
             guards=tuple(guards),
             hidden=hidden,
             layer=layer,
+            applies=applies,
         )
         REGISTRY[spec.key] = spec
         return fn

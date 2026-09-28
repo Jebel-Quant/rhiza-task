@@ -87,7 +87,25 @@ def main_document(folder: Path) -> Path | None:
     return next((by_name[name] for name in PREFERRED if name in by_name), candidates[0])
 
 
-@task("paper", "compile the LaTeX paper to PDF", section=SECTION, guards=(HAVE_TECTONIC, Guard("paper_folder")))
+def has_paper(cfg: Config) -> bool:
+    """Return whether the repository has a paper, for ``list``.
+
+    Args:
+        cfg: The resolved config.
+
+    Returns:
+        True when ``paper_folder`` exists -- the folder both tasks skip without.
+    """
+    return (cfg.root / cfg.paper_folder).is_dir()
+
+
+@task(
+    "paper",
+    "compile the LaTeX paper to PDF",
+    section=SECTION,
+    guards=(HAVE_TECTONIC, Guard("paper_folder")),
+    applies=has_paper,
+)
 def paper(cfg: Config) -> None:
     """Run tectonic over the paper folder's root document.
 
@@ -115,7 +133,7 @@ def paper(cfg: Config) -> None:
     print(f"[SUCCESS] {cfg.paper_folder}/{document.stem}.pdf")
 
 
-@task("paper-clean", "remove the LaTeX build artifacts", section=SECTION)
+@task("paper-clean", "remove the LaTeX build artifacts", section=SECTION, applies=has_paper)
 def paper_clean(cfg: Config) -> None:
     """Remove the PDF and auxiliary files belonging to the folder's top-level documents.
 

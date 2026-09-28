@@ -86,7 +86,19 @@ def output(cfg: Config, suffix: str) -> str:
     return Path(cfg.presentation_file).with_suffix(suffix).name.lower()
 
 
-@task("presentation", "generate the HTML slides with Marp", section=SECTION)
+def has_presentation(cfg: Config) -> bool:
+    """Return whether the repository has a slide deck, for ``list``.
+
+    Args:
+        cfg: The resolved config.
+
+    Returns:
+        True when ``presentation_file`` exists -- the file :func:`source` skips without.
+    """
+    return (cfg.root / cfg.presentation_file).is_file()
+
+
+@task("presentation", "generate the HTML slides with Marp", section=SECTION, applies=has_presentation)
 def presentation(cfg: Config) -> None:
     """Export the deck to a single HTML file.
 
@@ -99,7 +111,7 @@ def presentation(cfg: Config) -> None:
     print(f"[SUCCESS] {target} — open it in a browser to view the slides")
 
 
-@task("presentation-pdf", "generate the PDF slides with Marp", section=SECTION)
+@task("presentation-pdf", "generate the PDF slides with Marp", section=SECTION, applies=has_presentation)
 def presentation_pdf(cfg: Config) -> None:
     """Export the deck to PDF.
 
@@ -116,7 +128,7 @@ def presentation_pdf(cfg: Config) -> None:
     print(f"[SUCCESS] {target}")
 
 
-@task("presentation-serve", "serve the slides with Marp's live preview", section=SECTION)
+@task("presentation-serve", "serve the slides with Marp's live preview", section=SECTION, applies=has_presentation)
 def presentation_serve(cfg: Config) -> None:
     """Start Marp's watching server over the repository.
 
