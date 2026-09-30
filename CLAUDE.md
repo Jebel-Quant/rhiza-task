@@ -298,7 +298,7 @@ entirely, and its `test_readme_validation` never looks at `toml` or `yaml`, so t
 two `[tool.rhiza-task]` examples were checked by **nothing**. Confirm it for yourself —
 that module's source contains no reference to either language.
 
-So pytest-rhiza owns README's **code** fences (`python`, `bash`) and `docs-examples` owns
+So pytest-rhiza owns README's **code** fences (`pycon`, `python`, `bash`) and `docs-examples` owns
 **data** fences (`toml`, `yaml`) everywhere, README included. Nothing is checked twice, and
 `DATA_FENCE_LANGUAGES` in `tasks/fences.py` is the one place to narrow if pytest-rhiza ever
 learns toml. A broken python fence in the README still fails `rhiza-test`; a broken toml one
@@ -309,27 +309,35 @@ It is a **task and not a test**, and that placement is the rule in this repo rat
 preference: checking a shell fence means running `bash -n`, and no test here runs a tool. So
 the logic belongs in a task body, exactly as the note above about wanting a real subprocess
 in a test says. Its own tests then patch `bash` and `uv_run` and assert the vectors, like
-every other task's.
+every other task's. The pycon tests bend that one step and no further: their `uv_run`
+stand-in runs the generated doctest driver in-process with `runpy`, which starts no process
+but does exercise the real line arithmetic and `ELLIPSIS` flag, where a canned report would
+test neither.
 
-Two things a change to `docs/` should know. A ```` ```result ```` block is **executed and
-diffed** against the `python` fences above it, so an example that goes stale fails a build
-rather than quietly outdating — and the prelude is every earlier `python` fence in that
-file, because `adding_a_task.md`'s pair needs the first fence's `@task` before the second's
-`lookup`. There are **two** such blocks — that pair, and `layers.md`'s shadowing example,
-whose answers used to sit in trailing `# 'python:test'` comments until they were made a
-`result` block — and between them that is **every python fence in the tree which produces
-output**. The rest define a task, bind a name or quote a `Guard` fragment, and print nothing,
-so a `result` block on them would be ceremony rather than a check. That invariant is the
-thing to preserve, and it is checkable rather than remembered: the fences which print are
-exactly the fences which are diffed.
+Two things a change to `docs/` should know. **A runnable example is a ```` ```pycon ````
+fence** — a doctest transcript, `>>>`/`...` prompts with the expected output inline — the
+convention across the fleet, and the one pytest-rhiza doctests in `README.md`. Every
+pycon fence in one file is joined, in document order, into **one** doctest with a shared
+namespace and `ELLIPSIS`, so `adding_a_task.md`'s pair works as written: the first fence's
+`@task` is in scope for the second's `lookup`. A stale output fails the build at the line of
+the example that printed it, and a fence flagged `+RHIZA_SKIP` in its info string is left
+out and counted under `pycon +RHIZA_SKIP` on the unchecked line. The older
+```` ```result ```` block — the expected stdout of every `python` fence above it — is still
+executed and diffed, so a tree that carries one is not silently passed, but nothing here
+uses it any more and a new example should not.
 
-Count them with `grep -rcE '^\s*```(python|py)\s*$' docs/*.md`, and note the leading
-`\s*` — some fences are **indented** inside a tabbed admonition (`adding_a_task.md:77` and
-`:86`), so a grep anchored at the line start misses them in silence. The `N python` on the
-gate's own summary line is the figure to reconcile against. One of the undiffed fences is
-also why a diffed block is not free: `adding_a_task.md`'s later fences sit *after* its
-`result` block, and moving one above would put a printing fence in the prelude — the
-assumption `_result_violations` documents and deliberately does not loosen.
+There are **two** pycon examples in the tree — that pair, and `layers.md`'s shadowing
+example, whose answers used to sit in trailing `# 'python:test'` comments — and between them
+that is **every example in the tree which produces output**. The `python` fences left define
+a task, bind a name or quote a `Guard` fragment, and print nothing, so they are only
+compiled. That invariant is the thing to preserve, and it is checkable rather than
+remembered: the fences which print are exactly the fences which are doctested. A python
+fence that starts printing should become pycon rather than grow a `result` block.
+
+Count them with `grep -rcE '^\s*```(pycon|python|py)\s*$' docs/*.md`, and note the leading
+`\s*` — some fences are **indented** inside a tabbed admonition (two in `adding_a_task.md`'s
+Guards tabs), so a grep anchored at the line start misses them in silence. The `N pycon` and
+`N python` on the gate's own summary line are the figures to reconcile against.
 And fences in a language it cannot check (`mermaid`,
 `makefile`, and those carrying no language) are **reported with a count** rather
 than passed over in silence, because a green line with no numbers reads as full coverage.
@@ -562,8 +570,8 @@ above is for.
 ### Which figures this file is allowed to quote
 
 That last paragraph used to restate four measured numbers, and it is the reason this section
-now has a rule. A measured figure in prose is **read back by nothing**: `docs-examples` diffs
-a `result` block, `test_doctests.py` evaluates a `>>>`, and `complexity` reads its ceiling
+now has a rule. A measured figure in prose is **read back by nothing**: `docs-examples` doctests
+a `pycon` fence, `test_doctests.py` evaluates a `>>>`, and `complexity` reads its ceiling
 back from a build — but a block score written into a sentence is discipline alone, and the
 discipline failed three times in three consecutive reviews. Twice the wrong number was
 introduced *by the edit that was correcting a different wrong number*, and once the file
@@ -577,7 +585,7 @@ So the rule, and it is about *which* figures rather than about being careful:
 > `complexity_max` of 15, the coverage floor of 100 — live in `pyproject.toml`, and a gate
 > fails when the code disagrees with them. **Current measured state gets a claim, not an
 > integer:** "the only block still ranking C", "no class worse than A", "the fences which
-> print are the fences which are diffed". Name the command that reads the live value and
+> print are the fences which are doctested". Name the command that reads the live value and
 > stop there.
 
 The three figures left in this section are all of the first two kinds. A claim of the third

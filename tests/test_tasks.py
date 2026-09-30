@@ -7,6 +7,7 @@ the make recipes said in ``$$``-escaped shell.
 from __future__ import annotations
 
 import json
+import runpy
 import shutil
 import subprocess
 from dataclasses import replace
@@ -1531,7 +1532,7 @@ class TestComplexity:
 
 
 class TestDocsExamples:
-    """``docs-examples``: the fence parser, the five checks, and the inventory.
+    """``docs-examples``: the fence parser, the six checks, and the inventory.
 
     Hermetic like the rest of the suite. ``bash`` and ``uv_run`` are both patched, so the
     tests assert the argument vector each check *would* run -- ``bash -n`` over a throwaway
@@ -1845,8 +1846,171 @@ class TestDocsExamples:
         self._docs(cfg, "g.md", "```toml\nx = 1\n```\n\n```yaml\na: 1\n```\n")
         quality.docs_examples(cfg)
         out = capsys.readouterr().out
-        assert "0 python, 0 shell, 1 toml, 1 yaml, 0 diffed" in out
+        assert "0 pycon, 0 python, 0 shell, 1 toml, 1 yaml, 0 diffed" in out
         assert "1 file(s), 2 fence(s): 2 checked" in out
+
+    @staticmethod
+    def _doctest_in_process(monkeypatch: pytest.MonkeyPatch) -> list[tuple[object, ...]]:
+        """Stand ``uv_run`` in for by running the pycon driver in this process.
+
+        Hermetic still -- no subprocess starts -- but the *real* driver runs, so these tests
+        assert what doctest reports rather than a canned report. That is the part worth
+        asserting: the line arithmetic and the ELLIPSIS flag live in the generated script, and
+        a fake that wrote ``report.json`` itself would test neither. The examples fed to it
+        are arithmetic and prints, so running them here registers nothing.
+
+        Args:
+            monkeypatch: pytest's patcher.
+
+        Returns:
+            The positional arguments of each call, appended to as the gate runs.
+        """
+        calls: list[tuple[object, ...]] = []
+
+        def fake_uv_run(*args: object, cwd: Path, **_kwargs: object) -> int:
+            """Run the generated driver in-process, as ``uv run python <script>`` would.
+
+            Args:
+                *args: The tool and the script's repository-relative path.
+                cwd: The repository root.
+                **_kwargs: Ignored.
+
+            Returns:
+                Zero, as the driver does whatever it found.
+            """
+            calls.append(args)
+            runpy.run_path(str(cwd / str(args[1])), run_name="__main__")
+            return 0
+
+        monkeypatch.setattr(fence_checker, "uv_run", fake_uv_run)
+        monkeypatch.setattr(fence_checker.shutil, "which", lambda _name: None)
+        return calls
+
+    def test_a_passing_pycon_fence_is_doctested_and_counted(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Every pycon fence of a file runs as one doctest, so a name carries across fences.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        calls = self._doctest_in_process(monkeypatch)
+        self._docs(cfg, "g.md", "```pycon\n>>> v = 7\n```\n\nprose\n\n```pycon\n>>> print(v * 6)\n42\n```\n")
+        quality.docs_examples(cfg)
+        out = capsys.readouterr().out
+        assert "2 pycon, 0 python, 0 shell, 0 toml, 0 yaml, 0 diffed" in out
+        assert "1 file(s), 2 fence(s): 2 checked" in out
+        # One run for the whole tree, in the project environment -- not `--no-project`, since
+        # the examples import the package.
+        assert calls == [("python", "_tests/docs-examples/pycon_fences.py")]
+
+    def test_reports_stale_pycon_output_at_the_example_line(
+        self, cfg: Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A stale output fails the gate, located at the ``>>>`` line that printed it.
+
+        The file line, not the fence's or the doctest's own offset: line 6 is the second
+        example of the second fence, which is only right if the fence's opening line is added
+        to doctest's zero-based position within the body.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        self._doctest_in_process(monkeypatch)
+        self._docs(cfg, "g.md", "```pycon\n>>> v = 1\n```\n\n```pycon\n>>> v\n1\n>>> v + 1\n3\n```\n")
+        with pytest.raises(Failed, match="1 broken example"):
+            quality.docs_examples(cfg)
+        out = capsys.readouterr().out
+        assert "docs/g.md:8: pycon output is stale" in out
+        assert "expected: '3'" in out
+        assert "actual:   '2'" in out
+
+    def test_reports_an_example_that_raises(self, cfg: Config, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An unexpected exception is a violation naming its type, at the example's line.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+        """
+        self._doctest_in_process(monkeypatch)
+        fences = fence_checker._fences("d.md", "```pycon\n>>> 1 / 0\n```\n")
+        scratch = cfg.root / "_tests" / "docs-examples"
+        assert fence_checker._pycon_violations([fences], cfg, scratch) == [
+            "d.md:2: pycon example raised ZeroDivisionError: division by zero"
+        ]
+
+    def test_ellipsis_matches_the_varying_part_of_an_output(self, cfg: Config, monkeypatch: pytest.MonkeyPatch) -> None:
+        """``...`` in an expected output matches anything, and elsewhere comparison is exact.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+        """
+        self._doctest_in_process(monkeypatch)
+        fences = fence_checker._fences("d.md", "```pycon\n>>> print('at 0x7f3a, done')\nat ..., done\n```\n")
+        scratch = cfg.root / "_tests" / "docs-examples"
+        assert fence_checker._pycon_violations([fences], cfg, scratch) == []
+
+    def test_reports_a_pycon_fence_with_malformed_prompts(self, cfg: Config, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A prompt doctest cannot parse is a violation, and the file's other fences still run.
+
+        Args:
+            cfg: The resolved config.
+            monkeypatch: pytest's patcher.
+        """
+        self._doctest_in_process(monkeypatch)
+        fences = fence_checker._fences("d.md", "```pycon\n>>>x = 1\n```\n\n```pycon\n>>> 2\n3\n```\n")
+        scratch = cfg.root / "_tests" / "docs-examples"
+        violations = fence_checker._pycon_violations([fences], cfg, scratch)
+        assert len(violations) == 2
+        assert violations[0].startswith("d.md:1: pycon fence is malformed:")
+        assert violations[1].startswith("d.md:6: pycon output is stale")
+
+    def test_a_skipped_pycon_fence_is_not_run_and_is_counted_as_unchecked(
+        self, cfg: Config, recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """``+RHIZA_SKIP`` keeps a fence out of the doctest, and the inventory says so.
+
+        The fence would fail if run, so a pass proves it was not; and the only other fence
+        is python, so no driver is started at all.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder, which would record a driver run.
+            monkeypatch: pytest's patcher.
+            capsys: pytest's output capture.
+        """
+        monkeypatch.setattr(fence_checker.shutil, "which", lambda _name: None)
+        self._docs(cfg, "g.md", "```pycon +RHIZA_SKIP\n>>> 1\n2\n```\n\n```python\nx = 1\n```\n")
+        quality.docs_examples(cfg)
+        out = capsys.readouterr().out
+        assert "0 pycon, 1 python" in out
+        assert "1 file(s), 2 fence(s): 1 checked" in out
+        assert "1 fence(s) not checkable: 1 pycon +RHIZA_SKIP" in out
+        assert recorder.tools() == []
+
+    def test_a_pycon_driver_that_writes_no_report_is_a_violation(self, cfg: Config, recorder: Recorder) -> None:
+        """A run that did not finish documents nothing, so it fails rather than passes.
+
+        The recorder runs nothing, which is exactly a driver that never wrote its report --
+        and a report left by an earlier run is removed first, so it cannot stand in.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        scratch = cfg.root / "_tests" / "docs-examples"
+        (scratch / "pycon").mkdir(parents=True)
+        (scratch / "pycon" / "report.json").write_text("[]")
+        fences = fence_checker._fences("d.md", "```pycon\n>>> 1\n1\n```\n")
+        assert fence_checker._pycon_violations([fences], cfg, scratch) == [
+            "pycon_fences.py: the pycon checker did not finish (exit 0)"
+        ]
+        assert recorder.tools() == ["python"]
 
     def test_runs_the_generated_script_through_the_project_environment(self, cfg: Config, recorder: Recorder) -> None:
         """The fences run as ``uv run python <script>``, so imports see the project's deps.

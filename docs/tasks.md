@@ -149,10 +149,14 @@ and checks the floor itself.
 `.rhiza/semgrep.yml`, and `docs-examples` without a docs folder — or with one holding no
 fence it can check. None is a defect — see [Skip is an outcome](#skip-is-an-outcome).
 
-`docs-examples` parses every `python` fence with `compile`, every `bash` fence with
-`bash -n` — parsed, never executed — every `toml` fence with `tomllib`, every `yaml` fence
-with a real parser, and runs the `python` fences that a ```result``` block follows,
-diffing what they print against that block. Fences in any other language are reported as
+`docs-examples` doctests every `pycon` fence — all of one file's joined into a single
+session with `ELLIPSIS`, so a stale output is reported at the line of the example that
+printed it, and a fence flagged `+RHIZA_SKIP` is left out and counted as unchecked. It
+parses every `python` fence with `compile`, every `bash` fence with `bash -n` — parsed,
+never executed — every `toml` fence with `tomllib` and every `yaml` fence with a real
+parser. A legacy ```result``` block is still run and diffed against the `python` fences
+above it, but `pycon` is the convention: the expected output sits under the statement that
+produced it. Fences in any other language are reported as
 unchecked with a count, because silence there would read as full coverage. It answers the
 question no other gate does: not "is there a docstring?" but "is what the documentation
 claims still true?"
