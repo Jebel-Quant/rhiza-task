@@ -41,23 +41,19 @@ that package needs are the ones that would otherwise stop running.
 A layered task shadows a neutral one of the same name, and the layers are tried in order —
 so a crate with a Python binding package gets a single answer rather than an ambiguity:
 
-```python
-from rhiza_task.spec import lookup
-from rhiza_task.tasks import python, rust  # importing is what registers
-
-print(lookup("test", ["python", "rust"]).key)
-print(lookup("test", ["rust", "python"]).key)
-```
-
-```result
+```pycon
+>>> from rhiza_task.spec import lookup
+>>> from rhiza_task.tasks import python, rust  # importing is what registers
+>>> print(lookup("test", ["python", "rust"]).key)
 python:test
+>>> print(lookup("test", ["rust", "python"]).key)
 rust:test
 ```
 
-Those two lines are **executed and diffed**, not annotated: the answers used to sit in
+Those two answers are **executed and compared**, not annotated: they used to sit in
 trailing `# 'python:test'` comments, which is the shape that goes stale silently -- a change
 to layer precedence would have left them rendering perfectly and wrong. `rhiza-task
-docs-examples` now runs the fence and compares.
+docs-examples` now doctests the fence, so a changed answer fails at its own line.
 
 `layer:name` addresses one layer explicitly, and is the **only** way to reach the layer
 that did not win:
