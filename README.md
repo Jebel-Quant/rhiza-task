@@ -192,37 +192,34 @@ in `tasks/python.py`.
 Register a module under the `rhiza_task.tasks` entry-point group — the same mechanism the
 built-ins use, so a project's own task is a first-class citizen rather than an override.
 
-```python
-from rhiza_task.spec import Guard, task
-from rhiza_task.uv import uvx
+```pycon
+>>> from rhiza_task.spec import Guard, task
+>>> from rhiza_task.uv import uvx
 
-
-@task("audit", "run the in-house audit", section="Quality", needs=("install",), guards=(Guard("source_folder"),))
-def audit(cfg):
-    """Audit the source tree."""
-    uvx("my-auditor", cfg.source_folder, cwd=cfg.root)
+>>> @task("audit", "run the in-house audit", section="Quality", needs=("install",), guards=(Guard("source_folder"),))
+... def audit(cfg):
+...     """Audit the source tree."""
+...     uvx("my-auditor", cfg.source_folder, cwd=cfg.root)
 ```
 
 The decorator has already done the registering, so the task is now reachable by the same
 `lookup` the runner and the CLI use — no override, no second path:
 
-```python
-from rhiza_task.spec import lookup
+```pycon
+>>> from rhiza_task.spec import lookup
 
-spec = lookup("audit")
-print(spec.key, "-", spec.help)
-print(spec.needs, spec.guards[0].folder, spec.section)
-```
-
-```result
+>>> spec = lookup("audit")
+>>> print(spec.key, "-", spec.help)
 audit - run the in-house audit
+>>> print(spec.needs, spec.guards[0].folder, spec.section)
 ('install',) source_folder Quality
 ```
 
-That last pair of blocks is executed and diffed, not just rendered: `rhiza-task rhiza-test`
-runs the `python` fences and compares their real output against the `result` block. The copy
-of the same pair in the book's [Adding a Task](https://jebel-quant.github.io/rhiza-task/adding_a_task/)
-page is diffed by `rhiza-task docs-examples`, which owns the docs tree for the same reason.
+Those two blocks are doctested, not just rendered: `rhiza-task rhiza-test` runs the `pycon`
+fences as one doctest session and compares each example's real output against the line
+beneath its `>>>` prompt. The copy of the same pair in the book's
+[Adding a Task](https://jebel-quant.github.io/rhiza-task/adding_a_task/) page is doctested by
+`rhiza-task docs-examples`, which owns the docs tree for the same reason.
 A change to `lookup`, to `Task`, or to the decorator above breaks a build rather than quietly
 outdating a page.
 
@@ -320,8 +317,8 @@ different sets of them:
 
 | examples | gate |
 |---|---|
-| this README's `python` fences, diffed against its `result` block | `rhiza-task rhiza-test`, via pytest-rhiza's `test_readme_validation` |
-| every fence under `docs/` — `python` compiled, `bash` parsed, `result` diffed | `rhiza-task docs-examples` |
+| this README's `pycon` fences, doctested as one session | `rhiza-task rhiza-test`, via pytest-rhiza's `test_readme_validation` |
+| every fence under `docs/` — `pycon` doctested, `python` compiled, `bash` parsed | `rhiza-task docs-examples` |
 | the 39 `>>>` examples in `config.py`, `runner.py` and `spec.py` | `tests/test_doctests.py`, under plain `pytest` |
 
 `rhiza-test` is not what runs the docstring examples, which is worth knowing because it

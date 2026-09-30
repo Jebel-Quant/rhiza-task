@@ -20,35 +20,31 @@ acme = "acme_tasks.gates"
 
 ## Write the task
 
-```python
-from rhiza_task.spec import Guard, task
-from rhiza_task.uv import uvx
+```pycon
+>>> from rhiza_task.spec import Guard, task
+>>> from rhiza_task.uv import uvx
 
-
-@task("audit", "run the in-house audit", section="Quality", needs=("install",), guards=(Guard("source_folder"),))
-def audit(cfg):
-    """Audit the source tree."""
-    uvx("my-auditor", cfg.source_folder, cwd=cfg.root)
+>>> @task("audit", "run the in-house audit", section="Quality", needs=("install",), guards=(Guard("source_folder"),))
+... def audit(cfg):
+...     """Audit the source tree."""
+...     uvx("my-auditor", cfg.source_folder, cwd=cfg.root)
 ```
 
 That is the whole thing. The decorator has already done the registering, so the task is
 reachable by the same `lookup` the runner and the CLI use:
 
-```python
-from rhiza_task.spec import lookup
+```pycon
+>>> from rhiza_task.spec import lookup
 
-spec = lookup("audit")
-print(spec.key, "-", spec.help)
-print(spec.needs, spec.guards[0].folder, spec.section)
-```
-
-```result
+>>> spec = lookup("audit")
+>>> print(spec.key, "-", spec.help)
 audit - run the in-house audit
+>>> print(spec.needs, spec.guards[0].folder, spec.section)
 ('install',) source_folder Quality
 ```
 
 !!! tip "That example is executed — here as well as in the README"
-    The pair above is **run and diffed against its `result` block**, by `rhiza-task
+    The pair above is **doctested**, both fences as one session, by `rhiza-task
     docs-examples` for this page and by `rhiza-task rhiza-test` for the copy in the
     repository's `README.md`. A change to `lookup`, to `Task`, or to the decorator breaks
     both rather than quietly outdating either.
