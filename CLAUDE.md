@@ -322,9 +322,11 @@ namespace and `ELLIPSIS`, so `adding_a_task.md`'s pair works as written: the fir
 `@task` is in scope for the second's `lookup`. A stale output fails the build at the line of
 the example that printed it, and a fence flagged `+RHIZA_SKIP` in its info string is left
 out and counted under `pycon +RHIZA_SKIP` on the unchecked line. The older
-```` ```result ```` block — the expected stdout of every `python` fence above it — is still
-executed and diffed, so a tree that carries one is not silently passed, but nothing here
-uses it any more and a new example should not.
+```` ```result ```` block — the expected stdout of every `python` fence above it — is
+**retired**: it is no longer executed or diffed, and appears as `N result` on the unchecked
+line, so a tree that still carries one sees it named rather than silently passed. It went
+in #196 because `pycon` had taken `fences.py` to the accumulation ceiling, and every
+decomposition needed `Fence` on both sides of the cut.
 
 There are **two** pycon examples in the tree — that pair, and `layers.md`'s shadowing
 example, whose answers used to sit in trailing `# 'python:test'` comments — and between them
@@ -332,7 +334,8 @@ that is **every example in the tree which produces output**. The `python` fences
 a task, bind a name or quote a `Guard` fragment, and print nothing, so they are only
 compiled. That invariant is the thing to preserve, and it is checkable rather than
 remembered: the fences which print are exactly the fences which are doctested. A python
-fence that starts printing should become pycon rather than grow a `result` block.
+fence that starts printing should become pycon — a `result` block would no longer be
+checked.
 
 Count them with `grep -rcE '^\s*```(pycon|python|py)\s*$' docs/*.md`, and note the leading
 `\s*` — some fences are **indented** inside a tabbed admonition (two in `adding_a_task.md`'s

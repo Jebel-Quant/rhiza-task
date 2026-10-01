@@ -154,10 +154,9 @@ session with `ELLIPSIS`, so a stale output is reported at the line of the exampl
 printed it, and a fence flagged `+RHIZA_SKIP` is left out and counted as unchecked. It
 parses every `python` fence with `compile`, every `bash` fence with `bash -n` — parsed,
 never executed — every `toml` fence with `tomllib` and every `yaml` fence with a real
-parser. A legacy ```result``` block is still run and diffed against the `python` fences
-above it, but `pycon` is the convention: the expected output sits under the statement that
-produced it. Fences in any other language are reported as
-unchecked with a count, because silence there would read as full coverage. It answers the
+parser. The legacy ```result``` block is no longer run or diffed — write `pycon`, where the
+expected output sits under the statement that produced it — and is named on the unchecked
+line instead. Fences in any other language are reported as unchecked with a count, because silence there would read as full coverage. It answers the
 question no other gate does: not "is there a docstring?" but "is what the documentation
 claims still true?"
 
