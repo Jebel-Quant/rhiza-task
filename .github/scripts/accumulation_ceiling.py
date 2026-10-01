@@ -66,8 +66,14 @@ def main(argv: list[str]) -> int:
         argv: One path, to radon's JSON report.
 
     Returns:
-        1 when any module is over the ceiling, else 0.
+        2 when the report path is missing, 1 when any module is over the ceiling, else 0.
     """
+    # A usage line rather than an IndexError, because CLAUDE.md invites running this by hand
+    # to reproduce the CI step, and a traceback reads as the gate crashing. 2 is the
+    # conventional usage-error status, distinct from 1, which means the gate fired. See #197.
+    if len(argv) != 2:
+        print(f"usage: {Path(argv[0]).name} <radon-cc.json>", file=sys.stderr)
+        return 2
     over = over_ceiling(json.loads(Path(argv[1]).read_text()))
     for path, n in sorted(over.items()):
         print(f"::error::{path} holds {n} blocks at CC >= {HARD}; the ceiling is {CEILING}")

@@ -137,6 +137,23 @@ class TestAccumulationCeiling:
         dirty.write_text(f'{{"m.py": [{blocks}]}}')
         assert ceiling.main(["_", str(dirty)]) == 1
 
+    def test_main_without_a_report_path_prints_usage(
+        self, ceiling: ModuleType, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A missing argument is a usage error, not an ``IndexError`` traceback.
+
+        Exit 2 rather than 1, so a caller can tell "invoked wrongly" from "the gate fired".
+        See #197.
+
+        Args:
+            ceiling: The loaded script.
+            capsys: pytest's output capture.
+        """
+        assert ceiling.main(["accumulation_ceiling.py"]) == 2
+        captured = capsys.readouterr()
+        assert captured.err.startswith("usage: accumulation_ceiling.py <radon-cc.json>")
+        assert captured.out == ""
+
     def test_this_repository_is_under_its_own_ceiling(self, ceiling: ModuleType) -> None:
         """A sanity check on the constants, not a second complexity gate.
 
