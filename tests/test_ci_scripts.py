@@ -157,9 +157,9 @@ class TestAccumulationCeiling:
     def test_this_repository_is_under_its_own_ceiling(self, ceiling: ModuleType) -> None:
         """A sanity check on the constants, not a second complexity gate.
 
-        ``CEILING`` sits one above the current worst module. If a refactor ever set it below
-        what ``src/`` already carries, every CI run would fail and this test says which end
-        of the comparison was wrong.
+        ``CEILING`` is configured, not measured, so this asserts only that it is a usable
+        bound. If a refactor ever set it below what ``src/`` already carries, every CI run
+        would fail and this test says which end of the comparison was wrong.
 
         Args:
             ceiling: The loaded script.

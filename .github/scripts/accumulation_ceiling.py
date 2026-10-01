@@ -31,7 +31,11 @@ HARD = 6
 worth counting rather than a getter."""
 
 CEILING = 6
-"""How many such blocks one module may hold, one above the current worst.
+"""How many such blocks one module may hold.
+
+Set one above the worst module when it was written. The current worst is not restated here,
+because a measured figure in prose is read back by nothing and this one drifted the commit
+after it was written (#196) -- the script's own output names it.
 
 A ceiling rather than a target, and the rule CLAUDE.md already states for a block's own
 figure applies: a module that reaches it is the point to decompose, not the point to raise

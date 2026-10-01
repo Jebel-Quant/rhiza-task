@@ -50,7 +50,7 @@ to remember:
 | No block above cyclomatic complexity 15 | `rhiza-task complexity` |
 | `ruff` clean, formatted; markdown, shell and workflows linted | `rhiza-task fmt` |
 | `ty` **and** `mypy --strict` clean | `rhiza-task typecheck` |
-| Every fenced example under `docs/` parses, and `result` blocks match | `rhiza-task docs-examples` |
+| Every fenced example under `docs/` parses, and `pycon` examples match their output | `rhiza-task docs-examples` |
 
 The coverage floor is load-bearing rather than decorative: it is what justifies the
 test-layout opt-out in `pyproject.toml`, so **lowering it invalidates that opt-out**. The

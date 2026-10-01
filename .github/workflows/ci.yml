@@ -332,9 +332,11 @@ jobs:
       # verdict was not a complexity verdict, and replacing it loses nothing -- this counts
       # blocks at CC >= 6 per module, which no amount of prose can move.
       #
-      # The ceiling is 6, one above the current worst. A module reaching it is the point to
-      # decompose rather than to raise the number, which is the rule CLAUDE.md already
-      # states for a block's own ceiling.
+      # The ceiling is the configured 6 in the script, and the current worst is deliberately
+      # not quoted here: a measured figure in a comment is read back by nothing, and this one
+      # went stale the commit after it was written (#196). A module reaching the ceiling is
+      # the point to decompose rather than to raise the number, which is the rule CLAUDE.md
+      # already states for a block's own ceiling.
       - name: no module above the complexity-accumulation ceiling
         if: ${{ !cancelled() }}
         run: |

@@ -16,7 +16,7 @@ private, where they belong.
 What the gate is *for* stays on the task in ``quality.py``, because that is where a reader
 looking for a gate looks. What it *does* is here.
 
-**This module is the largest in ``src/`` -- roughly 980 lines since ``pycon`` joined, with a
+**This module is the largest in ``src/`` -- roughly 900 lines since ``result`` left, with a
 maintainability index in the low 30s at the time of writing -- and that is accepted.** Worth
 stating outright, because the index is *lower* than the 36.52 that got the checker extracted from
 ``quality.py`` in the first place, so the numbers alone read as having made things worse.
@@ -38,11 +38,17 @@ padding.
 The condition that changes the answer is **a second job arriving, not a line count**. If
 something lands here that is not fenced-example checking, split on that seam. Splitting on
 size alone is the move to resist: the obvious cut -- the parser (``Fence``, :func:`_fences`,
-the language constants) away from the six checkers -- would put a type in one module and
-its only six consumers in another, which is worse than a long file. ``pycon`` arriving did
+the language constants) away from the five checkers -- would put a type in one module and
+its only five consumers in another, which is worse than a long file. ``pycon`` arriving did
 not change that answer: doctesting a transcript is fenced-example checking, the same job.
 
-Six kinds of fence are checked and the rest are counted:
+**Accumulation is the other ceiling, and it is what retired ``result``.** ``ci.yml`` caps
+how many blocks at CC >= 6 one module may hold, and ``pycon`` brought this one to that cap.
+A decomposition was weighed and not taken: every cut needs ``Fence`` on both sides, which
+means either the parser split the paragraph above resists or an import cycle, so the
+cheaper way under the cap was to stop carrying the superseded form. See #196.
+
+Five kinds of fence are checked and the rest are counted:
 
 * ``pycon`` -- **the convention for a runnable example**: a doctest transcript, ``>>>`` and
   ``...`` prompts with the expected output inline. Every pycon fence in one file is joined,
@@ -60,14 +66,12 @@ Six kinds of fence are checked and the rest are counted:
 * ``yaml``/``yml`` -- a real parser, provisioned into a subprocess because adding one to this
   package's runtime dependencies to serve two fences would be the wrong trade: it is a
   published CLI whose install cost every consumer pays on every ``uvx`` invocation.
-* ``result`` -- executed and diffed against the python fences above it. The legacy form of
-  what ``pycon`` now does, kept so a tree that still carries one is checked rather than
-  silently counted; new examples should be written as pycon, where the output sits next to
-  the statement that produced it instead of in a second block.
 
-Anything else -- ``mermaid``, ``makefile``, and fences carrying no language at all -- is
-reported as unchecked with a count. Naming the count is the point: silence there would read
-as "everything was checked".
+Anything else -- ``mermaid``, ``makefile``, fences carrying no language at all, and the
+retired ``result`` block, once diffed against the python fences above it and superseded by
+``pycon`` -- is reported as unchecked with a count. Naming the count is the point: silence
+there would read as "everything was checked", and for ``result`` in particular it would hide
+that a block the gate used to diff no longer is.
 
 Two of the five can go unavailable on a machine that runs the gate fine otherwise, and both
 follow the rule the tool guards elsewhere in this package follow -- the fences are counted
@@ -116,8 +120,7 @@ class Scan:
 
     Attributes:
         per_file: The docs tree's fences, grouped by file, because a file's pycon fences share
-            one doctest namespace -- and a ``result`` block's prelude is the python fences --
-            *in that file* and nowhere else.
+            one doctest namespace *in that file* and nowhere else.
         fences: The same fences, flat. The docs tree only -- the code checkers' subject.
         readme: ``README.md``'s data fences, and none of its code fences. Empty when there is
             no README. See :func:`_readme_fences`.
@@ -145,7 +148,7 @@ class Scan:
 
 
 def check(cfg: Config) -> None:
-    """Run the gate: parse every checkable fence, diff the executed ones, print the inventory.
+    """Run the gate: parse every checkable fence, doctest the pycon ones, print the inventory.
 
     The body of the ``docs-examples`` task, and the only public name in this module. The task
     itself is registered in :mod:`rhiza_task.tasks.quality` and carries the argument for why
@@ -179,7 +182,6 @@ def check(cfg: Config) -> None:
         *_toml_violations(scan.data),
         *(yaml_broken or []),
         *_pycon_violations(scan.per_file, cfg, scratch),
-        *_result_violations(scan.per_file, cfg, scratch),
     ]
     _verdict(cfg, scan, broken, yaml_broken is not None)
 
@@ -259,11 +261,6 @@ SHELL_FENCE_LANGUAGES = frozenset({"bash", "sh"})
 
 PYTHON_FENCE_LANGUAGE = "python"
 
-# The legacy convention: a ```result``` block holds the expected stdout of the python fences
-# above it. Superseded by ```pycon``` below -- README.md and the docs tree have both moved --
-# and still checked, because a gate that stopped diffing the form would pass a stale one.
-RESULT_FENCE_LANGUAGE = "result"
-
 # The convention for a runnable example across the fleet: a standard doctest transcript. The
 # same spelling pytest-rhiza doctests in README.md, so one example reads the same way in the
 # README and in the book.
@@ -332,9 +329,7 @@ for number, where in enumerate((here / "index.txt").read_text().splitlines()):
 # everywhere. Should pytest-rhiza ever learn toml, this set is the one place to narrow.
 DATA_FENCE_LANGUAGES = YAML_FENCE_LANGUAGES | {TOML_FENCE_LANGUAGE}
 CHECKED_FENCE_LANGUAGES = (
-    SHELL_FENCE_LANGUAGES
-    | YAML_FENCE_LANGUAGES
-    | {PYCON_FENCE_LANGUAGE, PYTHON_FENCE_LANGUAGE, RESULT_FENCE_LANGUAGE, TOML_FENCE_LANGUAGE}
+    SHELL_FENCE_LANGUAGES | YAML_FENCE_LANGUAGES | {PYCON_FENCE_LANGUAGE, PYTHON_FENCE_LANGUAGE, TOML_FENCE_LANGUAGE}
 )
 
 # The driver :func:`_pycon_violations` writes out and runs, at column 0 for the reason
@@ -342,7 +337,7 @@ CHECKED_FENCE_LANGUAGES = (
 # the grep `CLAUDE.md` documents for deferred imports.
 #
 # `doctest` is stdlib, so unlike the yaml driver this provisions nothing extra; it runs in the
-# *project* environment, as `_run_fences` does, because the examples import the package. The
+# *project* environment, because the examples import the package. The
 # runner's two reporting hooks are overridden to collect one message per failing example in
 # place of doctest's own report, and the fence's opening line is added to each example's
 # offset so the message points at the file line a reader edits. The report is JSON rather
@@ -421,7 +416,7 @@ class Tally:
 
     A record rather than the tuple this used to be. Four counts unpacked positionally were
     already at the edge of readable; toml and yaml take it to six, where
-    ``python, shell, toml, yaml, diffed, unchecked = _tally(fences)`` stops being checkable by
+    ``pycon, python, shell, toml, yaml, unchecked = _tally(fences)`` stops being checkable by
     eye and a transposed pair would report shell fences as toml with nothing failing. The
     fields carry the meaning instead.
 
@@ -431,7 +426,6 @@ class Tally:
         shell: ``bash``/``sh`` fences, checked by ``bash -n`` when bash is present.
         toml: ``toml`` fences, checked in-process by :mod:`tomllib`.
         yaml: ``yaml``/``yml`` fences, checked by a provisioned parser in a subprocess.
-        diffed: ``result`` fences, executed and compared against the python fences above them.
         unchecked: Each remaining language paired with its count, commonest first and then
             alphabetically so the report line is diffable between runs. A fence with no
             language at all is counted under ``(none)``, and a skipped pycon fence under
@@ -443,7 +437,6 @@ class Tally:
     shell: int
     toml: int
     yaml: int
-    diffed: int
     unchecked: list[tuple[str, int]]
 
 
@@ -701,26 +694,30 @@ def _pycon_violations(per_file: list[list[Fence]], cfg: Config, scratch: Path) -
 
     **The check the fleet's convention rests on.** A pycon fence is a doctest transcript, so
     the expected output sits beside the statement that prints it, and the file and line a
-    stale example is reported at are the example's own -- where a ``result`` block could only
-    name itself and leave the reader to find which print moved.
+    stale example is reported at are the example's own -- where the retired ``result`` block
+    could only name itself and leave the reader to find which print moved.
 
     Per file, and every non-skipped pycon fence of that file joined in document order into
     *one* doctest, so a name bound in the first fence is in scope in the next: a page that
     defines a task and then looks it up is one example split across prose, which is exactly
-    how ``adding_a_task.md`` reads. Files never share a namespace, for the reason a
-    ``result`` prelude never crosses a file.
+    how ``adding_a_task.md`` reads. Files never share a namespace: a page's examples are
+    read on that page, and a name leaking in from another would pass an example no reader
+    could reproduce.
 
     ``ELLIPSIS`` is on, so ``...`` in an expected output matches anything -- a path, an
     address, a timing. That is the one loosening, and it is opt-in *per example*: an output
     that does not write ``...`` is compared exactly. It is the same flag pytest-rhiza doctests
     ``README.md`` with, so one example has one meaning in both places.
 
-    Run through :func:`~rhiza_task.uv.uv_run` in the project environment, for the reason
-    :func:`_run_fences` gives -- ``@task`` in an example would otherwise register into the
-    live registry of the process running the gate -- and with the same semantics: always
-    executed, no opt-in, and a run that did not finish is a violation rather than a skip,
-    because an unrunnable example documents nothing. The fences reach the driver as JSON in a
-    file, for the reason :func:`_yaml_violations` writes files: no escaping to get wrong.
+    A subprocess through :func:`~rhiza_task.uv.uv_run`, in the project environment, and not
+    :func:`exec` in this process, which would be shorter: the examples in
+    ``adding_a_task.md`` call ``@task``, which registers into the live
+    :data:`~rhiza_task.spec.REGISTRY`, so running them here would add a task to the process
+    running the gate and a later ``list`` in the same ``rhiza-task all`` would print one that
+    does not exist. Isolation is a requirement, not caution. Always executed, no opt-in, and a
+    run that did not finish is a violation rather than a skip, because an unrunnable example
+    documents nothing. The fences reach the driver as JSON in a file, for the reason
+    :func:`_yaml_violations` writes files: no escaping to get wrong.
 
     Args:
         per_file: Fences grouped by file, so a namespace cannot reach across files.
@@ -772,95 +769,6 @@ def _pycon_document(one_file: list[Fence]) -> dict[str, object] | None:
     return {"path": one_file[0].path, "fences": runnable} if runnable else None
 
 
-def _result_violations(per_file: list[list[Fence]], cfg: Config, scratch: Path) -> list[str]:
-    """Return one message per ``result`` block that no longer matches what its python prints.
-
-    This is the half that catches an example gone *stale* rather than malformed, which is the
-    failure with the longest half-life: the fence still parses, still renders, and is wrong.
-
-    The prelude is every python fence earlier in the same file, concatenated, because that is
-    what ``README.md``'s pair needs -- the first fence defines the ``audit`` task with
-    ``@task`` and the second calls ``lookup("audit")``, so running the second alone raises.
-    The whole captured stdout is then compared against the block.
-
-    That comparison is exact but for surrounding whitespace, and it carries one assumption
-    worth stating: a prelude fence that *prints* would have its output counted as part of the
-    result. No file here has one. If that changes, the fix is to fence off the prelude's
-    output rather than to loosen the diff, because a loosened diff is how a stale example
-    starts passing again.
-
-    Args:
-        per_file: Fences grouped by file, so a prelude cannot reach across files.
-        cfg: The resolved config.
-        scratch: Directory for the throwaway script and its captured stdout.
-
-    Returns:
-        Violation messages, one per stale or unrunnable block.
-    """
-    broken: list[str] = []
-    for one_file in per_file:
-        for index, fence in enumerate(one_file):
-            if fence.language != RESULT_FENCE_LANGUAGE:
-                continue
-            prelude = [f.code for f in one_file[:index] if f.language == PYTHON_FENCE_LANGUAGE]
-            if not prelude:
-                broken.append(f"{fence.path}:{fence.line}: result block with no python fence above it")
-                continue
-            printed = _run_fences(cfg, scratch, prelude)
-            if printed is None:
-                broken.append(f"{fence.path}:{fence.line}: the python above this block exited non-zero")
-            elif printed.strip() != fence.code.strip():
-                broken.append(
-                    f"{fence.path}:{fence.line}: result block is stale\n"
-                    f"           expected: {fence.code.strip()!r}\n"
-                    f"           actual:   {printed.strip()!r}"
-                )
-    return broken
-
-
-def _run_fences(cfg: Config, scratch: Path, codes: list[str]) -> str | None:
-    """Run python fences in the project environment and return their stdout.
-
-    A subprocess, and not :func:`exec` in this process, which would be shorter: the fences in
-    ``adding_a_task.md`` call ``@task``, and ``@task`` registers into the live
-    :data:`~rhiza_task.spec.REGISTRY`. Running them here would add an ``audit`` task to the
-    process running the gate, so a later ``list`` in the same ``rhiza-task all`` would print a
-    task that does not exist. Isolation is a requirement here, not caution.
-
-    stdout arrives through a file rather than a pipe for the reason ``complexity`` reads
-    radon's ``--output-file``: :func:`~rhiza_task.uv.uv_run` streams rather than captures, and
-    adding a capturing variant to ``uv.py`` for one caller would widen that module's surface
-    for it. The script redirects its own stdout, so the invocation stays a fixed argument
-    vector with no shell -- and the fences' tracebacks still reach the terminal on stderr,
-    which is where a reader wants them.
-
-    Args:
-        cfg: The resolved config.
-        scratch: Directory for the script and its captured stdout.
-        codes: The python fences to run, in document order.
-
-    Returns:
-        The captured stdout, or None when the script exited non-zero or wrote nothing.
-    """
-    printed = scratch / "stdout.txt"
-    # Stale output first, for the reason `complexity` unlinks its report: output left by an
-    # earlier run would be read as this run's, and a diff that passes against last run's
-    # stdout is worse than no diff.
-    printed.unlink(missing_ok=True)
-    # `result_fences.py`, not `fences.py`: this module is now called fences.py too, and a
-    # generated scratch file sharing its name reads as the module in a traceback or a grep.
-    script = scratch / "result_fences.py"
-    script.write_text(
-        f"import sys\nsys.stdout = open({str(printed)!r}, 'w', encoding='utf-8')\n"
-        + "\n".join(codes)
-        + "\nsys.stdout.flush()\n"
-    )
-    code = uv_run("python", script.relative_to(cfg.root).as_posix(), cwd=cfg.root, check=False)
-    if code or not printed.is_file():
-        return None
-    return printed.read_text(errors="replace")
-
-
 def _tally(fences: list[Fence]) -> Tally:
     """Count the fences by what can be done with them.
 
@@ -889,7 +797,7 @@ def _tally(fences: list[Fence]) -> Tally:
     # B604 matches the *keyword name* `shell=` below and reads this as a subprocess call being
     # handed a shell. It is a field assignment on a frozen dataclass of integers, and the
     # nearest subprocess is two hundred lines away. Renaming the field to dodge the pattern
-    # would cost the symmetry with `python`, `toml`, `yaml` and `diffed` -- which is the whole
+    # would cost the symmetry with `pycon`, `python`, `toml` and `yaml` -- which is the whole
     # reason the tuple became a record -- so the suppression is the cheaper trade.
     #
     # The marker sits on this line and not on `shell=` itself, which is where the finding is
@@ -906,7 +814,6 @@ def _tally(fences: list[Fence]) -> Tally:
         shell=sum(tally[language] for language in SHELL_FENCE_LANGUAGES),
         toml=tally[TOML_FENCE_LANGUAGE],
         yaml=sum(tally[language] for language in YAML_FENCE_LANGUAGES),
-        diffed=tally[RESULT_FENCE_LANGUAGE],
         unchecked=unchecked,
     )
 
@@ -937,7 +844,7 @@ def _report(fences: list[Fence], bash: str | None, yaml_ran: bool, files: int) -
     nothing looks at" both pass every other gate in this repository while documenting nothing
     verifiable. A reader seeing only a green line would take it for full coverage.
 
-    Two of the six kinds can go unchecked on a machine that runs the gate fine otherwise --
+    Two of the five kinds can go unchecked on a machine that runs the gate fine otherwise --
     shell without bash, yaml without a provisioned parser -- and each gets its own line saying
     so. They are counted out of ``checked`` in that case rather than assumed sound, which is
     the same rule the tool guards elsewhere in this package follow.
@@ -948,8 +855,8 @@ def _report(fences: list[Fence], bash: str | None, yaml_ran: bool, files: int) -
     the availability lines want a loop over ``(count, ran, noun)`` triples rather than a
     branch each. A kind that cannot go unavailable -- anything stdlib, as toml is -- costs
     nothing here and does not count against that. ``pycon`` is that kind: its driver needs
-    only :mod:`doctest`, and a run that fails to report is a violation, as a ``result``
-    block's failed run is, rather than an availability line.
+    only :mod:`doctest`, and a run that fails to report is a violation rather than an
+    availability line.
 
     Args:
         fences: Every fence in the tree.
@@ -961,18 +868,10 @@ def _report(fences: list[Fence], bash: str | None, yaml_ran: bool, files: int) -
         True when at least one fence was checked, so the caller can skip rather than pass.
     """
     tally = _tally(fences)
-    checked = (
-        tally.pycon
-        + tally.python
-        + tally.diffed
-        + tally.toml
-        + (tally.shell if bash else 0)
-        + (tally.yaml if yaml_ran else 0)
-    )
+    checked = tally.pycon + tally.python + tally.toml + (tally.shell if bash else 0) + (tally.yaml if yaml_ran else 0)
     print(f"\n[INFO] {files} file(s), {len(fences)} fence(s): {checked} checked")
     print(
-        f"[INFO] {tally.pycon} pycon, {tally.python} python, {tally.shell} shell, "
-        f"{tally.toml} toml, {tally.yaml} yaml, {tally.diffed} diffed"
+        f"[INFO] {tally.pycon} pycon, {tally.python} python, {tally.shell} shell, {tally.toml} toml, {tally.yaml} yaml"
     )
     if bash is None and tally.shell:
         print(f"[INFO] bash not found: {tally.shell} shell fence(s) went unchecked")
