@@ -59,7 +59,7 @@ docs-examples` now doctests the fence, so a changed answer fails at its own line
 that did not win:
 
 ```bash
-uvx rhiza-task@1.8.1 rust:test
+uvx rhiza-task@1.9.0 rust:test
 ```
 
 Pinning the layer list does the same thing globally:
@@ -81,7 +81,7 @@ layer showed, having synced exactly one fragment.
 `--all` answers the question the make layer could not:
 
 ```bash
-uvx rhiza-task@1.8.1 list --all   # what the layers you do not have call things
+uvx rhiza-task@1.9.0 list --all   # what the layers you do not have call things
 ```
 
 ## A missing name is `None`, not an error
