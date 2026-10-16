@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.9.0] - 2026-10-16
+
+> ⚠️ **Upgrade note.** Two gates now check examples they used to pass over, so a repository
+> whose transcripts have gone stale can go red on upgrade -- the gate working, not a regression.
+> `docs-examples` now runs every `pycon` fence under `docs/` as a doctest (one per file, shared
+> namespace, `ELLIPSIS`); before, those fences were counted as unchecked. And the default
+> `pytest_rhiza` pin moves to v0.7.0, whose `rhiza-test` doctests the `pycon` fences in
+> `README.md`. Fix the stale output, flag a fence `+RHIZA_SKIP` to leave it out, or pin
+> `rhiza-task<1.9`. In the other direction, `result` blocks are no longer executed or diffed:
+> they are named as `N result` on the unchecked line, so convert `python` + `result` pairs to
+> `pycon` to keep them checked.
+
+### 🚀 Features
+
+- *(docs-examples)* Doctest pycon fences
+- *(docs-examples)* Retire result-block diffing to bring fences.py under the accumulation ceiling (#196)
+- Bump the pytest-rhiza pin to v0.7.0, which doctests README pycon fences
+
+### 🐛 Bug Fixes
+
+- Print usage when accumulation_ceiling.py has no report path (#197)
+
+### 📚 Documentation
+
+- Convert python + result example pairs to pycon
+
+### 🛡️ Security
+
+- Bump the actions group with 4 updates
+
+### 💼 Other
+
+- Bump the python group with 2 updates
+- Bump the python group with 2 updates
 ## [1.8.1] - 2026-09-28
 
 ### 🚀 Features
