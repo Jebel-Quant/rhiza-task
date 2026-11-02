@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.9.1] - 2026-11-02
+
+### 🐛 Bug Fixes
+
+- *(benchmark)* Bump pytest-benchmark pin to 5.3.1, which works with pytest 9.2 (#210)
+
+### 🛡️ Security
+
+- Bump the actions group with 4 updates (#207)
+
+### 💼 Other
+
+- Bump hypothesis from 6.168.5 to 6.170.0 in the python group (#205)
+- Bump hypothesis from 6.170.0 to 6.170.8 in the python group (#206)
+- Bump the python group across 1 directory with 2 updates (#208)
+- Bump the actions group across 1 directory with 2 updates (#209)
+
 ## [1.9.0] - 2026-10-16
 
 > ⚠️ **Upgrade note.** Two gates now check examples they used to pass over, so a repository
