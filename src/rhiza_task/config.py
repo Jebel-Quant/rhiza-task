@@ -233,7 +233,7 @@ class Config:
     # reuse -- same commit, different checker. mypy is post-1.0 and moves slowly enough that
     # the same pin would mostly buy staleness. See jebel-quant/rhiza-task#170.
     #
-    # Moving the pin is a deliberate edit here, like `pytest-benchmark==5.2.3` in
+    # Moving the pin is a deliberate edit here, like the `pytest-benchmark` pin in
     # tasks/extras.py: both are places where the tool's *output* is the gate's meaning, so
     # what version produced it is part of the gate. A consumer wanting a different ty sets
     # this rather than forking the task; one wanting the newest sets it empty, which is a

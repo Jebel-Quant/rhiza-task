@@ -361,7 +361,7 @@ class TestExtrasGuards:
         extras.benchmark(cfg)
         call = recorder.find("pytest")
         assert "--benchmark-only" in call.flags
-        assert "pytest-benchmark==5.2.3" in call.kwargs["withs"]
+        assert "pytest-benchmark==5.3.1" in call.kwargs["withs"]
 
     def test_stress_runs_only_marked_tests(self, cfg: Config, recorder: Recorder) -> None:
         """The stress gate selects by marker, not by folder alone.
