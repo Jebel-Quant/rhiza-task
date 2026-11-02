@@ -35,8 +35,9 @@ tests is a valid project, and the marker expression legitimately matches nothing
 def benchmark(cfg: Config) -> None:
     """Run pytest-benchmark over ``tests/benchmarks``, writing a histogram and JSON.
 
-    The two pins are test.mk's, kept exact: benchmark results are only comparable across
-    runs of the same tool version.
+    The two pins are kept exact: benchmark results are only comparable across runs of the
+    same tool version. ``pytest`` is deliberately unpinned, so the benchmark pin must move
+    when pytest does -- 5.2.3 read ``node._nodeid``, which pytest 9.2 removed.
 
     Args:
         cfg: The resolved config.
@@ -49,7 +50,7 @@ def benchmark(cfg: Config) -> None:
         "--benchmark-histogram=_tests/benchmarks/histogram",
         "--benchmark-json=_tests/benchmarks/results.json",
         cwd=cfg.root,
-        withs=("pytest", "pytest-benchmark==5.2.3", "pygal==3.1.0"),
+        withs=("pytest", "pytest-benchmark==5.3.1", "pygal==3.1.0"),
     )
 
 
