@@ -470,12 +470,24 @@ an integer in this sentence would be one more measured figure with nothing readi
   `lowest-direct` resolves it to the oldest release on PyPI. That is not the task being
   stricter than the job it replaced: plain `uv sync --all-extras --all-groups --resolution
   lowest-direct` fails identically, which is checked rather than assumed.
+- **`template-layer`** — `update` against the template's *real* sync scripts, on a throwaway
+  managed repository with a real pointer file. It is the one task with no fixture-free way to
+  be exercised, and the one whose unit tests can say least for it: `update` drives *another
+  repository's* scripts, so the suite asserts the vector this package sends and nothing about
+  whether `sync.py` still accepts it — exactly the gap #148 shipped a release through. The
+  ref it syncs to is deliberately an old one, because being behind the latest release is the
+  case a consumer is in. Read a failure as "the front door and the scripts disagree", which
+  is actionable here even when the change was upstream — the other side of the line `links`
+  draws for its network half.
 
-Two additions live outside `ci.yml` and are easy to miss when counting: `python-layer` now
-also runs **`coverage`** against the throwaway project — it is not `test` with a flag, it
-writes the Cobertura XML the book and any badge reads, so the step checks the *file* rather
-than the exit status — and `rhiza_paper.yml` runs **`paper-clean`** as its last step, because
-that is the only job in the repository with a compiled paper to clean. Both are #152. The
+Three additions to existing jobs are easy to miss when counting. `python-layer` also runs
+**`coverage`** against the throwaway project — it is not `test` with a flag, it writes the
+Cobertura XML the book and any badge reads, so the step checks the *file* rather than the
+exit status — and, since #212, **`dist-check`**, the one task there that reads what a real
+build backend wrote, so its unit-test stubs cannot stand in for it; the step checks that
+`dist/` holds the validated archives, because that folder is what a release uploads. And
+`rhiza_paper.yml` runs **`paper-clean`** as its last step, because that is the only job in
+the repository with a compiled paper to clean. `coverage` and `paper-clean` are #152. The
 `paper-clean` step is last for a reason worth knowing before moving it: `paper_clean` removes
 the **PDF as well as** the aux files, so the upload and the `paper`-branch push must already
 have finished with it. Its assertions name `.pdf` and `.log`, which is what tectonic actually
