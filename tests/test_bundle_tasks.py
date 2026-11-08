@@ -722,6 +722,125 @@ class TestPaper:
         assert (repo / "docs" / "paper" / "main.tex").is_file()
 
 
+class TestJoss:
+    """``joss``: a JOSS Markdown manuscript, through the journal's own inara image (#147)."""
+
+    @pytest.fixture
+    def manuscript(self, repo) -> Path:
+        """Write ``docs/paper/paper.md`` and return the paper folder.
+
+        Args:
+            repo: The repository root.
+
+        Returns:
+            The paper folder.
+        """
+        folder = repo / "docs" / "paper"
+        folder.mkdir(parents=True)
+        (folder / "paper.md").write_text("---\ntitle: Demo\n---\n\n# Summary\n")
+        return folder
+
+    def test_runs_inara_over_the_manuscript(
+        self, repo, manuscript: Path, recorder: Recorder, present: set[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The folder is mounted on /data and the manuscript is named relative to it.
+
+        ``getuid`` is patched rather than read, so the asserted vector is the same on every
+        platform the suite runs on -- including Windows, which has no ``getuid`` at all.
+
+        Args:
+            repo: The repository root.
+            manuscript: The paper folder holding ``paper.md``.
+            recorder: The uv recorder.
+            present: The installed-tool set.
+            monkeypatch: pytest's patcher.
+        """
+        present.add("docker")
+        monkeypatch.setattr(paper_tasks.os, "getuid", lambda: 1000, raising=False)
+        monkeypatch.setattr(paper_tasks.os, "getgid", lambda: 100, raising=False)
+
+        state = runner.run(["joss"], Config.load(root=repo))
+
+        assert state.results[0].status is Status.OK
+        call = recorder.find("docker")
+        assert call.flags == [
+            "run",
+            "--rm",
+            "--volume",
+            f"{manuscript}:/data",
+            "--user",
+            "1000:100",
+            "--env",
+            "JOURNAL=joss",
+            paper_tasks.JOSS_IMAGE,
+            "-o",
+            "pdf",
+            "paper.md",
+        ]
+        assert call.kwargs["cwd"] == manuscript
+
+    def test_the_image_is_pinned(self) -> None:
+        """A tag, never ``latest`` or a bare name: the image decides what the PDF looks like."""
+        name, _, tag = paper_tasks.JOSS_IMAGE.partition(":")
+        assert name == "openjournals/inara"
+        assert re.fullmatch(r"\d+\.\d+\.\d+", tag)
+
+    def test_no_user_flag_without_a_uid(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Windows has no ``getuid``, so the flag is omitted rather than invented.
+
+        Args:
+            monkeypatch: pytest's patcher.
+        """
+        monkeypatch.delattr(paper_tasks.os, "getuid", raising=False)
+        assert paper_tasks.user_flags() == []
+
+    def test_skips_without_docker(self, repo, manuscript: Path, recorder: Recorder, present: set[str]) -> None:
+        """No docker on the machine is a skip, not a failure -- and runs nothing.
+
+        Args:
+            repo: The repository root.
+            manuscript: The paper folder holding ``paper.md``.
+            recorder: The uv recorder.
+            present: The installed-tool set, left empty.
+        """
+        state = runner.run(["joss"], Config.load(root=repo))
+        assert state.results[0].status is Status.SKIPPED
+        assert "docker not found" in state.results[0].detail
+        assert recorder.calls == []
+
+    def test_skips_a_latex_only_paper_folder(self, repo, recorder: Recorder, present: set[str]) -> None:
+        """A folder holding only ``.tex`` is ``paper``'s, and ``joss`` leaves it alone.
+
+        Args:
+            repo: The repository root.
+            recorder: The uv recorder.
+            present: The installed-tool set.
+        """
+        present.add("docker")
+        folder = repo / "docs" / "paper"
+        folder.mkdir(parents=True)
+        (folder / "main.tex").write_text("\\documentclass{article}\n")
+        state = runner.run(["joss"], Config.load(root=repo))
+        assert state.results[0].status is Status.SKIPPED
+        assert "paper.md" in state.results[0].detail
+        assert recorder.calls == []
+
+    def test_listed_only_where_a_manuscript_exists(self, cfg: Config) -> None:
+        """A paper folder alone does not list ``joss``; a ``paper.md`` in it does.
+
+        Args:
+            cfg: A config resolved against a repository with no paper.
+        """
+        applies = REGISTRY["joss"].applies
+        assert applies is not None
+        assert not applies(cfg)
+        folder = cfg.root / cfg.paper_folder
+        folder.mkdir(parents=True)
+        assert not applies(cfg)
+        (folder / "paper.md").write_text("# Summary\n")
+        assert applies(cfg)
+
+
 class TestPresentation:
     """presentation.mk, minus the global npm install."""
 

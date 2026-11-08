@@ -717,6 +717,51 @@ jobs:
       - name: rhiza-task docker-clean
         run: uv run rhiza-task docker-clean --root "$RUNNER_TEMP/bundle"
 
+      # `joss` (#147) against the real inara image, at the tag JOSS_IMAGE pins -- so a bump of
+      # that pin is exercised on its own pull request rather than in a consumer's. The
+      # manuscript carries the front matter a JOSS submission has (authors, affiliations,
+      # bibliography), because inara's template reads those fields and a bare heading would
+      # test less than a real paper. Two file checks, for the halves an exit status cannot
+      # see: the PDF landed beside the manuscript (the /data mount), and it is owned by the
+      # runner rather than by root (the `--user` flag, without which the next build or
+      # `paper-clean` could not overwrite it).
+      - name: rhiza-task joss
+        run: |
+          set -euo pipefail
+          paper="$RUNNER_TEMP/bundle/docs/paper"
+          mkdir -p "$paper"
+          cat > "$paper/paper.md" <<'EOF'
+          ---
+          title: 'Demo: a throwaway JOSS paper'
+          tags:
+            - Python
+          authors:
+            - name: A. Author
+              affiliation: 1
+          affiliations:
+            - name: Nowhere in particular
+              index: 1
+          date: 8 November 2026
+          bibliography: paper.bib
+          ---
+
+          # Summary
+
+          A paper that exists to be typeset [@demo].
+
+          # References
+          EOF
+          cat > "$paper/paper.bib" <<'EOF'
+          @misc{demo,
+            title  = {A cited work},
+            author = {Author, A.},
+            year   = {2026}
+          }
+          EOF
+          uv run rhiza-task joss --root "$RUNNER_TEMP/bundle"
+          test -s "$paper/paper.pdf"
+          test -O "$paper/paper.pdf"
+
       # Resolves through the npx branch of marp_argv, which is the one a consumer without a
       # global marp hits. The first real exercise of cfg.marp_package.
       - name: rhiza-task presentation
