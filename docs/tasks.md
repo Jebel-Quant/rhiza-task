@@ -42,6 +42,7 @@ special cases.
 | `deps` | `install` | run deptry over the contributed folders |
 | `license` | `install` | scan for copyleft licences |
 | `docs-coverage` | `install` | check docstring coverage with interrogate |
+| `dist-check` | `setup` | build the sdist and wheel, and check their version and licence metadata |
 | `all` | `fmt deps test docs-coverage security license typecheck rhiza-test` | run every gate, as CI does |
 
 `test` and `coverage` share one argument builder, so the two cannot drift: both write
@@ -99,6 +100,32 @@ question from "is this commit green" — so CI names it as its own job.
     binary got a green `test` and a red floors job on identical code, reporting a
     resolution failure that was really a missing `dot`. Anything that runs the suite
     should arrive through `install`; that is the whole reason the hook is anchored there.
+
+`dist-check` builds into `dist/` and then reads the artifacts back rather than trusting the
+manifest. It fails when:
+
+- a pattern in `[project].license-files` (or `license = {file = ...}`) matches no file in
+  the project — the backend accepts that silently, and the published metadata then carries
+  no licence;
+- an artifact does not record a declared licence file as a `License-File`, records one it
+  does not contain, or contains a copy that differs from the project's;
+- the sdist and the wheels disagree about their version or their licence files;
+- a wheel **rebuilt from the sdist** — unpacked outside any git repository, with
+  `SETUPTOOLS_SCM_PRETEND_VERSION*` and `PDM_BUILD_SCM_VERSION` removed — comes out
+  different. That is the version a downstream builder such as conda-forge sees, and a
+  VCS-derived version that was never frozen into `PKG-INFO` falls back without an error.
+
+`dist/` is left holding exactly what passed, and earlier sdists and wheels there are removed
+first, so a release job can publish that folder without rebuilding. A project with no
+`[build-system]` builds nothing and is skipped.
+
+!!! info "Why it does not compare the version with the release tag"
+    Normalising a tag such as `v1.2.0-beta.1` to PEP 440 needs `packaging`, which is not a
+    dependency of this package — every runtime dependency is paid on every `uvx` call. The
+    release workflows already compare the tag with the filenames this task leaves in `dist/`,
+    so the two checks meet there. It is not an `all` prerequisite either: it builds, which
+    is a release question rather than a "is this commit green" one, so CI names it as its
+    own step.
 
 ## Rust
 

@@ -75,13 +75,19 @@ def _bin(name: str, env_var: str) -> str:
     return os.environ.get(env_var) or shutil.which(name) or name
 
 
-def _run(argv: Sequence[str], cwd: Path, env: Mapping[str, str] | None = None) -> int:
+def _run(
+    argv: Sequence[str],
+    cwd: Path,
+    env: Mapping[str, str] | None = None,
+    unset: Sequence[str] = (),
+) -> int:
     """Run a command, streaming its output, and return the exit status.
 
     Args:
         argv: The full argument vector.
         cwd: Working directory.
         env: Extra environment variables, merged over the current environment.
+        unset: Variables to remove from the inherited environment, applied after ``env``.
 
     Returns:
         The process exit status.
@@ -91,6 +97,12 @@ def _run(argv: Sequence[str], cwd: Path, env: Mapping[str, str] | None = None) -
     # assignable to it.
     merged: dict[str, str] = dict(os.environ)
     merged.update(env or {})
+    # Removal is its own parameter rather than an empty value in `env`, because an empty
+    # string is not the same as absent to every reader: `dist-check` strips version
+    # overrides such as SETUPTOOLS_SCM_PRETEND_VERSION, and a backend that tests for the
+    # variable's presence would read "" as a version.
+    for name in unset:
+        merged.pop(name, None)
     # uv warns when VIRTUAL_ENV points somewhere other than the project venv. rhiza.mk
     # handles this with `unexport VIRTUAL_ENV`; this is the same fix.
     merged.pop("VIRTUAL_ENV", None)
@@ -106,7 +118,13 @@ def _run(argv: Sequence[str], cwd: Path, env: Mapping[str, str] | None = None) -
     return subprocess.call(command, cwd=cwd, env=merged)  # noqa: S603  # nosec B603
 
 
-def uv(*args: str, cwd: Path, check: bool = True, env: Mapping[str, str] | None = None) -> int:
+def uv(
+    *args: str,
+    cwd: Path,
+    check: bool = True,
+    env: Mapping[str, str] | None = None,
+    unset: Sequence[str] = (),
+) -> int:
     """Run uv itself.
 
     Args:
@@ -114,6 +132,8 @@ def uv(*args: str, cwd: Path, check: bool = True, env: Mapping[str, str] | None 
         cwd: Working directory.
         check: Raise on non-zero rather than returning the status.
         env: Extra environment variables.
+        unset: Inherited variables to remove. ``dist-check`` is the one caller: it rebuilds
+            a wheel from the sdist with any version override taken away.
 
     Returns:
         The exit status.
@@ -121,7 +141,7 @@ def uv(*args: str, cwd: Path, check: bool = True, env: Mapping[str, str] | None 
     Raises:
         Failed: When ``check`` and uv exited non-zero.
     """
-    code = _run([_bin("uv", "RHIZA_UV_BIN"), *args], cwd, env)
+    code = _run([_bin("uv", "RHIZA_UV_BIN"), *args], cwd, env, unset)
     if check and code:
         raise Failed(code, f"uv {args[0] if args else ''} failed")
     return code

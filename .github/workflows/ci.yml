@@ -455,6 +455,7 @@ jobs:
           name = "demo"
           version = "0.1.0"
           requires-python = ">=3.11"
+          license-files = ["LICENSE"]
 
           [build-system]
           requires = ["hatchling"]
@@ -475,6 +476,7 @@ jobs:
           EOF
           printf 'def add(a, b):\n    "Add two numbers."\n    return a + b\n' > src/demo/__init__.py
           printf 'from demo import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n' > tests/test_demo.py
+          printf 'MIT License\n' > LICENSE
 
       # `--root` addresses the scratch project, as the two layer jobs do. A vector that uv or
       # pytest rejects fails here, which is the whole point: no stub can reject one.
@@ -505,6 +507,18 @@ jobs:
           proj="${RUNNER_TEMP//\\//}/pyproj"
           uv run rhiza-task coverage --root "$proj"
           test -s "$proj/_tests/coverage.xml"
+
+      # `dist-check` is the one task here that reads what a real backend wrote, so the stubs
+      # in its unit tests cannot stand in for this: the archive layouts, the License-File
+      # spelling and the rebuild from an unpacked sdist all come from hatchling here. The
+      # fixture declares a LICENSE for that reason. The file checks are the half an exit
+      # status cannot see -- the task leaves `dist/` holding what it validated, and that is
+      # what a release uploads.
+      - name: rhiza-task dist-check
+        run: |
+          proj="${RUNNER_TEMP//\\//}/pyproj"
+          uv run rhiza-task dist-check --root "$proj"
+          ls "$proj"/dist/demo-0.1.0.tar.gz "$proj"/dist/demo-0.1.0-*.whl
 
   # Linux-only, deliberately: a Windows cell would need its own Go toolchain install and
   # would be asking a question about the runner rather than about the vector. `python-layer`

@@ -42,6 +42,10 @@ rhiza-task = "rhiza_task.cli:main"
 # replacement for `-include local.mk`. The built-ins register themselves the same way, so
 # there is one mechanism rather than a built-in path and a plugin path.
 python = "rhiza_task.tasks.python"
+# `dist-check` is Python-layer like `python`'s gates, but its own module: it reads archives
+# and metadata in-process rather than delegating to a tool, which is a different shape from
+# every gate there and would have taken python.py past the accumulation ceiling.
+dist = "rhiza_task.tasks.dist"
 rust = "rhiza_task.tasks.rust"
 go = "rhiza_task.tasks.go"
 quality = "rhiza_task.tasks.quality"
