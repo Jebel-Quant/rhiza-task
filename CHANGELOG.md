@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.10.0] - 2026-11-08
+
+### 🚀 Features
+
+- Dist-check task validating built distributions before publishing (#212)
+
 ## [1.9.1] - 2026-11-02
 
 ### 🐛 Bug Fixes
