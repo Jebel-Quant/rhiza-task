@@ -33,15 +33,25 @@ common case) and no longer privileges a stranger's filename.
 ``-maxdepth 1`` survives as :meth:`~pathlib.Path.glob` rather than
 :meth:`~pathlib.Path.rglob`, and deliberately: a LaTeX project's subdirectories hold
 included chapters, and the engine must be pointed at the root document, not at a chapter.
+
+**``joss`` is a second task rather than a second branch of ``paper``** (#147). A Journal of
+Open Source Software manuscript is Markdown plus BibTeX, typeset by the journal's own
+pipeline, and teaching ``paper`` to recognise it would have made one task name answer for
+two engines whose outputs are not comparable. So ``paper`` is unchanged, and ``joss`` runs
+the journal's pipeline as the journal does: the `inara <https://github.com/openjournals/inara>`_
+image, which is what JOSS's draft action runs, over ``paper.md`` in the same
+``paper_folder``. :data:`JOSS_IMAGE` says why it is pinned.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from ..config import Config
 from ..spec import Guard, Skip, task
 from ..uv import tool
+from .docker import HAVE_DOCKER
 
 SECTION = "Paper"
 
@@ -69,6 +79,53 @@ and, only when asked, the rest.
 Matched as name suffixes rather than through :attr:`~pathlib.PurePath.suffix`, because
 ``.synctex.gz`` is two extensions and ``suffix`` would report only ``.gz``.
 """
+
+JOSS_DOCUMENT = "paper.md"
+"""The manuscript ``joss`` compiles: the name JOSS's submission guidelines and its draft action
+both default to, and the only one inara reads without being told otherwise."""
+
+JOSS_IMAGE = "openjournals/inara:1.3.1"
+"""The journal's typesetting image, pinned to a release tag.
+
+JOSS's own draft action runs ``:latest``, so a pin can lag what the journal renders. The pin
+wins anyway, for the reason the whole package exists: an unpinned image changes the PDF
+under a green pull request with no commit touching the repository, and a typesetting
+pipeline's output moves between releases. Nothing automated moves a Python string, so this
+is one of the hand-reviewed pins ``.github/dependabot.yml`` lists at its foot -- bump it
+deliberately, and look at the PDF when you do.
+"""
+
+
+def has_joss_paper(cfg: Config) -> bool:
+    """Return whether the repository has a JOSS manuscript, for ``list``.
+
+    Narrower than :func:`has_paper` on purpose: a LaTeX-only paper folder should not list a
+    task that would only ever skip.
+
+    Args:
+        cfg: The resolved config.
+
+    Returns:
+        True when ``<paper_folder>/paper.md`` exists.
+    """
+    return (cfg.root / cfg.paper_folder / JOSS_DOCUMENT).is_file()
+
+
+def user_flags() -> list[str]:
+    """Return the ``--user`` flag that makes the container write files the caller owns.
+
+    inara runs as root by default, so on Linux the PDF it writes into the mounted folder
+    would be root-owned and undeletable by ``paper-clean`` or the next build -- which is why
+    inara's own instructions pass ``-u $(id -u):$(id -g)``. Windows has no uid to pass, and
+    Docker Desktop maps ownership on the way out regardless, so there the flag is omitted
+    rather than invented.
+
+    Returns:
+        ``["--user", "<uid>:<gid>"]`` where the platform has them, else an empty list.
+    """
+    if not hasattr(os, "getuid"):
+        return []
+    return ["--user", f"{os.getuid()}:{os.getgid()}"]
 
 
 def main_document(folder: Path) -> Path | None:
@@ -131,6 +188,56 @@ def paper(cfg: Config) -> None:
     # records absolute paths from whichever machine built it.
     tool("tectonic", "--keep-logs", document.name, cwd=folder)
     print(f"[SUCCESS] {cfg.paper_folder}/{document.stem}.pdf")
+
+
+@task(
+    "joss",
+    "compile the JOSS Markdown paper to a draft PDF",
+    section=SECTION,
+    guards=(HAVE_DOCKER, Guard("paper_folder")),
+    applies=has_joss_paper,
+)
+def joss(cfg: Config) -> None:
+    """Run the journal's inara image over ``<paper_folder>/paper.md``.
+
+    The output is a **draft** -- watermarked and line-numbered, which is inara's default
+    and what JOSS's draft action produces. The production PDF is the journal's to build
+    at acceptance, so there is no flag here for it.
+
+    Args:
+        cfg: The resolved config.
+
+    Raises:
+        Skip: When the folder holds no ``paper.md``.
+    """
+    folder = cfg.path("paper_folder")
+    if not (folder / JOSS_DOCUMENT).is_file():
+        raise Skip(f"no {JOSS_DOCUMENT} in '{cfg.paper_folder}'")
+
+    print(f"[INFO] compiling {JOSS_DOCUMENT} with {JOSS_IMAGE}")
+    # The folder is mounted on /data, inara's working directory, so the manuscript is named
+    # relative to it and `paper.bib`, figures and the PDF all sit beside it -- the same
+    # "output lands next to the source" rule `paper` follows. `JOURNAL=joss` is the image's
+    # default too; it is passed anyway, as the draft action passes it, so the vector says
+    # which journal's template it renders rather than relying on an ENV line upstream.
+    # `-o pdf` because the default also writes JATS XML, which is the journal's artefact
+    # rather than the author's.
+    tool(
+        "docker",
+        "run",
+        "--rm",
+        "--volume",
+        f"{folder}:/data",
+        *user_flags(),
+        "--env",
+        "JOURNAL=joss",
+        JOSS_IMAGE,
+        "-o",
+        "pdf",
+        JOSS_DOCUMENT,
+        cwd=folder,
+    )
+    print(f"[SUCCESS] {cfg.paper_folder}/{Path(JOSS_DOCUMENT).stem}.pdf")
 
 
 @task("paper-clean", "remove the LaTeX build artifacts", section=SECTION, applies=has_paper)

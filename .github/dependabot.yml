@@ -81,7 +81,7 @@ updates:
     commit-message:
       prefix: "build"
 
-# Three pins dependabot cannot reach, and all are reviewed by hand. Recorded here rather
+# Four pins dependabot cannot reach, and all are reviewed by hand. Recorded here rather
 # than only at the call sites, because this is the file a reader consults to learn what is
 # and is not automated -- and silence here would read as "everything is covered".
 #
@@ -103,6 +103,10 @@ updates:
 #     the same document, so an engine bump is a deliberate act that should be looked at
 #     rather than merged on a Monday. Bump both fields together -- a stale digest fails the
 #     checksum step, which is the intended failure mode.
+#   * `JOSS_IMAGE` in src/rhiza_task/tasks/paper.py, the inara image `joss` runs. The
+#     `docker` ecosystem reads Dockerfiles and compose files, not a string in Python, and
+#     the reason it is pinned at all is the tectonic one: the image decides what the PDF
+#     looks like. bundle-layer pulls exactly that tag, so a bump is exercised on its PR.
 #
 # The remaining .pre-commit-config.yaml hook revs are unautomated for the same
 # no-such-ecosystem reason, but carry no cross-file pairing, so `prek autoupdate` is a

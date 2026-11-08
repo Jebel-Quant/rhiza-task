@@ -86,7 +86,7 @@ keep working owns that `Makefile` itself and forwards each target to `uvx rhiza-
 | GitHub Helpers | `view-prs` `view-issues` `failed-workflows` `workflow-status` `latest-release` `whoami` |
 | Docker | `docker-build` `docker-run` `docker-clean` |
 | Git LFS | `lfs-install` `lfs-pull` `lfs-track` `lfs-status` |
-| Paper | `paper` `paper-clean` |
+| Paper | `paper` `joss` `paper-clean` |
 | Presentation | `presentation` `presentation-pdf` `presentation-serve` |
 
 The last five sections are bundle-owned fragments. None is a gate — no `all` names them —

@@ -428,7 +428,9 @@ an integer in this sentence would be one more measured figure with nothing readi
   execution anywhere, so around eighteen shipped vectors rested on unit assertions alone.
   One job rather than five, because docker, node, git-lfs and `gh` are all preinstalled on
   `ubuntu-latest` and the language layers are separate only because each needs its own
-  toolchain. **Four vectors are deliberately absent and cannot be added**: `docker-run`
+  toolchain. `joss` (#147) runs here too, because it is a docker vector: it pulls the inara
+  image at the tag `JOSS_IMAGE` pins, so a bump of that hand-reviewed pin is typeset for real
+  on its own pull request. **Four vectors are deliberately absent and cannot be added**: `docker-run`
   (`-it`), `presentation-serve`, `marimo` and `serve` each block forever by design, so a
   step running one would hang to the timeout rather than report. `presentation-pdf` is
   absent for a weaker reason — Marp renders PDF through headless Chrome, so it would

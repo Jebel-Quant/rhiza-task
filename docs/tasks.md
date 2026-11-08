@@ -451,6 +451,7 @@ declares no such mount gets a warning about an unused secret and nothing else.
 | task | does |
 |---|---|
 | `paper` | compile the LaTeX paper to PDF |
+| `joss` | compile the JOSS Markdown paper to a draft PDF |
 | `paper-clean` | remove the LaTeX build artifacts |
 
 **The engine is [tectonic](https://tectonic-typesetting.github.io/), not a TeX
@@ -470,6 +471,26 @@ survives.
 `paper.mk` preferred a file called `basanos.tex` — one downstream repository's paper, named
 in a template every consumer synced. That is now two conventional names, `main.tex` and
 `paper.tex`, then alphabetical order.
+
+**`joss` is for a [Journal of Open Source Software](https://joss.theoj.org/) manuscript**,
+which is Markdown plus BibTeX rather than LaTeX. It is a task of its own rather than a mode
+of `paper`, so `paper` is unchanged. It compiles `<paper_folder>/paper.md` with
+[inara](https://github.com/openjournals/inara), the journal's own pipeline and the image
+JOSS's draft action runs, so it needs docker rather than tectonic:
+
+```bash
+uvx rhiza-task@1.10.0 joss
+```
+
+The output is a **draft** PDF, watermarked and line-numbered as the journal's preview is,
+written beside the manuscript as `paper.pdf`. The image is pinned to a release tag rather
+than following the journal's `latest`, so a newer inara changes the PDF only when this
+package is bumped. Two things to know:
+
+- A folder holding both `paper.tex` and `paper.md` makes `paper` and `joss` write the same
+  `paper.pdf`. Keep one manuscript per folder.
+- `paper-clean` removes the output of `.tex` documents only, so it leaves `joss`'s
+  `paper.pdf` in place unless a `paper.tex` sits beside it.
 
 ### Presentation
 
