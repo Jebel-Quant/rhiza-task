@@ -194,6 +194,32 @@ def test_extra_environment_is_merged(spy: list[dict[str, object]], tmp_path: Pat
     assert "PATH" in env
 
 
+def test_unset_removes_inherited_variables(
+    spy: list[dict[str, object]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``unset`` takes a variable away entirely, even one ``env`` just set.
+
+    An empty value is not the same thing: a backend that checks whether a version override
+    is present would read ``""`` as a version. So the key has to be gone.
+
+    Args:
+        spy: The subprocess spy.
+        tmp_path: Working directory.
+        monkeypatch: pytest's patcher.
+    """
+    monkeypatch.setenv("SETUPTOOLS_SCM_PRETEND_VERSION", "9.9.9")
+    uv_module.uv(
+        "build",
+        cwd=tmp_path,
+        env={"PDM_BUILD_SCM_VERSION": "1.0"},
+        unset=("SETUPTOOLS_SCM_PRETEND_VERSION", "PDM_BUILD_SCM_VERSION"),
+    )
+    env = spy[0]["env"]
+    assert "SETUPTOOLS_SCM_PRETEND_VERSION" not in env
+    assert "PDM_BUILD_SCM_VERSION" not in env
+    assert "PATH" in env
+
+
 @pytest.mark.parametrize("entry", ["uv", "uvx", "uv_run"])
 def test_non_zero_raises_by_default(entry: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """All three entry points raise :class:`Failed` unless asked not to.
