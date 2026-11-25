@@ -156,8 +156,14 @@ explains them:
   reason is about callers rather than layers. `tests/test_uv.py` importing `_task_modules`
   from `conftest.py` was the one violation, introduced by #118 and caught by running the
   second grep over `tests/` rather than by any gate. It is now `task_modules`, public with a
-  docstring saying why — the promotion the rule asks for. So: `grep … tests/` for the second
-  command should also return nothing, and that is worth checking when you touch `conftest.py`.
+  docstring saying why — the promotion the rule asks for. **The grep stopped being enough for
+  `tests/`, and #224 is why.** It needs a leading dot, so it only matches *relative* imports,
+  and a test reaches `src/` through an absolute one. `from rhiza_task.config import _coerce`
+  sat in two test modules from the initial import onwards, and the grep could not see either.
+  Rule 4 is now asserted by `tests/test_layering.py`, which reads the AST of `src/` and
+  `tests/` and accepts both spellings, so the check runs in every `test` run instead of
+  waiting for someone to remember the grep. The two tests that imported `_coerce` now check
+  it through `Config.load`, the public path that calls it.
 
 ## Tests assert argument vectors, and never run uv
 

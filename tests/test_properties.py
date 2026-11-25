@@ -22,6 +22,7 @@ hypothesis-test`` selects with ``-m "hypothesis or property"``.
 from __future__ import annotations
 
 import json
+import re
 import string
 from dataclasses import fields
 from pathlib import Path
@@ -30,7 +31,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from rhiza_task.config import Config, _coerce
+from rhiza_task.config import Config
 
 FIELD_NAMES = tuple(sorted(f.name for f in fields(Config)))
 """Every settable field, drawn from the dataclass rather than from a list kept in step."""
@@ -110,40 +111,90 @@ def test_field_for_never_invents_a_name(name: str) -> None:
     assert Config.field_for(name) in {lowered, lowered.removeprefix("rhiza_")}
 
 
+def load_with(root: Path, var: str, value: str) -> Config:
+    """Resolve a config with one environment variable set, and unset it again afterwards.
+
+    These properties go through ``Config.load``, the public path that coerces a string
+    setting, rather than importing the private helper that does it (#224). The patch is a
+    context rather than the ``monkeypatch`` fixture because Hypothesis rejects a
+    function-scoped fixture under ``@given``, for the reason :func:`repo_root` gives.
+
+    Args:
+        root: The repository root.
+        var: The variable as a consumer exports it.
+        value: Its raw string value.
+
+    Returns:
+        The resolved config.
+    """
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv(var, value)
+        return Config.load(root=root)
+
+
 @given(items=st.lists(st.text(), max_size=6))
-def test_a_json_array_round_trips(items: list[str]) -> None:
+def test_a_json_array_round_trips(repo_root: Path, items: list[str]) -> None:
     """``RHIZA_CI_OS_MATRIX=["ubuntu-latest","macos-latest"]`` survives the trip.
 
     The empty array is included deliberately: ``[]`` in a manifest is the one place TOML
-    distinguishes an empty list from an absent key, which the layer readers rely on.
+    distinguishes an empty list from an absent key, which the layer readers rely on. Any
+    text is safe in an environment variable here, because ``json.dumps`` escapes every
+    non-ASCII character, NUL and lone surrogates included.
 
     Args:
+        repo_root: A directory for the folder settings to resolve against.
         items: The list that was written out.
     """
-    assert _coerce(json.dumps(items)) == tuple(items)
+    cfg = load_with(repo_root, "RHIZA_CI_OS_MATRIX", json.dumps(items))
+    assert cfg.ci_os_matrix == tuple(items)
 
 
 @given(items=st.lists(SETTING_TOKEN, min_size=2, max_size=6))
-def test_a_semicolon_list_becomes_its_parts(items: list[str]) -> None:
+def test_a_semicolon_list_becomes_its_parts(repo_root: Path, items: list[str]) -> None:
     """``LICENSE_FAIL_ON=GPL;LGPL;AGPL`` splits on the separator and nothing else.
 
     At least two items, because a single one carries no ``;`` and is a scalar by the rule
     above it -- which is the branch, not an edge case being avoided.
 
     Args:
+        repo_root: A directory for the folder settings to resolve against.
         items: The parts that were joined.
     """
-    assert _coerce(";".join(items)) == tuple(items)
+    cfg = load_with(repo_root, "LICENSE_FAIL_ON", ";".join(items))
+    assert cfg.license_fail_on == tuple(items)
 
 
-@given(value=st.integers())
-def test_an_integer_setting_arrives_as_an_int(value: int) -> None:
-    """``COVERAGE_FAIL_UNDER=100`` reaches an ``int`` field as an ``int``, sign and all.
+@given(value=st.integers(min_value=1))
+def test_an_integer_setting_arrives_as_an_int(repo_root: Path, value: int) -> None:
+    """``COMPLEXITY_MAX=15`` reaches an ``int`` field as an ``int``.
+
+    ``complexity_max`` because it is the integer setting with an open upper bound: the two
+    coverage floors stop at 100. Its lower bound is the reason the sign gets a test of its
+    own, below.
 
     Args:
+        repo_root: A directory for the folder settings to resolve against.
         value: The number that was written out.
     """
-    assert _coerce(str(value)) == value
+    cfg = load_with(repo_root, "COMPLEXITY_MAX", str(value))
+    assert cfg.complexity_max == value
+    assert type(cfg.complexity_max) is int
+
+
+@given(value=st.integers(max_value=0))
+def test_a_negative_integer_keeps_its_sign(repo_root: Path, value: int) -> None:
+    """``COMPLEXITY_MAX=-3`` arrives as the int ``-3``, which validation then rejects.
+
+    The error message prints the value with ``!r``, so an int reads ``(got -3)`` and a
+    string that slipped past the coercion would read ``(got '-3')``. That makes the
+    rejection a test of the sign as well as of the floor.
+
+    Args:
+        repo_root: A directory for the folder settings to resolve against.
+        value: The number that was written out.
+    """
+    with pytest.raises(ValueError, match=re.escape(f"(got {value})")):
+        load_with(repo_root, "COMPLEXITY_MAX", str(value))
 
 
 @given(tokens=st.lists(UNSPACED_TOKEN, max_size=6))
