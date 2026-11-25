@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from rhiza_task.config import Config, _coerce
+from rhiza_task.config import Config
 
 
 def test_defaults_need_no_files(tmp_path: Path) -> None:
@@ -230,23 +230,37 @@ def test_python_version_file_wins(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("raw", "expected"),
+    ("var", "field", "raw", "expected"),
     [
-        ('["ubuntu-latest","macos-latest"]', ("ubuntu-latest", "macos-latest")),
-        ("GPL;LGPL;AGPL", ("GPL", "LGPL", "AGPL")),
-        ("90", 90),
-        ("true", True),
-        ("src", "src"),
+        ("RHIZA_CI_OS_MATRIX", "ci_os_matrix", '["ubuntu-latest","macos-latest"]', ("ubuntu-latest", "macos-latest")),
+        ("LICENSE_FAIL_ON", "license_fail_on", "GPL;LGPL", ("GPL", "LGPL")),
+        ("COVERAGE_FAIL_UNDER", "coverage_fail_under", "95", 95),
+        ("DEPLOY_PAGES", "deploy_pages", "false", False),
+        ("SOURCE_FOLDER", "source_folder", "lib", "lib"),
     ],
 )
-def test_coerce_handles_every_env_shape(raw: str, expected: object) -> None:
+def test_every_env_shape_reaches_its_field_typed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, var: str, field: str, raw: str, expected: object
+) -> None:
     """The three shapes that appear in real ``.rhiza/.env`` files, plus scalars.
 
+    Checked through ``Config.load``, the public path that does the coercion, rather than by
+    importing the private helper (#224). Each expected value differs from the field's
+    default, so a value that was dropped rather than parsed cannot pass. The ``type`` check
+    is there because ``True == 1``, so equality alone would let a bool stand in for an int.
+
     Args:
+        tmp_path: The repository root.
+        monkeypatch: To set the environment variable.
+        var: The variable as a consumer exports it.
+        field: The config field it lands in.
         raw: The string as it appears in the file.
         expected: The parsed value.
     """
-    assert _coerce(raw) == expected
+    monkeypatch.setenv(var, raw)
+    value = getattr(Config.load(root=tmp_path), field)
+    assert value == expected
+    assert type(value) is type(expected)
 
 
 def test_invalid_typechecker_fails_at_load(tmp_path: Path) -> None:
