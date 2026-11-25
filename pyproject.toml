@@ -203,14 +203,6 @@ replace = "rhiza-task@{new_version}"
 [tool.coverage.run]
 relative_files = true
 
-[tool.deptry.package_module_name_map]
-# python-dotenv installs a module called `dotenv`. deptry runs isolated via `uvx`, so the
-# package is not importable and it cannot discover the mapping itself -- it guesses
-# `python_dotenv` and then reports the dependency as both unused (DEP002) and missing
-# (DEP001). Declaring it is the documented fix, and cheaper than making the gate install
-# the project first.
-python-dotenv = "dotenv"
-
 # This repository's own settings, read by `rhiza-task` as layer 4 of its own resolution
 # order -- the package configuring itself with the mechanism it sells.
 #

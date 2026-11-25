@@ -165,8 +165,11 @@ A repository that wants no plugins at all sets `mkdocs-extra-packages = []`.
 
 ### `deptry` reports a dependency as both unused and missing
 
-The package's import name differs from its distribution name, and deptry runs isolated via
-`uvx` so it cannot import the package to discover the mapping. Declare it:
+The package's import name differs from its distribution name, and deptry could not read the
+installed metadata that maps one to the other. `rhiza-task deps` runs deptry in the project
+environment (`uv run --with deptry`) after `install`, so this resolves on its own for any
+package that installs normally. If it still happens -- deptry run by hand via `uvx`, or a
+package that is not installed into the environment -- declare the mapping:
 
 ```toml
 [tool.deptry.package_module_name_map]

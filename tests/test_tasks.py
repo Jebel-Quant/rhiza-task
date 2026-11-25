@@ -422,6 +422,25 @@ class TestDerivedAccumulators:
         assert cfg.marimo_folder in [*recorder.find("deptry").args]
         assert "DEP004" in flags
 
+    def test_deps_runs_deptry_in_the_project_environment(self, cfg: Config, recorder: Recorder) -> None:
+        """The deps task runs deptry via ``uv run --with deptry``, never an isolated ``uvx`` (#222).
+
+        deptry maps a distribution to its import name from *installed* metadata. Under
+        ``uvx`` the project's packages are absent, so ``pyyaml``/``yaml`` is reported as both
+        missing and unused unless the consumer hand-maintains a module-name map.
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        python.deps(cfg)
+        call = recorder.find("deptry")
+        assert call.kind == "uv_run"
+        assert call.kwargs["withs"] == ("deptry",)
+        assert not call.kwargs.get("no_project")
+        assert call.flags == [cfg.source_folder]
+        assert not [c for c in recorder.calls if c.kind == "uvx" and c.tool == "deptry"]
+
     def test_deps_omits_dep004_without_notebooks(self, cfg: Config, recorder: Recorder) -> None:
         """No notebook folder, no notebook-specific ignore.
 

@@ -398,6 +398,12 @@ def deps(cfg: Config) -> None:
     is ignored for the same reason marimo.mk ignores it -- notebooks legitimately import
     development dependencies.
 
+    deptry runs in the project environment (``uv run --with deptry``), not via ``uvx``. It
+    maps each declared distribution to its import name by reading *installed* metadata, so
+    in an isolated env it guesses the distribution name and reports ``pyyaml``/``yaml`` or
+    ``scikit-learn``/``sklearn`` as both missing (DEP001) and unused (DEP002) -- leaving every
+    consumer to maintain ``[tool.deptry.package_module_name_map]`` by hand (#222).
+
     Args:
         cfg: The resolved config.
 
@@ -411,7 +417,7 @@ def deps(cfg: Config) -> None:
         ignores += ["--ignore", "DEP004"]
     if not folders:
         raise Skip("no deptry folders")
-    uvx("deptry", *folders, *ignores, cwd=cfg.root)
+    uv_run("deptry", *folders, *ignores, cwd=cfg.root, withs=("deptry",))
 
 
 @task("license", "scan for copyleft licences", section="Python", layer="python", needs=("install",))
