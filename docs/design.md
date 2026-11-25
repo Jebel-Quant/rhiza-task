@@ -69,8 +69,13 @@ distinction is preserved rather than unified, because the make layer already got
 | form | when | examples |
 |---|---|---|
 | `uv <subcommand>` | uv itself | `venv`, `sync`, `lock --check` |
-| `uvx <tool>` | an isolated one-shot tool run | prek, deptry, bandit, semgrep, zensical, genbadge |
+| `uvx <tool>` | an isolated one-shot tool run | prek, bandit, semgrep, zensical, genbadge |
 | `uv run --with a --with b <tool>` | a tool run **against the project environment**, because it imports the project's own code | pytest, interrogate, hypothesis, `ty`, mypy |
+
+deptry is the one tool that moved between rows. The make layer ran it via `uvx`, but it
+reads the project's *installed* metadata to map a distribution to its import name (`pyyaml`
+to `yaml`), so isolated it reported such packages as both missing and unused. It now runs
+in the third form.
 
 Rust and Go add a fourth: a toolchain binary already on `PATH`, because uv provisions
 neither `cargo` nor `go` and nothing here pretends otherwise. It shares the module's

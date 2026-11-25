@@ -3,10 +3,14 @@
 Every recipe in the retired *Python* make layer used one of exactly three forms:
 
 * ``uv <subcommand>`` -- uv itself (``venv``, ``sync``, ``lock --check``).
-* ``uvx <tool>`` -- an isolated one-shot tool run: prek, deptry, bandit, semgrep,
-  zensical, genbadge.
+* ``uvx <tool>`` -- an isolated one-shot tool run: prek, bandit, semgrep, zensical,
+  genbadge.
 * ``uv run --with a --with b <tool>`` -- a tool run *against the project environment*,
   because it imports the project's own code: pytest, interrogate, hypothesis, ty, mypy.
+
+deptry is the one tool that moved between them. The make layer ran it via ``uvx``, but it
+reads the project's *installed* metadata to map a distribution to its import name
+(``pyyaml`` to ``yaml``), so it now runs in the third form (#222).
 
 The second and third are a real distinction that the make layer already gets right, so it
 is preserved here rather than unified.
@@ -159,7 +163,7 @@ def uvx(
     """Run an isolated tool via ``uvx``.
 
     Args:
-        tool: The tool spec, e.g. ``deptry`` or ``'zensical>=0.0.36'``.
+        tool: The tool spec, e.g. ``bandit`` or ``'zensical>=0.0.36'``.
         *args: Arguments for the tool.
         cwd: Working directory.
         withs: Extra packages injected into the tool's environment. book.mk's

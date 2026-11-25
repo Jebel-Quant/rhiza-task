@@ -520,6 +520,30 @@ jobs:
           uv run rhiza-task dist-check --root "$proj"
           ls "$proj"/dist/demo-0.1.0.tar.gz "$proj"/dist/demo-0.1.0-*.whl
 
+      # `deps` on a project whose distribution and import names differ -- `pyyaml` declared,
+      # `yaml` imported -- with no `[tool.deptry.package_module_name_map]`. deptry maps the
+      # two only by reading installed metadata, so this passes only when the vector runs it
+      # inside the project environment; the old `uvx deptry` reported DEP001 and DEP002 on
+      # exactly this fixture (#222). A project of its own rather than a dependency added to
+      # the one above, so `test-lowest`'s floor resolution is not asked about pyyaml.
+      - name: rhiza-task deps (import name differs from distribution name)
+        run: |
+          proj="${RUNNER_TEMP//\\//}/yamlproj"
+          mkdir -p "$proj/src/yamldemo"
+          cat > "$proj/pyproject.toml" <<'EOF'
+          [project]
+          name = "yamldemo"
+          version = "0.1.0"
+          requires-python = ">=3.11"
+          dependencies = ["pyyaml>=6.0.3"]
+
+          [build-system]
+          requires = ["hatchling"]
+          build-backend = "hatchling.build"
+          EOF
+          printf 'import yaml\n\n\ndef load(text):\n    "Parse YAML."\n    return yaml.safe_load(text)\n' > "$proj/src/yamldemo/__init__.py"
+          uv run rhiza-task deps --root "$proj"
+
   # Linux-only, deliberately: a Windows cell would need its own Go toolchain install and
   # would be asking a question about the runner rather than about the vector. `python-layer`
   # above carries the cross-platform half of this argument, and #158 records why the split
