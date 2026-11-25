@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.11.0] - 2026-11-25
+
+### 🚀 Features
+
+- Joss task compiling a JOSS Markdown paper with the journal's inara image (#147) (#217)
+
+### 🐛 Bug Fixes
+
+- *(deps)* Run deptry in the project environment so import names resolve (#222) (#223)
+
+### 📚 Documentation
+
+- List template-layer and dist-check in CLAUDE.md's CI jobs (#215) (#216)
+
+### 🧪 Testing
+
+- Assert layering rule 4 over the AST, and test _coerce through Config.load (#224) (#225)
+
+### 🛡️ Security
+
+- Bump step-security/harden-runner (#218)
+
+### 💼 Other
+
+- Bump the python group with 2 updates (#219)
+- Bump the python group with 2 updates (#221)
+- Bump the actions group with 2 updates (#220)
+
 ## [1.10.0] - 2026-11-08
 
 ### 🚀 Features
