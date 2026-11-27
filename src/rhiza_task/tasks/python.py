@@ -263,11 +263,14 @@ def _pytest_args(cfg: Config) -> list[str]:
         cfg: The resolved config.
 
     Returns:
-        Parallelism, and the two folders the testing extras own.
+        Parallelism, the per-test timeout, and the two folders the testing extras own.
     """
     return [
         "-n",
         "auto",
+        # Here rather than in pytest.ini, because these are the runs that provision
+        # pytest-timeout (PYTEST_WITHS) -- see ``test_timeout`` in config.py.
+        f"--timeout={cfg.test_timeout}",
         f"--ignore={cfg.tests_folder}/benchmarks",
         f"--ignore={cfg.tests_folder}/stress",
     ]
@@ -326,7 +329,12 @@ def typecheck(cfg: Config) -> None:
     checkers = ("ty", "mypy") if cfg.typechecker == "both" else (cfg.typechecker,)
     for checker in checkers:
         # The asymmetry is preserved from python.mk: mypy runs --strict, ty does not.
-        args = ("check", cfg.source_folder) if checker == "ty" else ("--strict", cfg.source_folder)
+        # `--error-on-warning` is ty's current default, spelled out because `ty_version` is a
+        # setting: ty has changed what a warning-only run exits with before, and a consumer on
+        # another version would otherwise get a gate that shows warnings and passes. The flag
+        # pins the meaning to "any diagnostic fails", whichever ty runs (jebel-quant/rhiza#1833).
+        ty_args = ("check", "--error-on-warning", cfg.source_folder)
+        args = ty_args if checker == "ty" else ("--strict", cfg.source_folder)
         # The second asymmetry, and this one is not python.mk's: `ty` is provisioned at an
         # exact version and mypy is not. See `ty_version` in config.py for why -- both are
         # settings, so a consumer needing the other answer changes it rather than the task.

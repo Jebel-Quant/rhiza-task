@@ -127,6 +127,7 @@ exports one for every caller and deliberately leaves it empty for consumers, who
 | `coverage_fail_under` | `90` | the coverage floor, enforced wherever `test` runs |
 | `docs_coverage_fail_under` | `100` | the docstring floor `docs-coverage` hands interrogate |
 | `complexity_max` | `15` | the cyclomatic-complexity ceiling `complexity` enforces |
+| `test_timeout` | `60` | the per-test timeout `test`, `coverage` and `test-lowest` pass as `--timeout`; `0` is off |
 | `typechecker` | `ty` | `ty`, `mypy` or `both` |
 | `ty_version` | `==0.0.78` | what `typecheck` provisions `ty` as, appended to the name |
 | `mypy_version` | `""` | the same for mypy, empty meaning whatever is newest |
