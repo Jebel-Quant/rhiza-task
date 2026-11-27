@@ -118,7 +118,10 @@ def semgrep(cfg: Config) -> None:
     rules = cfg.root / ".rhiza" / "semgrep.yml"
     if not rules.is_file():
         raise Skip("no .rhiza/semgrep.yml")
-    uvx("semgrep", "--config", str(rules), cfg.source_folder, cwd=cfg.root)
+    # `--error` is what makes this a gate: without it semgrep prints its findings and exits
+    # 0, so the task reported ok on any tree (#231). bundle-layer plants a finding and
+    # asserts the non-zero exit, which is the half a unit test of the vector cannot see.
+    uvx("semgrep", "--error", "--config", str(rules), cfg.source_folder, cwd=cfg.root)
 
 
 @task("rhiza-test", "run the rhiza repository checks", section="Quality", needs=("install",))

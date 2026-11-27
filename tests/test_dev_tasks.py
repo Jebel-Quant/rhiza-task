@@ -226,6 +226,18 @@ class TestSemgrep:
         quality.semgrep(cfg)
         assert recorder.find("semgrep").flags[-1] == "src"
 
+    def test_fails_on_findings(self, cfg: Config, recorder: Recorder) -> None:
+        """``--error`` is passed, because semgrep exits 0 on findings without it (#231).
+
+        Args:
+            cfg: The resolved config.
+            recorder: The uv recorder.
+        """
+        (cfg.root / ".rhiza").mkdir()
+        (cfg.root / ".rhiza" / "semgrep.yml").write_text("rules: []\n")
+        quality.semgrep(cfg)
+        assert "--error" in recorder.find("semgrep").flags
+
 
 class TestMarimo:
     """marimo.mk's two targets."""
