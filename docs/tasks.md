@@ -482,7 +482,7 @@ of `paper`, so `paper` is unchanged. It compiles `<paper_folder>/paper.md` with
 JOSS's draft action runs, so it needs docker rather than tectonic:
 
 ```bash
-uvx rhiza-task@1.11.0 joss
+uvx rhiza-task@1.12.0 joss
 ```
 
 The output is a **draft** PDF, watermarked and line-numbered as the journal's preview is,
