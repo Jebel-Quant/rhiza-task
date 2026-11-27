@@ -109,6 +109,21 @@ class TestTest:
         assert f"--cov-fail-under={cfg.coverage_fail_under}" in call.flags
         assert set(python.PYTEST_WITHS) <= set(call.kwargs["withs"])
 
+    def test_passes_the_timeout_where_the_plugin_is_provisioned(self, repo: Path, recorder: Recorder) -> None:
+        """``--timeout`` comes from the task, which also injects pytest-timeout (rhiza#1832).
+
+        Args:
+            repo: The repository root.
+            recorder: The uv recorder.
+        """
+        python.test(Config.load(root=repo))
+        call = recorder.find("pytest")
+        assert "--timeout=60" in call.flags
+        assert any(w.startswith("pytest-timeout") for w in call.kwargs["withs"])
+        recorder.calls.clear()
+        python.test(Config.load(root=repo, test_timeout=0))
+        assert "--timeout=0" in recorder.find("pytest").flags
+
     def test_runs_without_coverage_when_source_is_absent(self, cfg: Config, recorder: Recorder) -> None:
         """A missing source folder degrades to an uncovered run rather than skipping.
 
@@ -359,7 +374,20 @@ class TestTypecheck:
         """
         python.typecheck(cfg)
         assert recorder.tools() == ["ty"]
-        assert recorder.find("ty").flags == ["check", "src"]
+        assert recorder.find("ty").flags == ["check", "--error-on-warning", "src"]
+
+    def test_ty_warnings_fail_whatever_version_runs(self, repo: Path, recorder: Recorder) -> None:
+        """``--error-on-warning`` survives a moved pin, so a warning-only run never passes.
+
+        ty 0.0.78 already exits 1 on a warning; the flag is what keeps that true for a
+        consumer whose ``ty_version`` names a release with another default.
+
+        Args:
+            repo: The repository root.
+            recorder: The uv recorder.
+        """
+        python.typecheck(Config.load(root=repo, ty_version=">=0.0.18"))
+        assert "--error-on-warning" in recorder.find("ty").flags
 
     def test_provisions_ty_at_the_pinned_version(self, cfg: Config, recorder: Recorder) -> None:
         """``--with ty`` bare made the verdict a fact about the day the job ran -- see #170.

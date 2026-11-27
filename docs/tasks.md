@@ -37,7 +37,7 @@ special cases.
 | `test` | `install` | run all tests |
 | `test-lowest` | `install` | run the tests against the oldest dependencies the manifest allows |
 | `coverage` | `install` | measure coverage and write `_tests/coverage.xml` |
-| `typecheck` | `install` | run `ty` and/or `mypy` (`typechecker = ty \| mypy \| both`) |
+| `typecheck` | `install` | run `ty --error-on-warning` and/or `mypy --strict` (`typechecker = ty \| mypy \| both`) |
 | `security` | `install` | run the bandit security scan |
 | `deps` | `install` | run deptry over the contributed folders |
 | `license` | `install` | scan for copyleft licences |
@@ -48,7 +48,10 @@ special cases.
 `test` and `coverage` share one argument builder, so the two cannot drift: both write
 `_tests/coverage.xml`, `_tests/coverage.json`, `_tests/html-coverage/` and
 `_tests/html-report/report.html`. That fixed path is a contract — it is what `book`'s
-badge step reads and what CI uploads.
+badge step reads and what CI uploads. The same builder passes the per-test timeout,
+`--timeout` from [`test_timeout`](configuration.md#gates-and-thresholds) (default `60`),
+because these are the runs that provision pytest-timeout; a `timeout` key in `pytest.ini`
+would mean nothing to a bare `uv run pytest`.
 
 !!! info "`test` retries once, on exit 3 only"
     Exit 3 is the xdist teardown race. A retry on 1, 2 or 4 would be re-running a real

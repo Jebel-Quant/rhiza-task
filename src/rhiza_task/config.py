@@ -205,6 +205,15 @@ class Config:
     # does not should either raise it or not run the gate.
     complexity_max: int = 15
 
+    # The per-test timeout, in seconds, that ``test``, ``coverage`` and ``test-lowest`` pass as
+    # ``--timeout``. It lived in the template's pytest.ini as ``timeout = 60`` until
+    # jebel-quant/rhiza#1832, and that was the wrong home: the key means something only to
+    # pytest-timeout, which only these tasks inject, so a bare ``uv run pytest`` warned about
+    # an unknown option and ran with no timeout -- and the ini could never adopt
+    # ``--strict-config``, which turns that warning into an error. The flag goes where the
+    # plugin is provisioned. 0 disables it, which is pytest-timeout's own meaning for 0.
+    test_timeout: int = 60
+
     # The ref ``update`` moves .rhiza/template.yml to, e.g. ``v1.8.0``. Empty means "sync at
     # the ref the file already names", which is the re-sync case rather than the upgrade one.
     #
@@ -361,7 +370,7 @@ class Config:
         Raises:
             ValueError: When ``typechecker`` is not one of ty, mypy, both, either of
                 ``coverage_fail_under`` and ``docs_coverage_fail_under`` is outside 0-100,
-                ``complexity_max`` is below 1,
+                ``complexity_max`` is below 1, ``test_timeout`` is negative,
                 ``layers`` names a layer that does not exist, :attr:`root` is not an
                 existing directory, or a ``*_folder`` escapes it. Each helper below raises
                 for its own settings and documents the message it uses.
@@ -371,6 +380,7 @@ class Config:
         self._validate_typechecker()
         self._validate_coverage()
         self._validate_complexity_max()
+        self._validate_test_timeout()
         # Order matters, and only between these two: `_validate_folders` asks whether a
         # setting escapes the root, which presupposes there is a root to escape.
         self._validate_root()
@@ -460,6 +470,19 @@ class Config:
         """
         if int(self.complexity_max) < 1:
             msg = f"complexity_max must be at least 1 (got {self.complexity_max!r})"
+            raise ValueError(msg)
+
+    def _validate_test_timeout(self) -> None:
+        """Reject a negative :attr:`test_timeout`.
+
+        0 is allowed and means no timeout, as it does to pytest-timeout. A negative value has
+        no meaning there, and is a typo rather than a policy.
+
+        Raises:
+            ValueError: When ``test_timeout`` is negative.
+        """
+        if int(self.test_timeout) < 0:
+            msg = f"test_timeout must be 0 (off) or a number of seconds (got {self.test_timeout!r})"
             raise ValueError(msg)
 
     def _validate_root(self) -> None:

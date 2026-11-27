@@ -313,6 +313,17 @@ def test_invalid_complexity_ceiling_fails_at_load(tmp_path: Path, value: int) ->
         Config.load(root=tmp_path, complexity_max=value)
 
 
+def test_a_negative_test_timeout_fails_at_load(tmp_path: Path) -> None:
+    """A negative timeout means nothing to pytest-timeout; 0 is its spelling for "off".
+
+    Args:
+        tmp_path: The repository root.
+    """
+    with pytest.raises(ValueError, match="test_timeout must be 0"):
+        Config.load(root=tmp_path, test_timeout=-1)
+    assert Config.load(root=tmp_path, test_timeout=0).test_timeout == 0
+
+
 def test_a_root_that_does_not_exist_fails_at_load(tmp_path: Path) -> None:
     """A mistyped ``--root`` is a usage error, not a traceback from inside a task.
 
