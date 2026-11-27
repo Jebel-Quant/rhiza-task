@@ -272,11 +272,15 @@ is what runs them — `doctest.testmod` over every module `pkgutil` finds under
 `src/rhiza_task`, one parametrised case each, plus five cases asserting those particular
 docstrings still carry examples at all.
 
-`rhiza-test` used to be credited with this and does not do it: pytest-rhiza's
-`test_docstrings` asks whether a docstring exists and is well-formed, and `interrogate`
-asks the same presence question at 100%. Neither evaluates a `>>>`, so until #66 the 39
-examples were unexecuted by any gate — stale-proof only by discipline, in exactly the five
-places a refactor is most likely to change quietly.
+`rhiza-test` runs them too: pytest-rhiza's `test_docstrings` calls `doctest.testmod` on
+every module under `RHIZA_DOCTEST_FOLDERS`, which the `rhiza-test` task sets to
+`source_folder` (see `tasks/quality.py`). An earlier version of this file said that check
+only asked whether a docstring exists; that was wrong, and `interrogate` is the
+presence-only gate. `tests/test_doctests.py` is still worth keeping alongside it. It
+reports one parametrised case per module rather than one aggregate test, it asserts that
+the five load-bearing docstrings still *carry* examples (a module with none passes
+`testmod` vacuously), and it runs under plain `pytest`, so the examples are gated in the
+inner loop without the `rhiza-test` overlay.
 
 Two things about the shape of that file, both deliberate. It imports every module under
 `src/`, which is the one place the suite's hermeticism bends — harmless, because importing
