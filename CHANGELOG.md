@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.12.0] - 2026-11-27
+
+> ⚠️ **Upgrade note.** Two gates can now fail where they used to pass -- the gate working, not a
+> regression. `test`, `coverage` and `test-lowest` pass `--timeout=60` to pytest, so a test
+> running longer than a minute now fails even if your `pytest.ini` set no `timeout`; raise
+> `test_timeout` in `[tool.rhiza-task]`, or set it to `0` to turn the timeout off. And
+> `typecheck` runs `ty check --error-on-warning`, so on a `ty_version` whose default let a
+> warning-only run pass, warnings now fail the gate; fix them or pin `rhiza-task<1.12`.
+
+### 🚀 Features
+
+- Pass --timeout from the test task and pin ty's warning exit with --error-on-warning (#228)
+
 ## [1.11.0] - 2026-11-25
 
 ### 🚀 Features
