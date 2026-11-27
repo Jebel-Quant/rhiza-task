@@ -794,6 +794,36 @@ jobs:
       - name: rhiza-task marimo-validate
         run: uv run rhiza-task marimo-validate --root "$RUNNER_TEMP/bundle"
 
+      # `semgrep` ran nowhere for real, and that is how it shipped unable to fail: semgrep
+      # exits 0 on findings unless passed `--error`, and the unit test's `rules: []` could not
+      # tell (#231). Its own scratch project rather than the bundle fixture, because the
+      # planted finding must not reach the steps after this one. The clean run proves the
+      # vector is accepted; the planted one proves a finding fails it -- a zero exit alone
+      # would pass the very bug this step exists for.
+      - name: rhiza-task semgrep (passes clean, fails on a planted finding)
+        run: |
+          set -euo pipefail
+          proj="$RUNNER_TEMP/semgrep"
+          mkdir -p "$proj/.rhiza" "$proj/src/demo"
+          cd "$proj"
+          printf '[project]\nname = "demo"\nversion = "0.1.0"\n' > pyproject.toml
+          printf '"""Clean."""\n' > src/demo/__init__.py
+          cat > .rhiza/semgrep.yml <<'EOF'
+          rules:
+            - id: no-eval
+              pattern: eval(...)
+              message: eval is forbidden
+              languages: [python]
+              severity: ERROR
+          EOF
+          cd "$GITHUB_WORKSPACE"
+          uv run rhiza-task semgrep --root "$proj"
+          printf 'eval("1")\n' > "$proj/src/demo/bad.py"
+          if uv run rhiza-task semgrep --root "$proj"; then
+            echo "::error::semgrep passed a tree holding a finding"
+            exit 1
+          fi
+
       # git-lfs is preinstalled on ubuntu-latest. `lfs-install` is the one task in that module
       # that raises Failed rather than Skip on a missing binary, so an image that dropped
       # git-lfs would fail here loudly instead of skipping quietly -- which is the correct
