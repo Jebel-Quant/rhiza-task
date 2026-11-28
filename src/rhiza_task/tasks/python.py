@@ -20,7 +20,7 @@ from ..uv import uv, uv_run, uvx
 from .quality import install_hooks
 
 PYTEST_WITHS = (
-    "pytest>=8.0.0",
+    "pytest>=9.1.0",
     "pytest-cov>=5.0.0",
     "pytest-xdist>=3.5.0",
     "pytest-html>=4.1.0",
@@ -46,6 +46,12 @@ reading a failure: ``--with`` is an overlay uv resolves separately from the proj
 floor here cannot rescue a bare name in the manifest under test -- and should not. A
 requirement a repository declares without a lower bound has no floor for this gate to read
 back, and saying so is the gate working.
+
+The pytest floor is set by the template's ``pytest.ini``, not by this package: since rhiza
+v1.14.2 it carries ``strict_markers`` / ``strict_config`` as ini keys under
+``--strict-config``, and pytest 8 rejects both as unknown, so every ``test-lowest`` run at
+``pytest 8.0.0`` failed before collecting a test. 9.1 rather than 9.0 because 9.0.0-9.0.2
+also ignore ``--strict-markers`` / ``--strict-config`` when they arrive through ``addopts``.
 
 That makes them a claim, and the claim is read back rather than asserted: ``ci.yml``'s
 ``python-layer`` runs ``test-lowest`` against a real project on Linux and Windows, which is

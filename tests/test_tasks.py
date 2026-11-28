@@ -334,6 +334,17 @@ class TestTestLowest:
         """
         assert all(">=" in w or "==" in w for w in python.PYTEST_WITHS)
 
+    def test_pytest_floor_reads_the_template_pytest_ini(self) -> None:
+        """The injected pytest is new enough for the strict ini keys rhiza ships.
+
+        rhiza's ``pytest.ini`` sets ``strict_markers`` / ``strict_config`` under
+        ``--strict-config``; pytest 8 rejects those keys as unknown, and 9.0.0-9.0.2 ignore
+        the ``addopts`` spelling of the same rules. A floor below 9.1 makes ``test-lowest``
+        fail on the template's own configuration in every consumer that still allows 8.
+        """
+        (pytest_floor,) = [w for w in python.PYTEST_WITHS if w.startswith("pytest>=")]
+        assert tuple(int(p) for p in pytest_floor.removeprefix("pytest>=").split(".")[:2]) >= (9, 1)
+
     def test_skips_a_repository_with_no_tests(self, cfg: Config, recorder: Recorder) -> None:
         """No test files is the same skip ``test`` reports, not a floors failure.
 
